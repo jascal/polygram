@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "polygram"
+dynamic = ["version"]
+description = "Polygram — Quantum Interference Laboratory for Polysemantic Feature Dictionaries"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [
+    { name = "Allan Scott" }
+]
+keywords = [
+    "quantum",
+    "interpretability",
+    "sparse-autoencoder",
+    "polysemantic",
+    "interference",
+    "mps",
+    "q-orca",
+]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "numpy>=1.24",
+    "q-orca>=0.7.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+plot = ["matplotlib"]
+notebook = ["jupyter", "matplotlib"]
+all = ["pytest", "ruff", "matplotlib", "jupyter"]
+
+[project.urls]
+Homepage = "https://github.com/jascal/polygram"
+Source = "https://github.com/jascal/polygram"
+"Bug Tracker" = "https://github.com/jascal/polygram/issues"
+
+[tool.hatch.version]
+path = "polygram/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["polygram"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
