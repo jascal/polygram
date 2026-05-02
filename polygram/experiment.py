@@ -15,11 +15,17 @@ from polygram._assertions import (
     target_pair_destructive_at_endpoint,
 )
 from polygram._state import build_statevector, schmidt_rank
+from polygram._tier_stats import TIER_NAMES, compute_tier_stats
 from polygram.dictionary import Dictionary, Feature
 from polygram.emit import write_qorca
 
 SUPPORTED_MEASURES = ("overlap", "gram_matrix", "schmidt_rank")
 SUPPORTED_BACKENDS = ("analytic",)
+
+_PLOT_INSTALL_HINT = (
+    "matplotlib is required for ExperimentResult.plot(); "
+    "install with `pip install polygram[plot]`."
+)
 
 
 @dataclass
@@ -34,6 +40,8 @@ class ExperimentResult:
     - `schmidt_ranks: int array    (*sweep_dims, N)` — Schmidt rank of
       each feature at the q0 | (q1,q2) bipartition
     - `assertion_pass: dict[str, bool array (*sweep_dims,)]`
+    - `tier_stats:   dict[str, real array (*sweep_dims,)]` keyed by
+      `TIER_NAMES` (`self`, `sibling`, `cross_cluster`)
     """
 
     sweep_axes: dict[str, np.ndarray]
@@ -41,6 +49,9 @@ class ExperimentResult:
     overlaps: np.ndarray
     schmidt_ranks: np.ndarray
     assertion_pass: dict[str, np.ndarray] = field(default_factory=dict)
+    tier_stats: dict[str, np.ndarray] = field(default_factory=dict)
+    target_pair: tuple[str, str] | None = None
+    dictionary_name: str | None = None
 
     def save(self, path: str | os.PathLike) -> Path:
         p = Path(path)
@@ -53,32 +64,167 @@ class ExperimentResult:
             sweep_keys=np.array(list(self.sweep_axes.keys())),
             **{f"axis_{k}": v for k, v in self.sweep_axes.items()},
             **{f"assert_{k}": v for k, v in self.assertion_pass.items()},
+            **{f"tier_{k}": v for k, v in self.tier_stats.items()},
         )
         return p
 
     def to_csv(self, path: str | os.PathLike) -> Path:
-        """Flatten overlaps + assertions to a tabular CSV for plotting
-        tools that don't speak ndarray.
+        """Flatten overlaps + assertions + tier stats to a tabular CSV.
 
         Columns: each sweep axis value, then `overlap`, then one column
-        per assertion. The full Gram tensor and Schmidt ranks are not
-        flattened — use `.save()` (.npz) for those.
+        per tier (`tier_<name>`), then one column per assertion. The
+        full Gram tensor and Schmidt ranks are not flattened — use
+        `.save()` (.npz) for those.
         """
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
         axis_names = list(self.sweep_axes.keys())
         axes = [self.sweep_axes[k] for k in axis_names]
         shape = self.overlaps.shape
-        header = axis_names + ["overlap"] + list(self.assertion_pass.keys())
+        tier_keys = list(self.tier_stats.keys())
+        header = (
+            axis_names
+            + ["overlap"]
+            + [f"tier_{k}" for k in tier_keys]
+            + list(self.assertion_pass.keys())
+        )
         with p.open("w") as f:
             f.write(",".join(header) + "\n")
             for raw_idx in np.ndindex(*shape):
                 row = [str(float(axes[d][raw_idx[d]])) for d in range(len(shape))]
                 row.append(str(float(self.overlaps[raw_idx])))
+                for k in tier_keys:
+                    row.append(str(float(self.tier_stats[k][raw_idx])))
                 for a in self.assertion_pass.values():
                     row.append("1" if bool(a[raw_idx]) else "0")
                 f.write(",".join(row) + "\n")
         return p
+
+    def plot(
+        self, path: str | os.PathLike, kind: str = "overlap"
+    ) -> Path:
+        """Render a default matplotlib figure.
+
+        - 1D sweep → line plot of target-pair overlap with sibling and
+          cross-cluster tier baselines.
+        - 2D sweep → heatmap of target-pair overlap.
+        - ≥3D sweep → `NotImplementedError`.
+
+        `kind="overlap"` is the only kind supported in v0.
+        """
+        if kind != "overlap":
+            raise ValueError(
+                f"unknown plot kind {kind!r}; only 'overlap' is supported"
+            )
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError(_PLOT_INSTALL_HINT) from exc
+
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        ndim = len(self.sweep_axes)
+
+        if ndim == 1:
+            (axis_name,) = self.sweep_axes.keys()
+            xs = self.sweep_axes[axis_name]
+            fig, ax = plt.subplots(figsize=(7, 4))
+            ax.plot(xs, self.overlaps, marker="o", linewidth=1.5,
+                    label=self._target_label())
+            if "sibling" in self.tier_stats:
+                ax.plot(xs, self.tier_stats["sibling"], linestyle="--",
+                        color="tab:green", label="sibling tier (mean)")
+            if "cross_cluster" in self.tier_stats:
+                ax.plot(xs, self.tier_stats["cross_cluster"], linestyle=":",
+                        color="tab:gray", label="cross-cluster tier (mean)")
+            ax.set_xlabel(axis_name)
+            ax.set_ylabel("|<A|B>|²")
+            ax.set_title(self._plot_title())
+            ax.legend(loc="best")
+            ax.grid(alpha=0.3)
+            fig.tight_layout()
+            fig.savefig(p, dpi=120)
+            plt.close(fig)
+            return p
+
+        if ndim == 2:
+            keys = list(self.sweep_axes.keys())
+            x_key, y_key = keys
+            xs = self.sweep_axes[x_key]
+            ys = self.sweep_axes[y_key]
+            fig, ax = plt.subplots(figsize=(6, 5))
+            im = ax.imshow(
+                self.overlaps.T,
+                origin="lower",
+                aspect="auto",
+                extent=(float(xs[0]), float(xs[-1]),
+                        float(ys[0]), float(ys[-1])),
+                cmap="viridis",
+            )
+            fig.colorbar(im, ax=ax, label="|<A|B>|²")
+            ax.set_xlabel(x_key)
+            ax.set_ylabel(y_key)
+            ax.set_title(self._plot_title())
+            fig.tight_layout()
+            fig.savefig(p, dpi=120)
+            plt.close(fig)
+            return p
+
+        raise NotImplementedError(
+            f"plot() supports 1D and 2D sweeps; got {ndim} sweep axes. "
+            f"Slice the result yourself for higher-dim landscapes."
+        )
+
+    def write_summary(self, path: str | os.PathLike) -> Path:
+        """Append a tier rollup + assertion pass-rate table to a
+        markdown summary file. If `path` already exists (e.g. written
+        by `Experiment.materialize()`), the rollup is appended below
+        the existing content."""
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        existing = p.read_text() if p.exists() else ""
+        body = "## Run results\n\n"
+        body += "### Tier rollup (mean over sweep)\n\n"
+        body += "| Tier | min | mean | max |\n|------|-----|------|-----|\n"
+        for tier in TIER_NAMES:
+            arr = self.tier_stats.get(tier)
+            if arr is None or np.all(np.isnan(arr)):
+                body += f"| {tier} | n/a | n/a | n/a |\n"
+                continue
+            finite = arr[~np.isnan(arr)]
+            body += (
+                f"| {tier} | {float(np.min(finite)):.4f} "
+                f"| {float(np.mean(finite)):.4f} "
+                f"| {float(np.max(finite)):.4f} |\n"
+            )
+        body += "\n### Target overlap\n\n"
+        body += (
+            f"- min: {float(self.overlaps.min()):.4f}\n"
+            f"- mean: {float(self.overlaps.mean()):.4f}\n"
+            f"- max: {float(self.overlaps.max()):.4f}\n"
+        )
+        if self.assertion_pass:
+            body += "\n### Assertion pass-rate\n\n"
+            body += "| Assertion | passes | total | rate |\n"
+            body += "|-----------|--------|-------|------|\n"
+            for name, arr in self.assertion_pass.items():
+                passes = int(arr.sum())
+                total = int(arr.size)
+                rate = passes / total if total else 0.0
+                body += f"| {name} | {passes} | {total} | {rate:.0%} |\n"
+        p.write_text(existing + ("\n" if existing else "") + body)
+        return p
+
+    def _target_label(self) -> str:
+        if self.target_pair is None:
+            return "target pair"
+        a, b = self.target_pair
+        return f"({a}, {b})"
+
+    def _plot_title(self) -> str:
+        if self.dictionary_name is None:
+            return "InterferenceSweep — target overlap"
+        return f"{self.dictionary_name} — target overlap"
 
 
 @dataclass
@@ -147,7 +293,8 @@ class Experiment:
 
     def materialize(self, output_dir: str | os.PathLike) -> dict[str, Path]:
         """Write `<name>.q.orca.md` (the dictionary at sweep midpoint
-        for reference) and a self-contained `run_<name>.py` runner."""
+        for reference), a self-contained `run_<name>.py`, and a
+        human-readable `<name>_summary.md` describing the configuration."""
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
         artifacts: dict[str, Path] = {}
@@ -162,6 +309,10 @@ class Experiment:
         runner = out / f"run_{self.name}.py"
         runner.write_text(_render_runner_script(self, runner.name))
         artifacts["runner"] = runner
+
+        summary = out / f"{self.name}_summary.md"
+        summary.write_text(_render_summary_header(self))
+        artifacts["summary"] = summary
 
         return artifacts
 
@@ -186,6 +337,9 @@ class InterferenceSweep:
         gram = np.zeros(sweep_dims + (n, n), dtype=complex)
         overlaps = np.zeros(sweep_dims, dtype=float)
         schmidt = np.zeros(sweep_dims + (n,), dtype=int)
+        tier_arrays: dict[str, np.ndarray] = {
+            t: np.zeros(sweep_dims, dtype=float) for t in TIER_NAMES
+        }
 
         a_idx = d0.feature_index(exp.target_pair[0])
         b_idx = d0.feature_index(exp.target_pair[1])
@@ -200,11 +354,15 @@ class InterferenceSweep:
             idx = raw_idx if sweep_dims else ()
             d = exp._dictionary_at_sweep_index(idx) if sweep_dims else d0
             g = d.gram()
-            gram[idx] = g if sweep_dims else g
+            gram[idx] = g
             overlaps[idx] = float(np.abs(g[a_idx, b_idx]) ** 2)
 
             for i, f in enumerate(d.features):
                 schmidt[idx + (i,)] = schmidt_rank(build_statevector(f))
+
+            tiers = compute_tier_stats(g, d)
+            for t in TIER_NAMES:
+                tier_arrays[t][idx] = tiers[t]
 
             if "hierarchical_ordering_preserved" in exp.assertions:
                 per_point_assertions["hierarchical_ordering_preserved"][idx] = (
@@ -230,7 +388,49 @@ class InterferenceSweep:
             overlaps=overlaps,
             schmidt_ranks=schmidt,
             assertion_pass=per_point_assertions,
+            tier_stats=tier_arrays,
+            target_pair=exp.target_pair,
+            dictionary_name=d0.name,
         )
+
+
+def _render_summary_header(experiment: Experiment) -> str:
+    """Configuration-only summary; run results are appended later via
+    `ExperimentResult.write_summary(path)`."""
+    d = experiment.dictionary
+    lines = [
+        f"# {experiment.name}",
+        "",
+        f"- dictionary: `{d.name}` ({len(d.features)} features, "
+        f"{len(d.hierarchy)} clusters)",
+        f"- target pair: `{experiment.target_pair[0]}` × "
+        f"`{experiment.target_pair[1]}`",
+        "- backend: analytic",
+        f"- seed: {experiment.seed}",
+        "",
+        "## Sweep axes",
+        "",
+        "| Axis | n_points | min | max |",
+        "|------|----------|-----|-----|",
+    ]
+    for key, values in experiment.sweep.items():
+        arr = np.asarray(values)
+        lines.append(
+            f"| `{key}` | {len(arr)} | {float(arr.min()):.4f} "
+            f"| {float(arr.max()):.4f} |"
+        )
+    lines += [
+        "",
+        "## Measures",
+        "",
+        ", ".join(f"`{m}`" for m in experiment.measures),
+        "",
+        "## Assertions",
+        "",
+        ", ".join(f"`{a}`" for a in experiment.assertions) or "_(none)_",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _render_runner_script(experiment: Experiment, script_filename: str) -> str:

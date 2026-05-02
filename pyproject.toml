@@ -41,6 +41,9 @@ plot = ["matplotlib"]
 notebook = ["jupyter", "matplotlib"]
 all = ["pytest", "ruff", "matplotlib", "jupyter"]
 
+[project.scripts]
+polygram = "polygram.cli:main"
+
 [project.urls]
 Homepage = "https://github.com/jascal/polygram"
 Source = "https://github.com/jascal/polygram"

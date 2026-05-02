@@ -64,6 +64,36 @@ result.to_csv("examples/output/result.csv")
 See `examples/animals_interference.py` and the matching
 `examples/animals_interference.ipynb` notebook for the full walking tour.
 
+### Plots
+
+`result.plot(path)` saves a default figure: 1D sweep → line plot of
+target-pair overlap with sibling and cross-cluster tier baselines; 2D
+sweep → heatmap. Requires the `[plot]` extra (`pip install polygram[plot]`).
+
+**1D sweep** — `bird_hawk.phi` from 0 to π. Single-φ steering on this
+geometry leaves the cross-cluster overlap above the matched-φ baseline
+of `cos(0.5)⁴ ≈ 0.5931` and below the sibling tier; it never destroys.
+
+![1D sweep](docs/img/animals_overlap_1d.png)
+
+**2D sweep** — `(dog_poodle.phi, bird_hawk.phi)` 24×24 grid. The
+antidiagonal channel (one feature's φ near 0, the other's near π) is
+where the cross-cluster overlap drops; the diagonal channel keeps
+overlap high. This is the asymmetric-φ direction the future
+`Cancellation` primitive will exploit.
+
+![2D heatmap](docs/img/animals_overlap_2d.png)
+
+### CLI
+
+The `polygram` console script runs an example or experiment module
+that exposes `main(output_dir=...)`:
+
+```bash
+polygram run examples/animals_interference.py --output-dir results/
+polygram --version
+```
+
 ## Development
 
 ```bash
