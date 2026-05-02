@@ -67,6 +67,14 @@ class SelectionReport:
     of the projection-space variance the user-selected subset carries.
     1.0 means clusters are noise-free (e.g., identical projections per
     cluster). 0.0 means the partition explains nothing.
+
+    `reconstruction_error` is per-feature Euclidean distance from each
+    projection vector to its assigned cluster centroid. `tier_preservation`
+    is the Pearson correlation between off-diagonal `|G|²` entries of
+    the projection-space cosine-overlap matrix and the analytic
+    Polygram Gram of the built `Dictionary` at φ=0; `None` when there
+    is only one selected feature so no off-diagonals exist.
+    `gamma_method` records `"zero"` (default) or `"projection_pca"`.
     """
 
     n_input_features: int
@@ -74,6 +82,9 @@ class SelectionReport:
     cluster_assignments: dict[str, str]
     cluster_method: str
     beta_variance_explained: float
+    reconstruction_error: dict[str, float] = field(default_factory=dict)
+    tier_preservation: float | None = None
+    gamma_method: str = "zero"
     warnings: list[str] = field(default_factory=list)
 
 
@@ -114,6 +125,8 @@ def from_sae_lens(
     n_clusters: int | None = None,
     encoding: MPSRung1 | None = None,
     beta_range: tuple[float, float] = (-0.5, 0.5),
+    assign_gamma: bool = False,
+    gamma_range: tuple[float, float] = (-0.25, 0.25),
 ) -> tuple[Dictionary, SelectionReport]:
     """Build a `Dictionary` from an explicit subset of SAE features.
 
@@ -124,7 +137,11 @@ def from_sae_lens(
     3. K-means with `n_clusters` (default 2) on projection vectors
 
     β values are spread evenly across cluster means within `beta_range`.
-    α, γ, φ default to 0. Refuses subsets larger than 8 features.
+    α, φ default to 0. γ defaults to 0 unless `assign_gamma=True`, in
+    which case each feature's γ is its projection vector's coefficient
+    on the first principal component of its assigned cluster's
+    centered projection vectors, rescaled into `gamma_range`. Refuses
+    subsets larger than 8 features.
     """
     if len(feature_ids) > MAX_FEATURES_PER_DICTIONARY:
         raise ValueError(
@@ -185,9 +202,18 @@ def from_sae_lens(
     centroids_by_cluster = _centroids(projs, cluster_per_feature)
     var_explained = _variance_explained(projs, centroids_by_cluster, cluster_per_feature)
 
+    if assign_gamma:
+        gammas = _gamma_via_cluster_pca(
+            projs, cluster_per_feature, gamma_range
+        )
+        gamma_method = "projection_pca"
+    else:
+        gammas = [0.0] * len(selected)
+        gamma_method = "zero"
+
     features = [
-        Feature(name=r.name, cluster=c, beta=betas_by_cluster[c])
-        for r, c in zip(selected, cluster_per_feature)
+        Feature(name=r.name, cluster=c, beta=betas_by_cluster[c], gamma=g)
+        for r, c, g in zip(selected, cluster_per_feature, gammas)
     ]
     hierarchy: dict[str, list[str]] = {c: [] for c in cluster_order}
     for f in features:
@@ -199,12 +225,22 @@ def from_sae_lens(
         hierarchy=hierarchy,
         encoding=encoding or MPSRung1(),
     )
+
+    reconstruction_error = {
+        r.name: float(np.linalg.norm(r.projection - centroids_by_cluster[c]))
+        for r, c in zip(selected, cluster_per_feature)
+    }
+    tier_preservation = _tier_preservation(projs, dictionary)
+
     report = SelectionReport(
         n_input_features=n_features_input,
         n_selected=len(selected),
         cluster_assignments={r.name: c for r, c in zip(selected, cluster_per_feature)},
         cluster_method=method,
         beta_variance_explained=var_explained,
+        reconstruction_error=reconstruction_error,
+        tier_preservation=tier_preservation,
+        gamma_method=gamma_method,
         warnings=warnings,
     )
     return dictionary, report
@@ -250,6 +286,63 @@ def _variance_explained(
         diff = projs[i] - centroids_by_cluster[c]
         ss_residual += float(np.sum(diff ** 2))
     return float(np.clip(1.0 - ss_residual / ss_total, 0.0, 1.0))
+
+
+def _gamma_via_cluster_pca(
+    projs: np.ndarray,
+    cluster_per_feature: list[str],
+    gamma_range: tuple[float, float],
+) -> list[float]:
+    """Per-cluster PCA on centered projections; γ for each feature is
+    its coefficient on the cluster's first PC, rescaled into
+    `gamma_range`. Singletons get γ = 0."""
+    lo, hi = gamma_range
+    n = len(cluster_per_feature)
+    raw = np.zeros(n, dtype=float)
+    for cluster in set(cluster_per_feature):
+        idx = [i for i, c in enumerate(cluster_per_feature) if c == cluster]
+        if len(idx) < 2:
+            continue
+        sub = projs[idx]
+        centered = sub - sub.mean(axis=0)
+        # Top right-singular vector = first principal component.
+        _, _, vt = np.linalg.svd(centered, full_matrices=False)
+        pc1 = vt[0]
+        coeffs = centered @ pc1
+        for k, val in zip(idx, coeffs):
+            raw[k] = float(val)
+    if not np.any(raw):
+        return raw.tolist()
+    abs_max = float(np.max(np.abs(raw)))
+    half = 0.5 * (hi - lo)
+    mid = 0.5 * (hi + lo)
+    scaled = raw / abs_max * half + mid
+    return scaled.tolist()
+
+
+def _tier_preservation(
+    projs: np.ndarray, dictionary: Dictionary
+) -> float | None:
+    """Pearson correlation between off-diagonal `|G|²` entries of the
+    projection-space cosine-overlap matrix and the analytic Polygram
+    Gram of the built `Dictionary` at φ=0. None when there are no
+    off-diagonals (N ≤ 1)."""
+    n = projs.shape[0]
+    if n <= 1:
+        return None
+    norms = np.linalg.norm(projs, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    proj_unit = projs / norms
+    cos_overlap = np.abs(proj_unit @ proj_unit.T) ** 2
+
+    gram = np.abs(dictionary.gram()) ** 2
+
+    iu = np.triu_indices(n, k=1)
+    a = cos_overlap[iu]
+    b = gram[iu]
+    if np.std(a) < 1e-12 or np.std(b) < 1e-12:
+        return float("nan")
+    return float(np.corrcoef(a, b)[0, 1])
 
 
 def _kmeans(

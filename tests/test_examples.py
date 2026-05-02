@@ -81,3 +81,34 @@ def test_import_from_sae_runs(tmp_path: Path):
 
     assert result.overlaps.shape == (5,)
     assert result.assertion_pass["hierarchical_ordering_preserved"].all()
+
+
+def test_cancellation_example_runs(tmp_path: Path):
+    """Coarsened combined SAE → Sweep → Cancellation walk; verifies
+    both materialized `.q.orca.md` files parse + verify clean."""
+    from examples.cancellation_example import main
+
+    main(output_dir=tmp_path, n_points=8)
+
+    out = tmp_path / "cancellation_example"
+    assert out.exists()
+    sweep_machine = out / "ToySAEAnimals4.q.orca.md"
+    optimum_machine = out / "ToySAEAnimals4_at_optimum.q.orca.md"
+    assert sweep_machine.exists()
+    assert optimum_machine.exists()
+
+    from q_orca import VerifyOptions, verify
+    from q_orca.parser.markdown_parser import parse_q_orca_markdown
+
+    for machine_path in (sweep_machine, optimum_machine):
+        parsed = parse_q_orca_markdown(machine_path.read_text())
+        assert not parsed.errors, parsed.errors
+        machine = parsed.file.machines[0]
+        verification = verify(machine, VerifyOptions())
+        assert verification.valid, [
+            d for d in (verification.diagnostics or [])
+            if getattr(d, "severity", "") == "error"
+        ]
+
+    assert (out / "ToySAEAnimals4_at_optimum_trajectory.csv").exists()
+    assert (out / "ToySAEAnimals4_at_optimum_summary.md").exists()

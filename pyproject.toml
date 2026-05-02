@@ -39,11 +39,13 @@ dependencies = [
 dev = ["pytest", "ruff"]
 plot = ["matplotlib"]
 notebook = ["jupyter", "matplotlib"]
+# Optimization extras — enables `Cancellation(method="scipy")`.
+opt = ["scipy"]
 # Reserved for future SAE-Lens / safetensors / HuggingFace loaders.
 # v0 ships a JSON loader for the bundled toy fixture only — no
 # torch/safetensors/sae_lens/huggingface_hub runtime dependency.
 sae = []
-all = ["pytest", "ruff", "matplotlib", "jupyter"]
+all = ["pytest", "ruff", "matplotlib", "jupyter", "scipy"]
 
 [project.scripts]
 polygram = "polygram.cli:main"

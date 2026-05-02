@@ -16,8 +16,8 @@ SAE-style dictionaries.
 
 Pre-alpha. v0 milestone is closed (bootstrap → core dictionary →
 experiment/sweep → animals example, polished with tier stats / plots /
-CLI / 2D landscapes). The next layer (SAE import, more primitives) is
-staged through OpenSpec changes — see `openspec/changes/`.
+CLI / 2D landscapes → SAE import → `Cancellation` primitive). New
+work is staged through OpenSpec changes — see `openspec/changes/`.
 
 ## Install
 
@@ -27,9 +27,10 @@ pytest                          # run the suite
 ```
 
 Optional extras: `[plot]` (matplotlib), `[notebook]` (jupyter +
-matplotlib), `[sae]` (reserved for a future SAE-Lens / safetensors
-loader; empty in v0 — JSON loader for the bundled toy fixture has
-no extra deps).
+matplotlib), `[opt]` (scipy — enables the `Cancellation`
+`method="scipy"` backend), `[sae]` (reserved for a future SAE-Lens /
+safetensors loader; empty in v0 — JSON loader for the bundled toy
+fixture has no extra deps).
 
 ## Layout
 
@@ -103,12 +104,47 @@ of `cos(0.5)⁴ ≈ 0.5931` and below the sibling tier; it never destroys.
 ![1D sweep](docs/img/animals_overlap_1d.png)
 
 **2D sweep** — `(dog_poodle.phi, bird_hawk.phi)` 24×24 grid. The
-antidiagonal channel (one feature's φ near 0, the other's near π) is
-where the cross-cluster overlap drops; the diagonal channel keeps
-overlap high. This is the asymmetric-φ direction the future
-`Cancellation` primitive will exploit.
+landscape rises from the matched-φ ridge of `cos(0.5)⁴ ≈ 0.5931` (the
+β-overlap baseline) toward off-axis cells; the asymmetry is what
+`Cancellation` searches over directly.
 
 ![2D heatmap](docs/img/animals_overlap_2d.png)
+
+## Cancellation
+
+`Cancellation` is the second experiment primitive: given a
+`target_pair`, it searches the two φ values that drive the pair's
+`|<A|B>|²` toward a tolerance, optionally constrained to preserve the
+hierarchical-tier ordering. Two backends ship — a deterministic
+`max_steps × max_steps` grid scan over `[0, 2π]²` (default, no extra
+deps) and `scipy.optimize.differential_evolution` behind `[opt]`.
+
+```python
+from polygram import Cancellation
+
+cancellation = Cancellation(
+    dictionary=dictionary,
+    target_pair=("dog_poodle", "bird_hawk"),
+    tolerance=0.05,
+    preserve_tiers=True,
+    optimize={"method": "grid", "max_steps": 50},
+)
+
+result = cancellation.run()
+print(result.before_overlap, result.after_overlap, result.tolerance_met)
+result.materialize("examples/output/")     # writes optimized .q.orca.md
+result.plot("examples/output/grid.png")    # heatmap with infeasible mask
+```
+
+Returns a `CancellationResult` exposing `optimized_phis`,
+`before_gram` / `after_gram`, `trajectory` (every `(φ_a, φ_b, overlap)`
+evaluation in order), `feasible_mask`, `feasible_count`, and
+`dictionary_at_optimum` — the new `Dictionary` baked with the
+optimized φs and re-emittable via `materialize` as a verifiable
+Q-Orca artifact.
+
+See `examples/cancellation_example.py` for the combined
+SAE → InterferenceSweep → Cancellation walk.
 
 ### CLI
 
@@ -137,9 +173,25 @@ records = load_toy_sae("tests/fixtures/toy_sae.json")
 dictionary, report = from_sae_lens(records, [0, 1, 4, 5])
 
 print(report.cluster_method)             # "from_labels" / "kmeans" / "user"
-print(report.beta_variance_explained)    # how much projection-space variance
-                                         # the cluster partition captured
+print(report.beta_variance_explained)    # cluster-level fidelity stat
+print(report.reconstruction_error)       # per-feature distance to centroid
+print(report.tier_preservation)          # corr(projection-space cosines,
+                                         # analytic Polygram Gram) — None
+                                         # for n_selected ≤ 1
 ```
+
+`SelectionReport` surfaces three fidelity stats per call:
+`beta_variance_explained` (cluster-level), `reconstruction_error`
+(per-feature Euclidean distance from each projection vector to its
+assigned cluster centroid), and `tier_preservation` (Pearson
+correlation between off-diagonal `|G|²` of the projection-space
+cosine-overlap matrix and the analytic Polygram Gram of the built
+Dictionary).
+
+Pass `assign_gamma=True` to derive each feature's γ from per-cluster
+PCA on the centered projection vectors (rescaled into
+`gamma_range`, default `(-0.25, 0.25)`); `report.gamma_method`
+records `"zero"` (default) or `"projection_pca"`.
 
 The bundled `tests/fixtures/toy_sae.json` is a 16-feature, 4-cluster,
 8-dim deterministic toy. To swap in a real SAE-Lens / safetensors / HF

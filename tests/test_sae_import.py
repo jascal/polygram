@@ -147,3 +147,59 @@ def test_report_records_input_count():
     assert report.n_input_features == 16
     assert report.n_selected == 4
     assert isinstance(report, SelectionReport)
+
+
+def test_assign_gamma_writes_nonzero_gammas():
+    records = load_toy_sae(FIXTURE)
+    d, report = from_sae_lens(records, [0, 1, 4, 5], assign_gamma=True)
+    assert report.gamma_method == "projection_pca"
+    gammas = [f.gamma for f in d.features]
+    assert any(abs(g) > 1e-9 for g in gammas)
+    assert all(-0.25 - 1e-12 <= g <= 0.25 + 1e-12 for g in gammas)
+
+
+def test_default_gammas_stay_zero():
+    records = load_toy_sae(FIXTURE)
+    d, report = from_sae_lens(records, [0, 1, 4, 5])
+    assert report.gamma_method == "zero"
+    assert all(f.gamma == 0.0 for f in d.features)
+
+
+def test_reconstruction_error_per_feature():
+    records = load_toy_sae(FIXTURE)
+    _, report = from_sae_lens(records, [0, 1, 4, 5])
+    assert set(report.reconstruction_error.keys()) == {
+        "dog_poodle", "dog_beagle", "hawk_red", "hawk_cooper"
+    }
+    for v in report.reconstruction_error.values():
+        assert v >= 0.0
+        assert np.isfinite(v)
+
+
+def test_reconstruction_error_zero_for_identical_projections():
+    records = {
+        i: SAEFeatureRecord(
+            feature_id=i, name=f"f{i}",
+            projection=np.array([1.0, 0.0, 0.0]),
+            label=f"{'A' if i < 2 else 'B'}/x",
+        )
+        for i in range(4)
+    }
+    _, report = from_sae_lens(records, [0, 1, 2, 3])
+    for v in report.reconstruction_error.values():
+        assert v < 1e-12
+
+
+def test_tier_preservation_in_unit_interval_or_none():
+    records = load_toy_sae(FIXTURE)
+    _, report = from_sae_lens(records, [0, 1, 4, 5])
+    assert report.tier_preservation is not None
+    assert -1.0 - 1e-12 <= report.tier_preservation <= 1.0 + 1e-12 or np.isnan(
+        report.tier_preservation
+    )
+
+
+def test_tier_preservation_none_for_singleton():
+    records = load_toy_sae(FIXTURE)
+    _, report = from_sae_lens(records, [0])
+    assert report.tier_preservation is None
