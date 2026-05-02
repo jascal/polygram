@@ -174,6 +174,21 @@ polygram run examples/import_from_sae.py --output-dir results/
 polygram --version
 ```
 
+`polygram analyze` triages an SAE feature subset *without any quantum
+simulation* — it builds the rung-1 Dictionary and predicts each pair's
+`(M, V, structural_floor, cancellation_gap)` from the analytic Gram:
+
+```bash
+polygram analyze tests/fixtures/toy_sae.json \
+    --features 0,1,4,5 \
+    --output analysis_report.md
+```
+
+The report includes per-pair structural floors, per-feature
+sensitivity (mean `|V_ij|`), and a single-scalar
+`encoding_suitability_score`. See `polygram.analysis` for the
+programmatic API.
+
 ## SAE import
 
 `polygram.from_sae_lens(records, feature_ids, ...)` builds a Polygram

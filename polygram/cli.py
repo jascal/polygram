@@ -68,6 +68,52 @@ def _load_path_main(path: Path) -> Callable[..., Any]:
     return module.main
 
 
+def _parse_feature_ids(raw: str) -> list[int]:
+    out: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(int(part))
+        except ValueError:
+            raise SystemExit(
+                f"polygram: --features expects comma-separated ints, got {part!r}"
+            ) from None
+    if not out:
+        raise SystemExit("polygram: --features must list at least one id")
+    return out
+
+
+def _cmd_analyze(args: argparse.Namespace) -> int:
+    from polygram.analysis import predict_cancellation_depth, render_report
+    from polygram.sae_import import load_toy_sae
+
+    sae_path = Path(args.sae_path)
+    if not sae_path.exists():
+        raise SystemExit(f"polygram: SAE file not found: {sae_path}")
+
+    feature_ids = _parse_feature_ids(args.features)
+    records = load_toy_sae(sae_path)
+
+    try:
+        prediction = predict_cancellation_depth(records, feature_ids)
+    except ValueError as exc:
+        raise SystemExit(f"polygram: analyze failed: {exc}") from None
+
+    report = render_report(
+        prediction, sae_path=str(sae_path), feature_ids=feature_ids
+    )
+    out = Path(args.output).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(report)
+    print(
+        f"polygram: analyzed {len(feature_ids)} features → {out} "
+        f"(score={prediction.encoding_suitability_score:.4f})"
+    )
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     target_fn, label = _load_target(args.target)
     out = Path(args.output_dir).resolve()
@@ -112,6 +158,26 @@ def main(argv: list[str] | None = None) -> int:
         help="forwarded to target main() if it accepts it",
     )
     p_run.set_defaults(func=_cmd_run)
+
+    p_an = sub.add_parser(
+        "analyze",
+        help="triage an SAE feature subset (predict structural floors + "
+             "cancellation gaps; no quantum simulation)",
+    )
+    p_an.add_argument(
+        "sae_path",
+        help="path to a toy-SAE JSON file (schema matches "
+             "tests/fixtures/toy_sae.json)",
+    )
+    p_an.add_argument(
+        "--features", required=True,
+        help="comma-separated feature ids to triage (≤8)",
+    )
+    p_an.add_argument(
+        "--output", default="analysis_report.md",
+        help="markdown report output path (default: analysis_report.md)",
+    )
+    p_an.set_defaults(func=_cmd_analyze)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
