@@ -30,5 +30,9 @@ of the test suite — closing the v0 milestone.
 - **WHEN** `tests/test_examples.py::test_animals_interference_runs`
   executes a coarsened version of `examples/animals_interference.py`
 - **THEN** the emitted `.q.orca.md` parses and `verify(...).valid` is
-  `True`, the destructive-endpoint assertion passes at `phi = π`, and
-  the hierarchical-ordering assertion holds at every sweep point
+  `True`, the hierarchical-ordering assertion holds at every sweep
+  point, and the result tensor shapes match `(n_points, N, N)` /
+  `(n_points,)`. Destructive interference is *not* asserted on this
+  geometry — single-φ sweep on the bird_hawk side leaves the
+  dog_poodle/bird_hawk overlap above baseline; antisymmetric two-side
+  φ steering is the future `Cancellation` primitive's job.

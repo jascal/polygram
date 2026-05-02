@@ -56,6 +56,30 @@ class ExperimentResult:
         )
         return p
 
+    def to_csv(self, path: str | os.PathLike) -> Path:
+        """Flatten overlaps + assertions to a tabular CSV for plotting
+        tools that don't speak ndarray.
+
+        Columns: each sweep axis value, then `overlap`, then one column
+        per assertion. The full Gram tensor and Schmidt ranks are not
+        flattened — use `.save()` (.npz) for those.
+        """
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        axis_names = list(self.sweep_axes.keys())
+        axes = [self.sweep_axes[k] for k in axis_names]
+        shape = self.overlaps.shape
+        header = axis_names + ["overlap"] + list(self.assertion_pass.keys())
+        with p.open("w") as f:
+            f.write(",".join(header) + "\n")
+            for raw_idx in np.ndindex(*shape):
+                row = [str(float(axes[d][raw_idx[d]])) for d in range(len(shape))]
+                row.append(str(float(self.overlaps[raw_idx])))
+                for a in self.assertion_pass.values():
+                    row.append("1" if bool(a[raw_idx]) else "0")
+                f.write(",".join(row) + "\n")
+        return p
+
 
 @dataclass
 class Experiment:
