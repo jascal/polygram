@@ -40,3 +40,44 @@ def test_animals_interference_runs(tmp_path: Path):
 
     assert result.overlaps.shape == (5,)
     assert result.gram_matrices.shape == (5, 4, 4)
+
+
+def test_import_from_sae_runs(tmp_path: Path):
+    """Coarsened SAE-import example — toy fixture → Dictionary →
+    InterferenceSweep → verifying .q.orca.md."""
+    from examples.import_from_sae import build_dictionary_and_report
+    from polygram import Experiment
+
+    dictionary, report = build_dictionary_and_report()
+    assert report.cluster_method == "from_labels"
+    assert report.beta_variance_explained > 0.9
+
+    import numpy as np
+
+    experiment = Experiment(
+        name=dictionary.name,
+        dictionary=dictionary,
+        target_pair=("dog_poodle", "hawk_red"),
+        sweep={"hawk_red.phi": np.linspace(0.0, np.pi, 5)},
+        measures=["overlap", "gram_matrix"],
+        assertions=["hierarchical_ordering_preserved"],
+    )
+    experiment.materialize(tmp_path)
+    result = experiment.run()
+
+    machine_path = tmp_path / f"{experiment.name}.q.orca.md"
+    assert machine_path.exists()
+
+    from q_orca import VerifyOptions, verify
+    from q_orca.parser.markdown_parser import parse_q_orca_markdown
+
+    parsed = parse_q_orca_markdown(machine_path.read_text())
+    assert not parsed.errors, parsed.errors
+    machine = parsed.file.machines[0]
+    verification = verify(machine, VerifyOptions())
+    assert verification.valid, [
+        d for d in (verification.diagnostics or []) if getattr(d, "severity", "") == "error"
+    ]
+
+    assert result.overlaps.shape == (5,)
+    assert result.assertion_pass["hierarchical_ordering_preserved"].all()

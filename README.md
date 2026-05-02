@@ -14,18 +14,44 @@ SAE-style dictionaries.
 
 ## Status
 
-Pre-alpha (v0 milestone). The 4-stage v0 scope (bootstrap → core dictionary →
-experiment/sweep → animals example) is staged through OpenSpec changes — see
-`openspec/changes/`.
+Pre-alpha. v0 milestone is closed (bootstrap → core dictionary →
+experiment/sweep → animals example, polished with tier stats / plots /
+CLI / 2D landscapes). The next layer (SAE import, more primitives) is
+staged through OpenSpec changes — see `openspec/changes/`.
+
+## Install
+
+```bash
+pip install -e ".[dev,plot]"   # editable install with test + plot deps
+pytest                          # run the suite
+```
+
+Optional extras: `[plot]` (matplotlib), `[notebook]` (jupyter +
+matplotlib), `[sae]` (reserved for a future SAE-Lens / safetensors
+loader; empty in v0 — JSON loader for the bundled toy fixture has
+no extra deps).
 
 ## Layout
 
 ```
 polygram/         — Python package
 openspec/         — spec-driven change proposals + capability specs
-tests/            — pytest suite
-examples/         — Python script + notebook walking tour
+tests/            — pytest suite + bundled fixtures
+examples/         — Python scripts + notebook walking tour
+docs/img/         — README screenshots
 ```
+
+## Capacity limits
+
+The rung-1 MPS encoding represents each feature as a 3-qubit state
+parametrized by α/β/γ/φ. This caps a `Dictionary` at **8 features**
+(in practice ≤6 is most ergonomic). Real SAEs ship 16k–1M features —
+which is why the `from_sae_lens(...)` importer (below) is
+**selection-first**: you name the subset you want to study, and
+Polygram tells you how lossy the projection-vector → β collapse was
+via `SelectionReport.beta_variance_explained`. The bridge is to
+*small, focused experiments* on a handful of features, not bulk
+SAE simulation.
 
 ## Quickstart
 
@@ -91,13 +117,44 @@ that exposes `main(output_dir=...)`:
 
 ```bash
 polygram run examples/animals_interference.py --output-dir results/
+polygram run examples/import_from_sae.py --output-dir results/
 polygram --version
 ```
+
+## SAE import
+
+`polygram.from_sae_lens(records, feature_ids, ...)` builds a Polygram
+`Dictionary` from a user-selected subset of SAE features and returns a
+`SelectionReport` describing how the lossy projection-vector → β
+collapse went. Cluster assignment precedence: explicit user override →
+parsed `"<cluster>/<name>"` labels → k-means on projection vectors.
+
+```python
+from polygram import from_sae_lens, load_toy_sae
+
+records = load_toy_sae("tests/fixtures/toy_sae.json")
+# pick 4 features by id (≤8; the rung-1 MPS cap)
+dictionary, report = from_sae_lens(records, [0, 1, 4, 5])
+
+print(report.cluster_method)             # "from_labels" / "kmeans" / "user"
+print(report.beta_variance_explained)    # how much projection-space variance
+                                         # the cluster partition captured
+```
+
+The bundled `tests/fixtures/toy_sae.json` is a 16-feature, 4-cluster,
+8-dim deterministic toy. To swap in a real SAE-Lens / safetensors / HF
+SAE, hand-roll a `dict[int, SAEFeatureRecord]` from your loader of
+choice and pass it to `from_sae_lens`. A first-class
+`load_sae_lens(...)` reader for SAE-Lens checkpoints is on the
+roadmap; v0 stays out of the safetensors / torch dep tree.
+
+See `examples/import_from_sae.py` for the full flow (toy SAE →
+Dictionary → `InterferenceSweep` → verified `.q.orca.md` + plot).
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,plot]"
 pytest
 ```
 

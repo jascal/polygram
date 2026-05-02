@@ -1,0 +1,278 @@
+{
+  "schema_version": 1,
+  "description": "Polygram toy SAE fixture \u2014 16 features, 4 clusters of 4, 8-dim projection vectors. Deterministic (numpy seed=42). Cluster bases live in disjoint 2-dim subspaces; within-cluster siblings differ by small Gaussian perturbations (sigma=0.08).",
+  "features": [
+    {
+      "feature_id": 0,
+      "name": "dog_poodle",
+      "label": "mammals/dog_poodle",
+      "projection": [
+        0.74288,
+        0.633628,
+        0.060971,
+        0.076417,
+        -0.158514,
+        -0.105797,
+        0.010387,
+        -0.025694
+      ],
+      "activation_mean": 0.0948,
+      "activation_std": 0.2802
+    },
+    {
+      "feature_id": 1,
+      "name": "dog_beagle",
+      "label": "mammals/dog_beagle",
+      "projection": [
+        0.704644,
+        0.697276,
+        0.004788,
+        0.081733,
+        0.033898,
+        -0.062305,
+        0.026737,
+        -0.069526
+      ],
+      "activation_mean": 0.3397,
+      "activation_std": 0.3527
+    },
+    {
+      "feature_id": 2,
+      "name": "cat_persian",
+      "label": "mammals/cat_persian",
+      "projection": [
+        0.721953,
+        0.680569,
+        0.10199,
+        -0.012892,
+        -0.035733,
+        -0.029377,
+        0.044408,
+        0.030487
+      ],
+      "activation_mean": 0.104,
+      "activation_std": 0.3732
+    },
+    {
+      "feature_id": 3,
+      "name": "cat_siamese",
+      "label": "mammals/cat_siamese",
+      "projection": [
+        0.786381,
+        0.603898,
+        -0.036685,
+        -0.058279,
+        0.044114,
+        0.080853,
+        -0.00816,
+        -0.060169
+      ],
+      "activation_mean": 0.1294,
+      "activation_std": 0.3679
+    },
+    {
+      "feature_id": 4,
+      "name": "hawk_red",
+      "label": "birds/hawk_red",
+      "projection": [
+        0.060524,
+        0.04423,
+        0.665567,
+        0.738666,
+        0.009502,
+        0.017808,
+        0.070962,
+        0.018208
+      ],
+      "activation_mean": 0.12,
+      "activation_std": 0.1029
+    },
+    {
+      "feature_id": 5,
+      "name": "hawk_cooper",
+      "label": "birds/hawk_cooper",
+      "projection": [
+        0.02531,
+        0.055264,
+        0.646206,
+        0.745783,
+        -0.041177,
+        -0.055929,
+        -0.024086,
+        0.13087
+      ],
+      "activation_mean": 0.2839,
+      "activation_std": 0.2884
+    },
+    {
+      "feature_id": 6,
+      "name": "sparrow_house",
+      "label": "birds/sparrow_house",
+      "projection": [
+        -0.127477,
+        -0.025368,
+        0.68187,
+        0.713948,
+        0.053875,
+        0.060096,
+        -0.026416,
+        -0.035023
+      ],
+      "activation_mean": 0.1251,
+      "activation_std": 0.2634
+    },
+    {
+      "feature_id": 7,
+      "name": "sparrow_song",
+      "label": "birds/sparrow_song",
+      "projection": [
+        -0.102967,
+        -0.091473,
+        0.639213,
+        0.753555,
+        0.011496,
+        0.055733,
+        -0.034486,
+        0.012797
+      ],
+      "activation_mean": 0.2825,
+      "activation_std": 0.2626
+    },
+    {
+      "feature_id": 8,
+      "name": "car_sedan",
+      "label": "vehicles/car_sedan",
+      "projection": [
+        0.037734,
+        -0.054682,
+        -0.029992,
+        -0.031536,
+        0.631392,
+        0.77041,
+        -0.038778,
+        0.001032
+      ],
+      "activation_mean": 0.1033,
+      "activation_std": 0.3785
+    },
+    {
+      "feature_id": 9,
+      "name": "car_suv",
+      "label": "vehicles/car_suv",
+      "projection": [
+        0.063685,
+        -0.009426,
+        -0.040514,
+        -0.00763,
+        0.684476,
+        0.707468,
+        -0.126597,
+        -0.095447
+      ],
+      "activation_mean": 0.368,
+      "activation_std": 0.3799
+    },
+    {
+      "feature_id": 10,
+      "name": "plane_jet",
+      "label": "vehicles/plane_jet",
+      "projection": [
+        -0.031898,
+        0.109591,
+        -0.030051,
+        0.06221,
+        0.666811,
+        0.728233,
+        -0.080135,
+        -0.028598
+      ],
+      "activation_mean": 0.2095,
+      "activation_std": 0.1809
+    },
+    {
+      "feature_id": 11,
+      "name": "plane_prop",
+      "label": "vehicles/plane_prop",
+      "projection": [
+        0.03533,
+        0.019334,
+        -0.04832,
+        -0.117603,
+        0.724698,
+        0.67577,
+        0.018923,
+        0.001777
+      ],
+      "activation_mean": 0.2544,
+      "activation_std": 0.3599
+    },
+    {
+      "feature_id": 12,
+      "name": "berry_strawberry",
+      "label": "fruits/berry_strawberry",
+      "projection": [
+        -0.078857,
+        0.013813,
+        0.01695,
+        0.104721,
+        0.064343,
+        0.027496,
+        0.793746,
+        0.589413
+      ],
+      "activation_mean": 0.1097,
+      "activation_std": 0.47
+    },
+    {
+      "feature_id": 13,
+      "name": "berry_blueberry",
+      "label": "fruits/berry_blueberry",
+      "projection": [
+        -0.028807,
+        -0.101739,
+        0.046938,
+        -0.016423,
+        -0.108694,
+        -0.075052,
+        0.676369,
+        0.715139
+      ],
+      "activation_mean": 0.2203,
+      "activation_std": 0.2963
+    },
+    {
+      "feature_id": 14,
+      "name": "citrus_lemon",
+      "label": "fruits/citrus_lemon",
+      "projection": [
+        0.033844,
+        -0.080812,
+        -0.174118,
+        0.021863,
+        -0.06639,
+        -0.033921,
+        0.671852,
+        0.710342
+      ],
+      "activation_mean": 0.3392,
+      "activation_std": 0.4585
+    },
+    {
+      "feature_id": 15,
+      "name": "citrus_orange",
+      "label": "fruits/citrus_orange",
+      "projection": [
+        -0.011689,
+        -0.076313,
+        -0.1234,
+        -0.035834,
+        -0.003963,
+        0.130271,
+        0.660896,
+        0.723711
+      ],
+      "activation_mean": 0.3706,
+      "activation_std": 0.1921
+    }
+  ]
+}
