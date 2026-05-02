@@ -10,19 +10,25 @@
 
 ## 2. Tests + lint
 
-- [ ] 2.1 `tests/test_smoke.py` — imports `polygram`, asserts version is
-      a non-empty string and `q_orca` is importable
-- [ ] 2.2 Confirm `pytest` passes locally with `pip install -e ".[dev]"`
-- [ ] 2.3 Confirm `ruff check polygram tests` is clean
+- [x] 2.1 `tests/test_smoke.py` — imports `polygram`, asserts version is
+      a non-empty string and `q_orca` is importable (plus a third test
+      that `compute_concept_gram_mps` + `MpsGramConfigurationError` are
+      reachable, locking the post-PR-#51 dep contract)
+- [x] 2.2 Confirm `pytest` passes locally with `pip install -e ".[dev]"`
+      (3 passed against `q-orca==0.7.1` from PyPI)
+- [x] 2.3 Confirm `ruff check polygram tests` is clean
 
 ## 3. CI
 
 - [ ] 3.1 `.github/workflows/test.yml` runs `pytest` + `ruff check`
-      on Python 3.11 and 3.12
-- [ ] 3.2 First successful CI run on `main`
+      on Python 3.11 and 3.12 — **blocked**: workflow file authored at
+      `ci-pending/test.yml` because the local `gh` PAT lacks the
+      `workflow` scope. Move into place once the PAT is regenerated or
+      paste via the GitHub web UI; see `ci-pending/README.md`.
+- [ ] 3.2 First successful CI run on `main` (gated on 3.1)
 
 ## 4. Agent orientation
 
-- [ ] 4.1 `AGENTS.md` covers: project goal, OpenSpec workflow, q-orca
+- [x] 4.1 `AGENTS.md` covers: project goal, OpenSpec workflow, q-orca
       dep contract (do not vendor; treat `compute_concept_gram_mps` as
       stable API), file-layout map
