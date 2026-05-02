@@ -151,6 +151,58 @@ def test_scipy_backend_or_skip():
     assert result.after_overlap <= result.before_overlap + 1e-6
 
 
+def test_structural_floor_matches_grid_minimum():
+    canc = Cancellation(
+        dictionary=_animals(),
+        target_pair=("dog_poodle", "bird_hawk"),
+        optimize={"method": "grid", "max_steps": 50},
+        preserve_tiers=False,
+    )
+    floor = canc.structural_floor()
+    result = canc.run()
+    assert abs(floor - float(result.trajectory[:, 2].min())) < 1e-9
+    assert abs(floor - result.structural_floor) < 1e-12
+
+
+def test_efficiency_one_when_floor_reached():
+    canc = Cancellation(
+        dictionary=_animals(dog_phi=np.pi / 2),
+        target_pair=("dog_poodle", "bird_hawk"),
+        optimize={"method": "grid", "max_steps": 30},
+        preserve_tiers=False,
+    )
+    result = canc.run()
+    assert result.cancellation_efficiency is not None
+    assert abs(result.cancellation_efficiency - 1.0) < 1e-9
+    assert abs(result.after_overlap - result.structural_floor) < 1e-9
+
+
+def test_efficiency_none_when_already_at_floor():
+    canc = Cancellation(
+        dictionary=_animals(),
+        target_pair=("dog_poodle", "bird_hawk"),
+        optimize={"method": "grid", "max_steps": 10},
+    )
+    result = canc.run()
+    assert result.cancellation_efficiency is None
+    assert abs(result.before_overlap - result.structural_floor) < 1e-9
+
+
+def test_summary_includes_floor_section(tmp_path: Path):
+    canc = Cancellation(
+        dictionary=_animals(dog_phi=0.5),
+        target_pair=("dog_poodle", "bird_hawk"),
+        optimize={"method": "grid", "max_steps": 10},
+    )
+    result = canc.run()
+    artifacts = result.materialize(tmp_path)
+    text = artifacts["summary"].read_text()
+    assert "Structural floor" in text
+    assert "structural_floor:" in text
+    assert "cancellation_efficiency:" in text
+    assert "interpretation:" in text
+
+
 def test_summary_contains_optimum(tmp_path: Path):
     canc = Cancellation(
         dictionary=_animals(dog_phi=0.5),

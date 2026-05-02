@@ -39,6 +39,13 @@ _SCIPY_INSTALL_HINT = (
 class CancellationResult:
     """Output of a `Cancellation.run()`.
 
+    `Cancellation` only steers φ; the squared overlap as a function of
+    δ = φ_A − φ_B factors as `|<A|B>|² = M + V·cos(δ)` and so is
+    bounded below by `M − |V|`, the **structural floor**. Pure-phase
+    search is a *constraint solver* against this floor, not a
+    destructive-interference oracle. To break the floor you'd need
+    to vary β/α/γ as well — outside the v0 search space.
+
     Fields:
 
     - `optimized_phis: dict[str, float]` — `{name_a: phi_a, name_b: phi_b}`
@@ -56,6 +63,14 @@ class CancellationResult:
     - `feasible_count: int`
     - `dictionary_at_optimum: Dictionary`
     - `target_pair: tuple[str, str]`
+    - `structural_floor: float` — analytic minimum overlap reachable
+      by varying only `(φ_A, φ_B)`; `M − |V|` for the cos-decomposition
+      above. Encoding-bound; not affected by `preserve_tiers`.
+    - `cancellation_efficiency: float | None` —
+      `(before − after) / (before − floor)`, clamped to `[0, 1]`.
+      `None` when `before − floor < 1e-9` (no cancellation gap to
+      measure — already at the floor). 1.0 means phase search reached
+      the floor; <1.0 means the constraint or optimizer left some gap.
     """
 
     optimized_phis: dict[str, float]
@@ -72,6 +87,8 @@ class CancellationResult:
     feasible_mask: np.ndarray = field(
         default_factory=lambda: np.zeros(0, dtype=bool)
     )
+    structural_floor: float = 0.0
+    cancellation_efficiency: float | None = None
 
     def plot(self, path: str | os.PathLike) -> Path:
         """Render a default matplotlib figure.
@@ -174,7 +191,19 @@ class CancellationResult:
 
 @dataclass
 class Cancellation:
-    """φ-search primitive: drive `target_pair` overlap below `tolerance`.
+    """φ-search primitive: drive `target_pair` overlap toward
+    `tolerance`, optionally constrained to preserve hierarchical-tier
+    ordering.
+
+    The squared overlap `|<A|B>|²(δ)` factors as `M + V·cos(δ)` for
+    `δ = φ_A − φ_B`, so pure-phase search is bounded below by the
+    **structural floor** `M − |V|`. Use `structural_floor()` to query
+    that limit before running, or read it off
+    `CancellationResult.structural_floor` after; the result also
+    reports `cancellation_efficiency` — the fraction of the
+    cancellation gap the search closed. Driving overlap below the
+    floor needs amplitude variation (β/α/γ), not just phase — outside
+    the v0 search space.
 
     Fields:
 
@@ -217,6 +246,34 @@ class Cancellation:
                 f"unknown method {method!r}; supported: {SUPPORTED_METHODS}"
             )
 
+    def structural_floor(self) -> float:
+        """Analytic minimum target-pair `|<A|B>|²` reachable by varying
+        only `(φ_A, φ_B)`, holding all other features fixed.
+
+        Evaluates the overlap at two phase points: `(φ_anchor,
+        φ_anchor)` (δ=0) and `(φ_anchor, φ_anchor + π)` (δ=π), where
+        `φ_anchor` is the current `target_pair[0]` feature's φ.
+        Returns `min(m_zero, m_pi)` — equivalent to `M − |V|` for the
+        decomposition `|<A|B>|²(δ) = M + V·cos(δ)`.
+
+        Two Gram evaluations regardless of backend; not affected by
+        `preserve_tiers`.
+        """
+        m_zero, m_pi = self._floor_terms()
+        return float(min(m_zero, m_pi))
+
+    def _floor_terms(self) -> tuple[float, float]:
+        a_name, b_name = self.target_pair
+        a_idx = self.dictionary.feature_index(a_name)
+        b_idx = self.dictionary.feature_index(b_name)
+        anchor = float(self.dictionary.feature(a_name).phi)
+
+        d_zero = self._dictionary_at(anchor, anchor)
+        d_pi = self._dictionary_at(anchor, anchor + float(np.pi))
+        m_zero = float(np.abs(d_zero.gram()[a_idx, b_idx]) ** 2)
+        m_pi = float(np.abs(d_pi.gram()[a_idx, b_idx]) ** 2)
+        return m_zero, m_pi
+
     def run(self) -> CancellationResult:
         method = self.optimize.get("method", "grid")
         max_steps = int(self.optimize.get("max_steps", 50))
@@ -226,6 +283,8 @@ class Cancellation:
         a_idx = before_dict.feature_index(self.target_pair[0])
         b_idx = before_dict.feature_index(self.target_pair[1])
         before_overlap = float(np.abs(before_gram[a_idx, b_idx]) ** 2)
+
+        floor = self.structural_floor()
 
         if method == "grid":
             phi_a, phi_b, after_overlap, traj, feasible_mask = self._run_grid(
@@ -238,6 +297,9 @@ class Cancellation:
 
         optimized_dict = self._dictionary_at(phi_a, phi_b)
         after_gram = optimized_dict.gram()
+        efficiency = _compute_efficiency(
+            before_overlap, float(after_overlap), floor
+        )
 
         return CancellationResult(
             optimized_phis={
@@ -255,6 +317,8 @@ class Cancellation:
             dictionary_at_optimum=optimized_dict,
             target_pair=self.target_pair,
             feasible_mask=feasible_mask,
+            structural_floor=floor,
+            cancellation_efficiency=efficiency,
         )
 
     def _run_grid(
@@ -367,8 +431,27 @@ class Cancellation:
         return replace(d, name=f"{self.dictionary.name}_at_optimum")
 
 
+def _compute_efficiency(
+    before: float, after: float, floor: float
+) -> float | None:
+    gap = before - floor
+    if gap < 1e-9:
+        return None
+    return float(np.clip((before - after) / gap, 0.0, 1.0))
+
+
+def _interpret_efficiency(efficiency: float | None) -> str:
+    if efficiency is None:
+        return "no cancellation gap available"
+    if efficiency >= 0.99:
+        return "phase search exhausted — encoding-bound"
+    return "phase search underutilized"
+
+
 def _render_summary(result: CancellationResult) -> str:
     a, b = result.target_pair
+    eff = result.cancellation_efficiency
+    eff_str = "n/a" if eff is None else f"{eff:.4f}"
     lines = [
         f"# {result.dictionary_at_optimum.name}",
         "",
@@ -389,6 +472,12 @@ def _render_summary(result: CancellationResult) -> str:
         f"- before: {result.before_overlap:.6f}",
         f"- after:  {result.after_overlap:.6f}",
         f"- delta:  {result.after_overlap - result.before_overlap:+.6f}",
+        "",
+        "## Structural floor",
+        "",
+        f"- structural_floor: {result.structural_floor:.6f}",
+        f"- cancellation_efficiency: {eff_str}",
+        f"- interpretation: {_interpret_efficiency(eff)}",
         "",
     ]
     return "\n".join(lines)

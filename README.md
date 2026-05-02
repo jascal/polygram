@@ -143,6 +143,23 @@ evaluation in order), `feasible_mask`, `feasible_count`, and
 optimized φs and re-emittable via `materialize` as a verifiable
 Q-Orca artifact.
 
+### Structural floor
+
+Pure-φ search on a fixed `(α, β, γ)` configuration is bounded: the
+target-pair overlap factors as `|<A|B>|²(δ) = M + V·cos(δ)` where
+δ = φ_A − φ_B, so phase alone cannot drive overlap below `M − |V|`.
+`Cancellation.structural_floor()` returns this analytic minimum
+(two Gram evaluations, backend-free), and `CancellationResult`
+caches it as `result.structural_floor`. The companion
+`result.cancellation_efficiency` reports
+`(before − after) / (before − floor)`, clamped to `[0, 1]`:
+`1.0` means phase search exhausted the available gap (residue is
+encoding-bound — driving overlap lower needs amplitude matching),
+`None` means there was no gap to begin with. The materialized
+`<name>_summary.md` reports both, plus a one-line interpretation.
+See [`docs/research/cancellation-phase-floor.md`](docs/research/cancellation-phase-floor.md)
+for the full derivation.
+
 See `examples/cancellation_example.py` for the combined
 SAE → InterferenceSweep → Cancellation walk.
 
