@@ -11,13 +11,15 @@ import numpy as np
 
 from polygram._assertions import (
     SUPPORTED_ASSERTIONS,
+    concept_gram_tier_separation_bound_holds,
     hierarchical_ordering_preserved,
     target_pair_destructive_at_endpoint,
 )
 from polygram._state import build_statevector, schmidt_rank
 from polygram._tier_stats import TIER_NAMES, compute_tier_stats
-from polygram.dictionary import Dictionary, Feature
+from polygram.dictionary import Dictionary, Feature, _parse_knob_path
 from polygram.emit import write_qorca
+from polygram.encoding import HEA_Rung2
 
 SUPPORTED_MEASURES = ("overlap", "gram_matrix", "schmidt_rank")
 SUPPORTED_BACKENDS = ("analytic",)
@@ -52,10 +54,14 @@ class ExperimentResult:
     tier_stats: dict[str, np.ndarray] = field(default_factory=dict)
     target_pair: tuple[str, str] | None = None
     dictionary_name: str | None = None
+    tier_separation: np.ndarray | None = None
 
     def save(self, path: str | os.PathLike) -> Path:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
+        extra: dict[str, np.ndarray] = {}
+        if self.tier_separation is not None:
+            extra["tier_separation"] = self.tier_separation
         np.savez_compressed(
             p,
             gram_matrices=self.gram_matrices,
@@ -65,6 +71,7 @@ class ExperimentResult:
             **{f"axis_{k}": v for k, v in self.sweep_axes.items()},
             **{f"assert_{k}": v for k, v in self.assertion_pass.items()},
             **{f"tier_{k}": v for k, v in self.tier_stats.items()},
+            **extra,
         )
         return p
 
@@ -82,10 +89,12 @@ class ExperimentResult:
         axes = [self.sweep_axes[k] for k in axis_names]
         shape = self.overlaps.shape
         tier_keys = list(self.tier_stats.keys())
+        include_tier_sep = self.tier_separation is not None
         header = (
             axis_names
             + ["overlap"]
             + [f"tier_{k}" for k in tier_keys]
+            + (["tier_separation"] if include_tier_sep else [])
             + list(self.assertion_pass.keys())
         )
         with p.open("w") as f:
@@ -95,6 +104,8 @@ class ExperimentResult:
                 row.append(str(float(self.overlaps[raw_idx])))
                 for k in tier_keys:
                     row.append(str(float(self.tier_stats[k][raw_idx])))
+                if include_tier_sep:
+                    row.append(str(float(self.tier_separation[raw_idx])))
                 for a in self.assertion_pass.values():
                     row.append("1" if bool(a[raw_idx]) else "0")
                 f.write(",".join(row) + "\n")
@@ -264,24 +275,43 @@ class Experiment:
                     f"unknown assertion {a_name!r}; supported: {SUPPORTED_ASSERTIONS}"
                 )
 
+        if "concept_gram_tier_separation_bound_holds" in self.assertions:
+            bound = getattr(
+                self.dictionary.encoding, "tier_separation_bound", None
+            )
+            if bound is None:
+                raise ValueError(
+                    f"assertion 'concept_gram_tier_separation_bound_holds' "
+                    f"requires the dictionary's encoding to declare a "
+                    f"non-None tier_separation_bound; got "
+                    f"encoding={self.dictionary.encoding!r}"
+                )
+
         for key in self.sweep:
             self._parse_sweep_key(key)
 
-    def _parse_sweep_key(self, key: str) -> tuple[str, str]:
-        if "." not in key:
-            raise ValueError(
-                f"sweep key {key!r} must be of form '<feature>.phi'"
-            )
-        feature, knob = key.rsplit(".", 1)
-        if knob != "phi":
-            raise ValueError(
-                f"sweep key {key!r}: only the `.phi` knob is supported in v0"
-            )
+    def _parse_sweep_key(self, key: str) -> tuple[str, str, tuple[int, int, int] | None]:
+        feature, kind, slot = _parse_knob_path(key)
         if feature not in [f.name for f in self.dictionary.features]:
             raise ValueError(
                 f"sweep key {key!r} references unknown feature {feature!r}"
             )
-        return feature, knob
+        if kind == "theta":
+            if not isinstance(self.dictionary.encoding, HEA_Rung2):
+                raise ValueError(
+                    f"sweep key {key!r}: .theta[...] paths are HEA-only; "
+                    f"this Dictionary uses encoding={self.dictionary.encoding!r}"
+                )
+            shape = self.dictionary.encoding.theta_shape
+            r, d_, q = slot
+            if not (
+                0 <= r < shape[0] and 0 <= d_ < shape[1] and 0 <= q < shape[2]
+            ):
+                raise ValueError(
+                    f"sweep key {key!r}: slot {slot} is outside "
+                    f"theta_shape={shape}"
+                )
+        return feature, kind, slot
 
     def run(self, backend: str = "analytic", shots: int = 0) -> ExperimentResult:
         if backend not in SUPPORTED_BACKENDS:
@@ -319,8 +349,7 @@ class Experiment:
     def _dictionary_at_sweep_index(self, idx: tuple[int, ...]) -> Dictionary:
         d = self.dictionary
         for (key, values), i in zip(self.sweep.items(), idx):
-            feature, _ = self._parse_sweep_key(key)
-            d = d.with_phi(feature, float(values[i]))
+            d = d.with_knob(key, float(values[i]))
         return d
 
 
@@ -349,6 +378,15 @@ class InterferenceSweep:
             per_point_assertions["hierarchical_ordering_preserved"] = np.zeros(
                 sweep_dims, dtype=bool
             )
+        if "concept_gram_tier_separation_bound_holds" in exp.assertions:
+            per_point_assertions[
+                "concept_gram_tier_separation_bound_holds"
+            ] = np.zeros(sweep_dims, dtype=bool)
+
+        all_singletons = all(len(m) == 1 for m in d0.hierarchy.values())
+        tier_separation = (
+            None if all_singletons else np.zeros(sweep_dims, dtype=float)
+        )
 
         for raw_idx in product(*[range(d) for d in sweep_dims]):
             idx = raw_idx if sweep_dims else ()
@@ -364,10 +402,24 @@ class InterferenceSweep:
             for t in TIER_NAMES:
                 tier_arrays[t][idx] = tiers[t]
 
+            if tier_separation is not None:
+                from q_orca.compiler.concept_gram_hea import (
+                    compute_tier_separation,
+                )
+
+                sep = compute_tier_separation(
+                    g, [feat.cluster for feat in d.features]
+                )
+                tier_separation[idx] = float(sep) if sep is not None else 0.0
+
             if "hierarchical_ordering_preserved" in exp.assertions:
                 per_point_assertions["hierarchical_ordering_preserved"][idx] = (
                     hierarchical_ordering_preserved(g, d, exp.target_pair)
                 )
+            if "concept_gram_tier_separation_bound_holds" in exp.assertions:
+                per_point_assertions[
+                    "concept_gram_tier_separation_bound_holds"
+                ][idx] = concept_gram_tier_separation_bound_holds(g, d)
 
         if "target_pair_destructive_at_endpoint" in exp.assertions:
             endpoint_idx = tuple(d - 1 for d in sweep_dims) if sweep_dims else ()
@@ -391,6 +443,7 @@ class InterferenceSweep:
             tier_stats=tier_arrays,
             target_pair=exp.target_pair,
             dictionary_name=d0.name,
+            tier_separation=tier_separation,
         )
 
 
@@ -450,10 +503,21 @@ def _render_runner_script(experiment: Experiment, script_filename: str) -> str:
     measures_repr = repr(experiment.measures)
     assertions_repr = repr(experiment.assertions)
     target_repr = repr(experiment.target_pair)
-    encoding_repr = (
-        f"MPSRung1(bond_dim={d.encoding.bond_dim}, "
-        f"phase_knobs={d.encoding.phase_knobs})"
-    )
+    if isinstance(d.encoding, HEA_Rung2):
+        e = d.encoding
+        encoding_repr = (
+            f"HEA_Rung2(depth={e.depth!r}, entangler={e.entangler!r}, "
+            f"rotations={e.rotations!r}, "
+            f"tier_separation_bound={e.tier_separation_bound!r}, "
+            f"n_qubits={e.n_qubits!r})"
+        )
+        encoding_import = "HEA_Rung2"
+    else:
+        encoding_repr = (
+            f"MPSRung1(bond_dim={d.encoding.bond_dim}, "
+            f"phase_knobs={d.encoding.phase_knobs})"
+        )
+        encoding_import = "MPSRung1"
 
     return (
         '"""Auto-generated by polygram.Experiment.materialize.\n\n'
@@ -463,7 +527,7 @@ def _render_runner_script(experiment: Experiment, script_filename: str) -> str:
         "\n"
         "import numpy as np\n"
         "\n"
-        "from polygram import Dictionary, Experiment, Feature, MPSRung1\n"
+        f"from polygram import Dictionary, Experiment, Feature, {encoding_import}\n"
         "\n"
         "\n"
         "def build_dictionary() -> Dictionary:\n"

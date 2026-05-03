@@ -85,12 +85,14 @@ def test_import_from_sae_runs(tmp_path: Path):
 
 def test_animals_hea_example_runs(tmp_path: Path):
     """Coarsened HEA emit example — verifies the dictionary builds, emits
-    a parseable file, and produces a positive tier-separation that clears
-    the declared invariant bound."""
+    a parseable file, produces a positive tier-separation that clears
+    the declared invariant bound, and that the InterferenceSweep +
+    Cancellation walks produce their expected artifacts."""
     from examples.animals_hea import build_dictionary, main
 
     main(output_dir=tmp_path)
-    out = tmp_path / "animals_hea" / "AnimalsHea.q.orca.md"
+    base = tmp_path / "animals_hea"
+    out = base / "AnimalsHea.q.orca.md"
     assert out.exists()
 
     from q_orca.parser.markdown_parser import parse_q_orca_markdown
@@ -110,6 +112,23 @@ def test_animals_hea_example_runs(tmp_path: Path):
     sep = build_dictionary().tier_separation()
     assert sep is not None
     assert sep > 0.025
+
+    sweep_dir = base / "sweep"
+    assert (sweep_dir / "AnimalsHeaSweep.q.orca.md").exists()
+    assert (sweep_dir / "AnimalsHeaSweep_result.csv").exists()
+    assert (sweep_dir / "AnimalsHeaSweep_summary.md").exists()
+    assert (sweep_dir / "AnimalsHeaSweep_result.npz").exists()
+
+    canc_dir = base / "cancellation"
+    assert (canc_dir / "AnimalsHea_at_optimum.q.orca.md").exists()
+    assert (canc_dir / "AnimalsHea_at_optimum_summary.md").exists()
+    assert (canc_dir / "AnimalsHea_at_optimum_trajectory.csv").exists()
+    try:
+        import matplotlib  # noqa: F401
+
+        assert (canc_dir / "before_after.png").exists()
+    except ImportError:
+        pass
 
 
 def test_cancellation_example_runs(tmp_path: Path):

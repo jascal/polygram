@@ -72,6 +72,25 @@ def _default_hea_theta(feature: Feature, encoding: HEA_Rung2) -> np.ndarray:
 
 
 _VALID_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_KNOB_PHI_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.phi$")
+_KNOB_THETA_RE = re.compile(
+    r"^([A-Za-z_][A-Za-z0-9_]*)\.theta\[(\d+),(\d+),(\d+)\]$"
+)
+
+
+def _parse_knob_path(path: str) -> tuple[str, str, tuple[int, int, int] | None]:
+    m = _KNOB_PHI_RE.match(path)
+    if m:
+        return m.group(1), "phi", None
+    m = _KNOB_THETA_RE.match(path)
+    if m:
+        name = m.group(1)
+        slot = (int(m.group(2)), int(m.group(3)), int(m.group(4)))
+        return name, "theta", slot
+    raise ValueError(
+        f"knob path {path!r} does not match expected grammar "
+        f"'<feature>.phi' or '<feature>.theta[r,d,q]'"
+    )
 
 
 @dataclass
@@ -158,6 +177,49 @@ class Dictionary:
         """Return a copy of this Dictionary with one feature's `phi` set."""
         idx = self.feature_index(name)
         new_feature = replace(self.features[idx], phi=value)
+        new_features = list(self.features)
+        new_features[idx] = new_feature
+        return replace(self, features=new_features)
+
+    def with_knob(self, path: str, value: float) -> Dictionary:
+        """Return a copy with one named parameter slot set.
+
+        Path grammar:
+
+        - ``<feature>.phi`` — sets ``Feature.phi`` (both encodings).
+        - ``<feature>.theta[r,d,q]`` — sets the ``(r, d, q)`` slot of
+          the named feature's θ tensor (HEA only). When the feature's
+          ``theta`` is ``None``, the default tensor is materialized via
+          ``_default_hea_theta(...)``, copied, and the slot is set on
+          the copy.
+        """
+        feat_name, kind, slot = _parse_knob_path(path)
+        idx = self.feature_index(feat_name)
+        feature = self.features[idx]
+
+        if kind == "phi":
+            new_feature = replace(feature, phi=value)
+        else:
+            if not isinstance(self.encoding, HEA_Rung2):
+                raise ValueError(
+                    f"knob path {path!r}: .theta[...] paths are HEA-only; "
+                    f"this Dictionary uses encoding={self.encoding!r}"
+                )
+            shape = self.encoding.theta_shape
+            r, d, q = slot
+            if not (0 <= r < shape[0] and 0 <= d < shape[1] and 0 <= q < shape[2]):
+                raise ValueError(
+                    f"knob path {path!r}: slot {slot} is outside "
+                    f"theta_shape={shape} for encoding={self.encoding!r}"
+                )
+            base = (
+                feature.theta.copy()
+                if feature.theta is not None
+                else _default_hea_theta(feature, self.encoding).copy()
+            )
+            base[r, d, q] = float(value)
+            new_feature = replace(feature, theta=base)
+
         new_features = list(self.features)
         new_features[idx] = new_feature
         return replace(self, features=new_features)

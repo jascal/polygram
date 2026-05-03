@@ -64,8 +64,8 @@ def test_sweep_key_must_reference_feature():
         )
 
 
-def test_sweep_key_must_use_phi():
-    with pytest.raises(ValueError, match="only the `.phi` knob"):
+def test_sweep_key_must_match_grammar():
+    with pytest.raises(ValueError, match="grammar"):
         Experiment(
             name="Bad",
             dictionary=_animals(),
@@ -318,3 +318,154 @@ def test_to_csv_includes_tier_columns(tmp_path):
     assert "tier_sibling" in header
     assert "tier_cross_cluster" in header
     assert "overlap" in header
+
+
+def _hea_tiered(encoding=None):
+    from polygram import HEA_Rung2
+
+    encoding = encoding or HEA_Rung2(depth=2)
+    return Dictionary(
+        name="HeaSweep",
+        features=[
+            Feature("a", "s1", beta=0.10, alpha=0.05, gamma=0.02),
+            Feature("b", "s1", beta=0.11, alpha=0.04, gamma=0.03),
+            Feature("c", "s2", beta=1.20, alpha=1.10, gamma=1.00),
+        ],
+        hierarchy={"s1": ["a", "b"], "s2": ["c"]},
+        encoding=encoding,
+    )
+
+
+class TestSweepKnobs:
+    def test_phi_axis_on_hea(self):
+        exp = Experiment(
+            name="X",
+            dictionary=_hea_tiered(),
+            target_pair=("a", "c"),
+            sweep={"a.phi": np.linspace(0.0, math.pi, 5)},
+        )
+        result = exp.run()
+        assert result.overlaps.shape == (5,)
+
+    def test_theta_axis_on_hea(self):
+        exp = Experiment(
+            name="X",
+            dictionary=_hea_tiered(),
+            target_pair=("a", "c"),
+            sweep={"a.theta[1,0,1]": np.linspace(-math.pi, math.pi, 5)},
+        )
+        result = exp.run()
+        assert result.overlaps.shape == (5,)
+
+    def test_theta_axis_rejected_on_mps(self):
+        with pytest.raises(ValueError, match="HEA-only"):
+            Experiment(
+                name="Bad",
+                dictionary=_animals(),
+                target_pair=("dog_a", "bird_a"),
+                sweep={"dog_a.theta[0,0,1]": np.linspace(0, 1, 3)},
+            )
+
+    def test_theta_slot_out_of_range_rejected(self):
+        from polygram import HEA_Rung2
+
+        d = _hea_tiered(HEA_Rung2(depth=2))
+        with pytest.raises(ValueError, match=r"theta_shape="):
+            Experiment(
+                name="Bad",
+                dictionary=d,
+                target_pair=("a", "c"),
+                sweep={"a.theta[5,0,0]": np.linspace(0, 1, 3)},
+            )
+
+
+class TestTierSeparationMeasure:
+    def test_tiered_dictionary_carries_array(self):
+        exp = Experiment(
+            name="X",
+            dictionary=_hea_tiered(),
+            target_pair=("a", "c"),
+            sweep={"a.phi": np.linspace(0, math.pi, 4)},
+        )
+        result = exp.run()
+        assert result.tier_separation is not None
+        assert result.tier_separation.shape == (4,)
+        assert (result.tier_separation > 0).all()
+
+    def test_all_singleton_dictionary_carries_none(self):
+        from polygram import HEA_Rung2
+
+        d = Dictionary(
+            name="Singletons",
+            features=[
+                Feature("a", "s1", beta=0.1),
+                Feature("b", "s2", beta=0.2),
+                Feature("c", "s3", beta=0.3),
+            ],
+            hierarchy={"s1": ["a"], "s2": ["b"], "s3": ["c"]},
+            encoding=HEA_Rung2(depth=2),
+        )
+        exp = Experiment(
+            name="X",
+            dictionary=d,
+            target_pair=("a", "c"),
+            sweep={"a.phi": np.linspace(0, math.pi, 3)},
+        )
+        result = exp.run()
+        assert result.tier_separation is None
+
+    def test_csv_and_npz_round_trip(self, tmp_path):
+        exp = Experiment(
+            name="X",
+            dictionary=_hea_tiered(),
+            target_pair=("a", "c"),
+            sweep={"a.phi": np.linspace(0, math.pi, 3)},
+        )
+        result = exp.run()
+        csv_path = result.to_csv(tmp_path / "r.csv")
+        assert "tier_separation" in csv_path.read_text().splitlines()[0]
+
+        npz_path = result.save(tmp_path / "r.npz")
+        loaded = np.load(npz_path)
+        assert "tier_separation" in loaded.files
+        assert loaded["tier_separation"].shape == (3,)
+
+
+class TestTierBoundAssertion:
+    def test_passes_on_clearly_tiered_hea(self):
+        exp = Experiment(
+            name="X",
+            dictionary=_hea_tiered(),
+            target_pair=("a", "c"),
+            sweep={"a.phi": np.linspace(0, math.pi, 4)},
+            assertions=["concept_gram_tier_separation_bound_holds"],
+        )
+        result = exp.run()
+        passes = result.assertion_pass[
+            "concept_gram_tier_separation_bound_holds"
+        ]
+        assert passes.shape == (4,)
+        assert passes.all()
+
+    def test_rejected_on_mps_dictionary(self):
+        with pytest.raises(ValueError, match="tier_separation_bound"):
+            Experiment(
+                name="Bad",
+                dictionary=_animals(),
+                target_pair=("dog_a", "bird_a"),
+                sweep={"dog_a.phi": np.linspace(0, math.pi, 3)},
+                assertions=["concept_gram_tier_separation_bound_holds"],
+            )
+
+    def test_rejected_on_hea_with_no_bound(self):
+        from polygram import HEA_Rung2
+
+        d = _hea_tiered(HEA_Rung2(depth=2, tier_separation_bound=None))
+        with pytest.raises(ValueError, match="tier_separation_bound"):
+            Experiment(
+                name="Bad",
+                dictionary=d,
+                target_pair=("a", "c"),
+                sweep={"a.phi": np.linspace(0, math.pi, 3)},
+                assertions=["concept_gram_tier_separation_bound_holds"],
+            )

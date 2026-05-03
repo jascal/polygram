@@ -16,7 +16,37 @@ DEFAULT_DESTRUCTIVE_THRESHOLD = 0.1
 SUPPORTED_ASSERTIONS = (
     "hierarchical_ordering_preserved",
     "target_pair_destructive_at_endpoint",
+    "concept_gram_tier_separation_bound_holds",
 )
+
+
+def concept_gram_tier_separation_bound_holds(
+    gram: np.ndarray, dictionary: Dictionary
+) -> bool:
+    """At this sweep point, the dictionary's tier separation
+    `min(self − sibling) − max(cross_cluster)` SHALL be ≥
+    `dictionary.encoding.tier_separation_bound`.
+
+    Raises `ValueError` if the encoding does not declare a bound (the
+    Experiment validator should reject this assertion at construction
+    time, but the checker is defensive).
+    """
+    encoding = dictionary.encoding
+    bound = getattr(encoding, "tier_separation_bound", None)
+    if bound is None:
+        raise ValueError(
+            f"concept_gram_tier_separation_bound_holds requires an "
+            f"encoding with a non-None tier_separation_bound; got "
+            f"encoding={encoding!r}"
+        )
+    from q_orca.compiler.concept_gram_hea import compute_tier_separation
+
+    sep = compute_tier_separation(
+        gram, [f.cluster for f in dictionary.features]
+    )
+    if sep is None:
+        return True
+    return float(sep) >= float(bound)
 
 
 def hierarchical_ordering_preserved(

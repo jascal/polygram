@@ -6,17 +6,43 @@ laid across the first HEA layer; siblings within a cluster pick up
 small, near-identical rotations, and the two clusters are pulled apart
 by a magnitude shift on β.
 
-Writes ``AnimalsHea.q.orca.md`` and asserts the q-orca verifier accepts
-the file (Stage 4b green, including the declared
-``concept_gram_tier_separation >= 0.025`` invariant). Prints the
-analytic tier separation for the dictionary.
+The ``main()`` walk emits, verifies, and then exercises both
+sweep/cancellation primitives end-to-end:
+
+1. Emit ``AnimalsHea.q.orca.md`` and verify it (Stage 4b green,
+   including the declared ``concept_gram_tier_separation >= 0.025``
+   invariant).
+2. Run an ``InterferenceSweep`` over a single ``dog_poodle.phi`` axis
+   (5 points in this coarsened example), materialize the result, and
+   assert ``concept_gram_tier_separation_bound_holds`` across every
+   sweep point.
+3. Run a ``Cancellation`` on the ``(dog_poodle, bird_hawk)`` pair with
+   the default 2-φ knobs and ``method="grid"``, materialize the
+   ``.q.orca.md``, ``trajectory.csv``, ``summary.md``, and the
+   ``before/after`` figure.
+4. Print a small tier-separation rollup and the cancellation headline.
+
+Output layout under ``output_dir / "animals_hea"``:
+
+- ``AnimalsHea.q.orca.md`` — the emitted HEA dictionary at default knobs
+- ``sweep/`` — InterferenceSweep artifacts
+- ``cancellation/`` — Cancellation artifacts (incl. before_after.png)
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from polygram import Dictionary, Feature, HEA_Rung2, write_qorca
+import numpy as np
+
+from polygram import (
+    Cancellation,
+    Dictionary,
+    Experiment,
+    Feature,
+    HEA_Rung2,
+    write_qorca,
+)
 
 
 def build_dictionary() -> Dictionary:
@@ -68,6 +94,58 @@ def main(output_dir: str | Path = "examples/output") -> None:
     print(f"tier_separation: {sep:.4f} (declared bound: "
           f"{dictionary.encoding.tier_separation_bound})")
     print("verify.valid: True")
+
+    sweep_dir = out_dir / "sweep"
+    sweep_dir.mkdir(parents=True, exist_ok=True)
+    experiment = Experiment(
+        name="AnimalsHeaSweep",
+        dictionary=dictionary,
+        target_pair=("dog_poodle", "bird_hawk"),
+        sweep={"dog_poodle.phi": np.linspace(0.0, np.pi / 6, 5)},
+        measures=["overlap", "gram_matrix"],
+        assertions=[
+            "hierarchical_ordering_preserved",
+            "concept_gram_tier_separation_bound_holds",
+        ],
+    )
+    experiment.materialize(sweep_dir)
+    sweep_result = experiment.run()
+    sweep_result.save(sweep_dir / "AnimalsHeaSweep_result.npz")
+    sweep_result.to_csv(sweep_dir / "AnimalsHeaSweep_result.csv")
+    sweep_result.write_summary(sweep_dir / "AnimalsHeaSweep_summary.md")
+    bound_pass = sweep_result.assertion_pass[
+        "concept_gram_tier_separation_bound_holds"
+    ]
+    assert bound_pass.all(), bound_pass
+
+    canc_dir = out_dir / "cancellation"
+    canc_dir.mkdir(parents=True, exist_ok=True)
+    cancellation = Cancellation(
+        dictionary=dictionary,
+        target_pair=("dog_poodle", "bird_hawk"),
+        optimize={"method": "grid", "max_steps": 12},
+    )
+    canc_result = cancellation.run()
+    canc_result.materialize(canc_dir)
+    try:
+        canc_result.plot(canc_dir / "before_after.png", kind="before_after")
+    except ImportError:
+        # matplotlib is optional; example still completes without the figure.
+        pass
+
+    print(
+        f"sweep tier_separation: min={float(sweep_result.tier_separation.min()):.4f} "
+        f"max={float(sweep_result.tier_separation.max()):.4f} "
+        f"(bound: {dictionary.encoding.tier_separation_bound})"
+    )
+    print(
+        f"cancellation: before={canc_result.before_overlap:.4f} → "
+        f"after={canc_result.after_overlap:.4f} "
+        f"(method={canc_result.method!r}, "
+        f"feasible={canc_result.feasible_count}/"
+        f"{canc_result.trajectory.shape[0]})"
+    )
+    print(f"optimized knobs: {canc_result.optimized_knobs}")
 
 
 if __name__ == "__main__":

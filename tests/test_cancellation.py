@@ -119,7 +119,7 @@ def test_materialize_writes_optimized_qorca(tmp_path: Path):
     assert report.valid, report
 
     csv_text = artifacts["trajectory"].read_text().splitlines()
-    assert csv_text[0] == "phi_a,phi_b,overlap,feasible"
+    assert csv_text[0] == "dog_poodle.phi,bird_hawk.phi,overlap,feasible"
     assert len(csv_text) == 1 + 12 * 12
 
 
@@ -217,3 +217,157 @@ def test_summary_contains_optimum(tmp_path: Path):
     assert "after:" in text
     assert "dog_poodle" in text
     assert "bird_hawk" in text
+
+
+def _hea_pair() -> Dictionary:
+    """Two-cluster HEA fixture for knob-list tests."""
+    from polygram import HEA_Rung2
+
+    return Dictionary(
+        name="HeaPair",
+        features=[
+            Feature("a", "s1", beta=0.10, alpha=0.05, gamma=0.02),
+            Feature("b", "s1", beta=0.11, alpha=0.04, gamma=0.03),
+            Feature("c", "s2", beta=1.20, alpha=1.10, gamma=1.00),
+        ],
+        hierarchy={"s1": ["a", "b"], "s2": ["c"]},
+        encoding=HEA_Rung2(depth=2),
+    )
+
+
+class TestKnobsList:
+    def test_default_knobs_resolve_to_two_phi(self):
+        canc = Cancellation(
+            dictionary=_animals(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            optimize={"method": "grid", "max_steps": 5},
+        )
+        assert canc.knobs == ["dog_poodle.phi", "bird_hawk.phi"]
+        result = canc.run()
+        # 2 knobs → trajectory has 2 + 1 = 3 cols and `5*5 = 25` rows.
+        assert result.trajectory.shape == (25, 3)
+        assert set(result.optimized_knobs.keys()) == {
+            "dog_poodle.phi", "bird_hawk.phi"
+        }
+
+    def test_explicit_hea_theta_knobs_run(self):
+        canc = Cancellation(
+            dictionary=_hea_pair(),
+            target_pair=("a", "c"),
+            knobs=["a.theta[0,0,1]", "c.theta[1,0,1]"],
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        result = canc.run()
+        assert result.trajectory.shape == (16, 3)
+        # Theta knob bounds are [-π, π]; verify values stay in range.
+        assert float(result.trajectory[:, 0].min()) >= -np.pi - 1e-9
+        assert float(result.trajectory[:, 0].max()) <= np.pi + 1e-9
+
+    def test_grid_rejects_more_than_four_knobs(self):
+        d = _hea_pair()
+        with pytest.raises(ValueError, match="at most 4 knobs"):
+            Cancellation(
+                dictionary=d,
+                target_pair=("a", "c"),
+                knobs=[
+                    "a.theta[0,0,0]", "a.theta[0,0,1]", "a.theta[0,0,2]",
+                    "a.theta[1,0,0]", "a.theta[1,0,1]",
+                ],
+                optimize={"method": "grid", "max_steps": 5},
+            )
+
+    def test_theta_knob_rejected_on_mps(self):
+        with pytest.raises(ValueError, match="HEA-only"):
+            Cancellation(
+                dictionary=_animals(),
+                target_pair=("dog_poodle", "bird_hawk"),
+                knobs=["dog_poodle.theta[0,0,1]"],
+            )
+
+    def test_unknown_knob_feature_rejected(self):
+        with pytest.raises(ValueError, match="not declared"):
+            Cancellation(
+                dictionary=_animals(),
+                target_pair=("dog_poodle", "bird_hawk"),
+                knobs=["nope.phi", "bird_hawk.phi"],
+            )
+
+
+class TestStructuralFloorContract:
+    def test_canonical_mps_floor_is_float(self):
+        canc = Cancellation(
+            dictionary=_animals(),
+            target_pair=("dog_poodle", "bird_hawk"),
+        )
+        floor = canc.structural_floor()
+        assert isinstance(floor, float)
+
+    def test_hea_default_2phi_raises(self):
+        canc = Cancellation(
+            dictionary=_hea_pair(),
+            target_pair=("a", "c"),
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        assert canc.knobs == ["a.phi", "c.phi"]
+        with pytest.raises(NotImplementedError, match="HEA"):
+            canc.structural_floor()
+
+    def test_mps_with_non_canonical_knobs_raises(self):
+        canc = Cancellation(
+            dictionary=_animals(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            knobs=["dog_poodle.phi"],
+        )
+        with pytest.raises(NotImplementedError, match="canonical 2-φ"):
+            canc.structural_floor()
+
+    def test_run_on_hea_carries_nan_floor_and_none_efficiency(self):
+        import math
+
+        canc = Cancellation(
+            dictionary=_hea_pair(),
+            target_pair=("a", "c"),
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        result = canc.run()
+        assert math.isnan(result.structural_floor)
+        assert result.cancellation_efficiency is None
+
+    def test_summary_marks_undefined_floor_on_hea(self, tmp_path: Path):
+        canc = Cancellation(
+            dictionary=_hea_pair(),
+            target_pair=("a", "c"),
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        result = canc.run()
+        artifacts = result.materialize(tmp_path)
+        text = artifacts["summary"].read_text()
+        assert "undefined for this configuration" in text
+
+
+class TestBeforeAfterPlot:
+    def test_before_after_writes_png(self, tmp_path: Path):
+        pytest.importorskip("matplotlib")
+        canc = Cancellation(
+            dictionary=_animals(dog_phi=np.pi / 3),
+            target_pair=("dog_poodle", "bird_hawk"),
+            optimize={"method": "grid", "max_steps": 6},
+        )
+        result = canc.run()
+        out = result.plot(tmp_path / "ba.png", kind="before_after")
+        assert out.exists()
+        assert out.stat().st_size > 0
+
+    def test_grid_plot_refused_on_three_knobs(self, tmp_path: Path):
+        pytest.importorskip("matplotlib")
+        canc = Cancellation(
+            dictionary=_hea_pair(),
+            target_pair=("a", "c"),
+            knobs=[
+                "a.theta[0,0,0]", "a.theta[0,0,1]", "c.theta[0,0,2]",
+            ],
+            optimize={"method": "grid", "max_steps": 3},
+        )
+        result = canc.run()
+        with pytest.raises(NotImplementedError, match="len\\(knobs\\) == 2"):
+            result.plot(tmp_path / "p.png", kind="grid")
