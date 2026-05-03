@@ -104,7 +104,7 @@ def main(
         f"{canc_result.trajectory.shape[0]})"
     )
     print(
-        f"optimized φ: {dict((k, round(v, 4)) for k, v in canc_result.optimized_phis.items())}"
+        f"optimized knobs: {dict((k, round(v, 4)) for k, v in canc_result.optimized_knobs.items())}"
     )
     print(canc_msg)
 

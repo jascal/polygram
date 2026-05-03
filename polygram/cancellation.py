@@ -1,17 +1,21 @@
-"""Cancellation primitive — find φ values that drive a target-pair
+"""Cancellation primitive — find knob values that drive a target-pair
 overlap below a tolerance, optionally constrained to preserve the
 hierarchical-tier ordering.
 
-Two backends ship: a deterministic 2D grid scan over `(φ_a, φ_b) ∈
-[0, 2π]²` (no extra deps), and a `scipy.optimize.differential_evolution`
-backend behind the `polygram[opt]` extra.
+Two backends ship: a deterministic per-axis grid scan (no extra deps;
+``len(knobs) <= 4``) and a `scipy.optimize.differential_evolution`
+backend behind the `polygram[opt]` extra (dimension-agnostic).
 
-The search space in v0 is exactly the two φ values of the target pair.
-`optimize_all=True` is reserved and raises `NotImplementedError`.
+The search space defaults to the two `<feature>.phi` knobs of
+`target_pair` (preserves the rung-1 2-φ behavior) but accepts any
+list of knob paths in the `Dictionary.with_knob` grammar
+(`<feature>.phi` on either encoding, `<feature>.theta[r,d,q]` on
+`HEA_Rung2`).
 """
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -19,11 +23,17 @@ from pathlib import Path
 import numpy as np
 
 from polygram._assertions import hierarchical_ordering_preserved
-from polygram.dictionary import Dictionary
+from polygram.dictionary import Dictionary, _parse_knob_path
 from polygram.emit import write_qorca
+from polygram.encoding import MPSRung1
 
 SUPPORTED_METHODS = ("grid", "scipy")
+SUPPORTED_PLOT_KINDS = ("grid", "scipy", "before_after")
 INFEASIBLE_PENALTY = 1.0
+GRID_KNOB_LIMIT = 4
+
+_PHI_BOUNDS = (0.0, float(2 * np.pi))
+_THETA_BOUNDS = (-float(np.pi), float(np.pi))
 
 _PLOT_INSTALL_HINT = (
     "matplotlib is required for CancellationResult.plot(); "
@@ -35,45 +45,38 @@ _SCIPY_INSTALL_HINT = (
 )
 
 
-@dataclass
+@dataclass(eq=False)
 class CancellationResult:
     """Output of a `Cancellation.run()`.
 
-    `Cancellation` only steers φ; the squared overlap as a function of
-    δ = φ_A − φ_B factors as `|<A|B>|² = M + V·cos(δ)` and so is
-    bounded below by `M − |V|`, the **structural floor**. Pure-phase
-    search is a *constraint solver* against this floor, not a
-    destructive-interference oracle. To break the floor you'd need
-    to vary β/α/γ as well — outside the v0 search space.
-
     Fields:
 
-    - `optimized_phis: dict[str, float]` — `{name_a: phi_a, name_b: phi_b}`
-    - `before_gram, after_gram: np.ndarray (N, N) complex`
-    - `before_overlap, after_overlap: float` — `|<A|B>|²` baseline /
+    - `optimized_knobs: dict[str, float]` — keyed by knob path
+      (`<feature>.phi` or `<feature>.theta[r,d,q]`); value at the
       optimum
-    - `tolerance_met: bool` — `after_overlap < tolerance`
+    - `before_gram, after_gram: np.ndarray (N, N) complex`
+    - `before_overlap, after_overlap: float`
+    - `tolerance_met: bool`
     - `method: str` — `"grid"` or `"scipy"`
-    - `trajectory: np.ndarray (M, 3)` — every evaluation
-      `(phi_a, phi_b, overlap)` in evaluation order; for grid this is
-      a row-major flattening of the (max_steps × max_steps) grid
-    - `feasible_mask: np.ndarray (M,) bool` — per-evaluation
-      feasibility flag (preserves hierarchical ordering); aligned with
-      `trajectory`
+    - `trajectory: np.ndarray (M, len(knobs) + 1)` — every evaluation
+      with one column per knob (in declaration order) plus the target
+      overlap. For grid this is a row-major flattening of the per-axis
+      grid.
+    - `feasible_mask: np.ndarray (M,) bool`
     - `feasible_count: int`
     - `dictionary_at_optimum: Dictionary`
     - `target_pair: tuple[str, str]`
-    - `structural_floor: float` — analytic minimum overlap reachable
-      by varying only `(φ_A, φ_B)`; `M − |V|` for the cos-decomposition
-      above. Encoding-bound; not affected by `preserve_tiers`.
+    - `knobs: list[str]` — declared knob paths in trajectory column
+      order
+    - `structural_floor: float` — analytic floor when defined per the
+      `structural_floor()` contract; `float("nan")` otherwise.
     - `cancellation_efficiency: float | None` —
       `(before − after) / (before − floor)`, clamped to `[0, 1]`.
-      `None` when `before − floor < 1e-9` (no cancellation gap to
-      measure — already at the floor). 1.0 means phase search reached
-      the floor; <1.0 means the constraint or optimizer left some gap.
+      `None` when (a) the floor is `NaN` (undefined for the
+      configuration) or (b) `before − floor < 1e-9` (no gap).
     """
 
-    optimized_phis: dict[str, float]
+    optimized_knobs: dict[str, float]
     before_gram: np.ndarray
     after_gram: np.ndarray
     before_overlap: float
@@ -84,19 +87,30 @@ class CancellationResult:
     feasible_count: int
     dictionary_at_optimum: Dictionary
     target_pair: tuple[str, str]
+    knobs: list[str] = field(default_factory=list)
     feasible_mask: np.ndarray = field(
         default_factory=lambda: np.zeros(0, dtype=bool)
     )
-    structural_floor: float = 0.0
+    structural_floor: float = float("nan")
     cancellation_efficiency: float | None = None
 
-    def plot(self, path: str | os.PathLike) -> Path:
-        """Render a default matplotlib figure.
+    def plot(
+        self, path: str | os.PathLike, kind: str | None = None
+    ) -> Path:
+        """Render a matplotlib figure.
 
-        - `method="grid"` → heatmap of target-pair overlap on the
-          `(φ_a, φ_b)` grid with the infeasible region masked and the
-          optimum starred.
-        - `method="scipy"` → line plot of objective vs evaluation count.
+        ``kind=None`` dispatches on the result's ``method`` (the
+        existing per-method default). Recognized kinds:
+
+        - ``"grid"`` — heatmap of target-pair overlap on a 2D grid
+          with the infeasible region masked and the optimum starred.
+          Defined only when ``len(knobs) == 2``;
+          ``NotImplementedError`` otherwise.
+        - ``"scipy"`` — line plot of objective vs evaluation count.
+        - ``"before_after"`` — three-panel figure: before Gram, after
+          Gram (shared colorbar), bar chart with `before/after` and
+          (when defined) the structural floor. The Gram panels mark
+          the `target_pair` cell.
         """
         try:
             import matplotlib.pyplot as plt
@@ -105,70 +119,21 @@ class CancellationResult:
 
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        a_name, b_name = self.target_pair
+        chosen = kind or self.method
+        if chosen not in SUPPORTED_PLOT_KINDS:
+            raise NotImplementedError(
+                f"plot() does not support kind={chosen!r}; "
+                f"supported: {SUPPORTED_PLOT_KINDS}"
+            )
 
-        if self.method == "grid":
-            n = int(np.sqrt(self.trajectory.shape[0]))
-            phis = np.linspace(0.0, 2 * np.pi, n)
-            overlaps = self.trajectory[:, 2].astype(float)
-            display = np.where(self.feasible_mask, overlaps, np.nan).reshape(n, n)
-
-            fig, ax = plt.subplots(figsize=(6, 5))
-            im = ax.imshow(
-                display.T,
-                origin="lower",
-                aspect="auto",
-                extent=(float(phis[0]), float(phis[-1]),
-                        float(phis[0]), float(phis[-1])),
-                cmap="viridis",
-            )
-            fig.colorbar(im, ax=ax, label="|<A|B>|²")
-            ax.scatter(
-                [self.optimized_phis[a_name]],
-                [self.optimized_phis[b_name]],
-                marker="*",
-                s=180,
-                c="red",
-                edgecolors="white",
-                label="optimum",
-            )
-            ax.set_xlabel(f"{a_name}.phi")
-            ax.set_ylabel(f"{b_name}.phi")
-            ax.set_title(
-                f"Cancellation grid — {a_name} × {b_name}\n"
-                f"after_overlap = {self.after_overlap:.4f}"
-            )
-            ax.legend(loc="best")
-            fig.tight_layout()
-            fig.savefig(p, dpi=120)
-            plt.close(fig)
-            return p
-
-        if self.method == "scipy":
-            fig, ax = plt.subplots(figsize=(7, 4))
-            ax.plot(
-                np.arange(self.trajectory.shape[0]),
-                self.trajectory[:, 2],
-                marker=".",
-                linewidth=1.0,
-                color="tab:blue",
-            )
-            ax.set_xlabel("evaluation")
-            ax.set_ylabel("|<A|B>|²")
-            ax.set_title(
-                f"Cancellation scipy — {a_name} × {b_name}\n"
-                f"after_overlap = {self.after_overlap:.4f}"
-            )
-            ax.grid(alpha=0.3)
-            fig.tight_layout()
-            fig.savefig(p, dpi=120)
-            plt.close(fig)
-            return p
-
-        raise NotImplementedError(f"plot() does not support method={self.method!r}")
+        if chosen == "grid":
+            return _plot_grid(self, plt, p)
+        if chosen == "scipy":
+            return _plot_scipy(self, plt, p)
+        return _plot_before_after(self, plt, p)
 
     def materialize(self, output_dir: str | os.PathLike) -> dict[str, Path]:
-        """Write `<name>.q.orca.md` (Dictionary at optimum φs),
+        """Write `<name>.q.orca.md` (Dictionary at optimum knobs),
         `<name>_summary.md`, and `<name>_trajectory.csv`. Returns
         `dict[str, Path]`."""
         out = Path(output_dir)
@@ -191,31 +156,21 @@ class CancellationResult:
 
 @dataclass
 class Cancellation:
-    """φ-search primitive: drive `target_pair` overlap toward
+    """Knob-search primitive: drive `target_pair` overlap toward
     `tolerance`, optionally constrained to preserve hierarchical-tier
     ordering.
 
-    The squared overlap `|<A|B>|²(δ)` factors as `M + V·cos(δ)` for
-    `δ = φ_A − φ_B`, so pure-phase search is bounded below by the
-    **structural floor** `M − |V|`. Use `structural_floor()` to query
-    that limit before running, or read it off
-    `CancellationResult.structural_floor` after; the result also
-    reports `cancellation_efficiency` — the fraction of the
-    cancellation gap the search closed. Driving overlap below the
-    floor needs amplitude variation (β/α/γ), not just phase — outside
-    the v0 search space.
+    The default search space is the two `<feature>.phi` knobs of the
+    target pair (preserves the rung-1 2-φ behavior). For HEA
+    dictionaries, callers can pass a richer `knobs` list mixing
+    `<feature>.phi` and `<feature>.theta[r,d,q]` paths.
 
-    Fields:
-
-    - `dictionary` — input `Dictionary`
-    - `target_pair` — two declared feature names
-    - `tolerance: float = 0.05`
-    - `preserve_tiers: bool = True` — when True, candidates that violate
-      `hierarchical_ordering_preserved` are infeasible
-    - `optimize: dict = {"method": "grid", "max_steps": 50}` — backend
-      and per-axis resolution / maxiter
-    - `optimize_all: bool = False` — reserved; True raises
-      `NotImplementedError` in v0
+    The analytic structural floor `M − |V|` (from
+    `|<A|B>|²(δ) = M + V·cos(δ)`) is exact only for the canonical
+    rung-1 2-φ shape: `structural_floor()` raises
+    `NotImplementedError` outside that shape, and `run()` reports
+    `structural_floor=float("nan")` and
+    `cancellation_efficiency=None` in that case.
     """
 
     dictionary: Dictionary
@@ -226,12 +181,13 @@ class Cancellation:
         default_factory=lambda: {"method": "grid", "max_steps": 50}
     )
     optimize_all: bool = False
+    knobs: list[str] | None = None
 
     def __post_init__(self) -> None:
         if self.optimize_all:
             raise NotImplementedError(
-                "optimize_all=True is reserved for a future release; v0 "
-                "searches only the two target-pair φ values"
+                "optimize_all=True is reserved for a future release; "
+                "use the configurable `knobs` list to broaden the search"
             )
         a, b = self.target_pair
         feature_names = [f.name for f in self.dictionary.features]
@@ -240,39 +196,100 @@ class Cancellation:
                 raise ValueError(
                     f"target_pair feature {n!r} not declared in dictionary"
                 )
+
+        if self.knobs is None:
+            self.knobs = [f"{a}.phi", f"{b}.phi"]
+        else:
+            self.knobs = list(self.knobs)
+
+        for path in self.knobs:
+            self._validate_knob(path)
+
         method = self.optimize.get("method", "grid")
         if method not in SUPPORTED_METHODS:
             raise ValueError(
                 f"unknown method {method!r}; supported: {SUPPORTED_METHODS}"
             )
+        if method == "grid" and len(self.knobs) > GRID_KNOB_LIMIT:
+            raise ValueError(
+                f"grid backend supports at most {GRID_KNOB_LIMIT} knobs "
+                f"(got {len(self.knobs)}); use method='scipy' for richer "
+                "search spaces"
+            )
+
+    def _validate_knob(self, path: str) -> None:
+        feat_name, kind, slot = _parse_knob_path(path)
+        feature_names = [f.name for f in self.dictionary.features]
+        if feat_name not in feature_names:
+            raise ValueError(
+                f"knob path {path!r}: feature {feat_name!r} not declared"
+            )
+        if kind == "theta":
+            if not _is_hea(self.dictionary):
+                raise ValueError(
+                    f"knob path {path!r}: .theta[...] paths are HEA-only; "
+                    f"this Dictionary uses encoding={self.dictionary.encoding!r}"
+                )
+            shape = self.dictionary.encoding.theta_shape
+            r, d_, q = slot
+            if not (
+                0 <= r < shape[0] and 0 <= d_ < shape[1] and 0 <= q < shape[2]
+            ):
+                raise ValueError(
+                    f"knob path {path!r}: slot {slot} is outside "
+                    f"theta_shape={shape}"
+                )
+
+    def _knob_bounds(self, path: str) -> tuple[float, float]:
+        _, kind, _ = _parse_knob_path(path)
+        return _PHI_BOUNDS if kind == "phi" else _THETA_BOUNDS
+
+    def _is_canonical_2phi(self) -> bool:
+        a, b = self.target_pair
+        return list(self.knobs) == [f"{a}.phi", f"{b}.phi"]
 
     def structural_floor(self) -> float:
-        """Analytic minimum target-pair `|<A|B>|²` reachable by varying
-        only `(φ_A, φ_B)`, holding all other features fixed.
+        """Analytic floor `M − |V|` reachable by varying `(φ_A, φ_B)`
+        on a rung-1 `MPSRung1` dictionary.
 
-        Evaluates the overlap at two phase points: `(φ_anchor,
-        φ_anchor)` (δ=0) and `(φ_anchor, φ_anchor + π)` (δ=π), where
-        `φ_anchor` is the current `target_pair[0]` feature's φ.
-        Returns `min(m_zero, m_pi)` — equivalent to `M − |V|` for the
-        decomposition `|<A|B>|²(δ) = M + V·cos(δ)`.
+        Defined exactly when:
 
-        Two Gram evaluations regardless of backend; not affected by
-        `preserve_tiers`.
+        1. `dictionary.encoding` is `MPSRung1`, AND
+        2. `self.knobs == [f"{target_pair[0]}.phi",
+           f"{target_pair[1]}.phi"]`.
+
+        Outside that shape — every multi-knob configuration, every
+        non-canonical knob list, and every HEA-encoded dictionary —
+        raises `NotImplementedError`. A defensible HEA bound (e.g. a
+        Lipschitz upper bound on `|∂overlap/∂θ|`) is deferred to a
+        follow-up research-track proposal.
         """
-        m_zero, m_pi = self._floor_terms()
-        return float(min(m_zero, m_pi))
+        encoding = self.dictionary.encoding
+        if not isinstance(encoding, MPSRung1):
+            raise NotImplementedError(
+                f"structural_floor() is defined only for MPSRung1 with the "
+                f"canonical 2-φ knob list; got encoding={encoding!r}, "
+                f"knobs={self.knobs!r}. The analytic M ± |V| bound does "
+                "not generalize to multi-knob HEA — a defensible bound is "
+                "deferred to a future research-track proposal."
+            )
+        if not self._is_canonical_2phi():
+            raise NotImplementedError(
+                f"structural_floor() requires the canonical 2-φ knob list "
+                f"[{self.target_pair[0]!r}.phi, {self.target_pair[1]!r}.phi]; "
+                f"got knobs={self.knobs!r}. A general-knob analytic bound "
+                "is deferred to a future research-track proposal."
+            )
 
-    def _floor_terms(self) -> tuple[float, float]:
         a_name, b_name = self.target_pair
         a_idx = self.dictionary.feature_index(a_name)
         b_idx = self.dictionary.feature_index(b_name)
         anchor = float(self.dictionary.feature(a_name).phi)
-
         d_zero = self._dictionary_at(anchor, anchor)
         d_pi = self._dictionary_at(anchor, anchor + float(np.pi))
         m_zero = float(np.abs(d_zero.gram()[a_idx, b_idx]) ** 2)
         m_pi = float(np.abs(d_pi.gram()[a_idx, b_idx]) ** 2)
-        return m_zero, m_pi
+        return float(min(m_zero, m_pi))
 
     def run(self) -> CancellationResult:
         method = self.optimize.get("method", "grid")
@@ -284,27 +301,30 @@ class Cancellation:
         b_idx = before_dict.feature_index(self.target_pair[1])
         before_overlap = float(np.abs(before_gram[a_idx, b_idx]) ** 2)
 
-        floor = self.structural_floor()
+        try:
+            floor = self.structural_floor()
+        except NotImplementedError:
+            floor = float("nan")
 
         if method == "grid":
-            phi_a, phi_b, after_overlap, traj, feasible_mask = self._run_grid(
+            best_values, after_overlap, traj, feasible_mask = self._run_grid(
                 max_steps
             )
         else:
-            phi_a, phi_b, after_overlap, traj, feasible_mask = self._run_scipy(
+            best_values, after_overlap, traj, feasible_mask = self._run_scipy(
                 max_steps
             )
 
-        optimized_dict = self._dictionary_at(phi_a, phi_b)
+        optimized_dict = self._dictionary_at(*best_values)
         after_gram = optimized_dict.gram()
         efficiency = _compute_efficiency(
             before_overlap, float(after_overlap), floor
         )
 
         return CancellationResult(
-            optimized_phis={
-                self.target_pair[0]: float(phi_a),
-                self.target_pair[1]: float(phi_b),
+            optimized_knobs={
+                path: float(val)
+                for path, val in zip(self.knobs, best_values)
             },
             before_gram=before_gram,
             after_gram=after_gram,
@@ -316,68 +336,72 @@ class Cancellation:
             feasible_count=int(feasible_mask.sum()),
             dictionary_at_optimum=optimized_dict,
             target_pair=self.target_pair,
+            knobs=list(self.knobs),
             feasible_mask=feasible_mask,
-            structural_floor=floor,
+            structural_floor=float(floor),
             cancellation_efficiency=efficiency,
         )
 
     def _run_grid(
         self, res: int
-    ) -> tuple[float, float, float, np.ndarray, np.ndarray]:
-        phis = np.linspace(0.0, 2 * np.pi, res)
-        a_name, b_name = self.target_pair
-        traj = np.zeros((res * res, 3), dtype=float)
-        feasible_mask = np.zeros(res * res, dtype=bool)
+    ) -> tuple[tuple[float, ...], float, np.ndarray, np.ndarray]:
+        axes = [
+            np.linspace(lo, hi, res)
+            for lo, hi in (self._knob_bounds(p) for p in self.knobs)
+        ]
+        n_evals = res ** len(self.knobs)
+        n_cols = len(self.knobs) + 1
+        traj = np.zeros((n_evals, n_cols), dtype=float)
+        feasible_mask = np.zeros(n_evals, dtype=bool)
 
-        a_idx = self.dictionary.feature_index(a_name)
-        b_idx = self.dictionary.feature_index(b_name)
+        a_idx = self.dictionary.feature_index(self.target_pair[0])
+        b_idx = self.dictionary.feature_index(self.target_pair[1])
 
-        for i, pa in enumerate(phis):
-            for j, pb in enumerate(phis):
-                d = self._dictionary_at(float(pa), float(pb))
-                g = d.gram()
-                ov = float(np.abs(g[a_idx, b_idx]) ** 2)
-                k = i * res + j
-                traj[k, 0] = pa
-                traj[k, 1] = pb
-                traj[k, 2] = ov
-                if self.preserve_tiers:
-                    feasible_mask[k] = hierarchical_ordering_preserved(
-                        g, d, self.target_pair
-                    )
-                else:
-                    feasible_mask[k] = True
+        # Row-major iteration over the per-axis Cartesian product.
+        grids = np.meshgrid(*axes, indexing="ij")
+        flat = [g.reshape(-1) for g in grids]
+        for k in range(n_evals):
+            values = tuple(float(arr[k]) for arr in flat)
+            d = self._dictionary_at(*values)
+            g = d.gram()
+            ov = float(np.abs(g[a_idx, b_idx]) ** 2)
+            for col, v in enumerate(values):
+                traj[k, col] = v
+            traj[k, n_cols - 1] = ov
+            if self.preserve_tiers:
+                feasible_mask[k] = hierarchical_ordering_preserved(
+                    g, d, self.target_pair
+                )
+            else:
+                feasible_mask[k] = True
 
         if feasible_mask.any():
-            search = np.where(feasible_mask, traj[:, 2], np.inf)
+            search = np.where(
+                feasible_mask, traj[:, n_cols - 1], np.inf
+            )
             best = int(np.argmin(search))
         else:
-            best = int(np.argmin(traj[:, 2]))
+            best = int(np.argmin(traj[:, n_cols - 1]))
 
-        return (
-            float(traj[best, 0]),
-            float(traj[best, 1]),
-            float(traj[best, 2]),
-            traj,
-            feasible_mask,
-        )
+        best_values = tuple(float(traj[best, col]) for col in range(len(self.knobs)))
+        return (best_values, float(traj[best, n_cols - 1]), traj, feasible_mask)
 
     def _run_scipy(
         self, maxiter: int
-    ) -> tuple[float, float, float, np.ndarray, np.ndarray]:
+    ) -> tuple[tuple[float, ...], float, np.ndarray, np.ndarray]:
         try:
             from scipy.optimize import differential_evolution
         except ImportError as exc:  # pragma: no cover
             raise ImportError(_SCIPY_INSTALL_HINT) from exc
 
-        a_name, b_name = self.target_pair
-        a_idx = self.dictionary.feature_index(a_name)
-        b_idx = self.dictionary.feature_index(b_name)
-        history: list[tuple[float, float, float, bool]] = []
+        a_idx = self.dictionary.feature_index(self.target_pair[0])
+        b_idx = self.dictionary.feature_index(self.target_pair[1])
+        bounds = [self._knob_bounds(p) for p in self.knobs]
+        history: list[tuple[tuple[float, ...], float, bool]] = []
 
         def objective(x: np.ndarray) -> float:
-            pa, pb = float(x[0]), float(x[1])
-            d = self._dictionary_at(pa, pb)
+            values = tuple(float(v) for v in x)
+            d = self._dictionary_at(*values)
             g = d.gram()
             ov = float(np.abs(g[a_idx, b_idx]) ** 2)
             feasible = (
@@ -385,62 +409,73 @@ class Cancellation:
                 if self.preserve_tiers
                 else True
             )
-            history.append((pa, pb, ov, feasible))
+            history.append((values, ov, feasible))
             return ov + (0.0 if feasible else INFEASIBLE_PENALTY)
 
         result = differential_evolution(
             objective,
-            bounds=[(0.0, 2 * np.pi), (0.0, 2 * np.pi)],
+            bounds=bounds,
             seed=0,
             maxiter=maxiter,
             polish=False,
         )
+
+        n_cols = len(self.knobs) + 1
         traj = np.array(
-            [(pa, pb, ov) for pa, pb, ov, _ in history], dtype=float
+            [list(values) + [ov] for values, ov, _ in history], dtype=float
         )
         feasible_mask = np.array([ok for *_, ok in history], dtype=bool)
 
-        # If the unconstrained minimum is infeasible but feasible
-        # candidates exist, return the best feasible one as the
-        # reported optimum so `optimized_phis` is meaningful.
         if self.preserve_tiers and feasible_mask.any():
-            feasible_overlaps = np.where(feasible_mask, traj[:, 2], np.inf)
-            best = int(np.argmin(feasible_overlaps))
-            return (
-                float(traj[best, 0]),
-                float(traj[best, 1]),
-                float(traj[best, 2]),
-                traj,
-                feasible_mask,
+            feasible_overlaps = np.where(
+                feasible_mask, traj[:, n_cols - 1], np.inf
             )
-        return (
-            float(result.x[0]),
-            float(result.x[1]),
-            float(np.abs(self._dictionary_at(
-                float(result.x[0]), float(result.x[1])
-            ).gram()[a_idx, b_idx]) ** 2),
-            traj,
-            feasible_mask,
-        )
+            best = int(np.argmin(feasible_overlaps))
+            best_values = tuple(
+                float(traj[best, col]) for col in range(len(self.knobs))
+            )
+            return (best_values, float(traj[best, n_cols - 1]), traj, feasible_mask)
 
-    def _dictionary_at(self, phi_a: float, phi_b: float) -> Dictionary:
-        a_name, b_name = self.target_pair
+        best_values = tuple(float(v) for v in result.x)
+        d = self._dictionary_at(*best_values)
+        ov = float(np.abs(d.gram()[a_idx, b_idx]) ** 2)
+        return (best_values, ov, traj, feasible_mask)
+
+    def _dictionary_at(self, *values: float) -> Dictionary:
+        if len(values) != len(self.knobs):
+            raise ValueError(
+                f"_dictionary_at expected {len(self.knobs)} values "
+                f"(one per knob), got {len(values)}"
+            )
         d = self.dictionary
-        d = d.with_phi(a_name, float(phi_a))
-        d = d.with_phi(b_name, float(phi_b))
+        for path, val in zip(self.knobs, values):
+            d = d.with_knob(path, float(val))
         return replace(d, name=f"{self.dictionary.name}_at_optimum")
+
+
+def _is_hea(dictionary: Dictionary) -> bool:
+    return not isinstance(dictionary.encoding, MPSRung1)
 
 
 def _compute_efficiency(
     before: float, after: float, floor: float
 ) -> float | None:
+    if math.isnan(floor):
+        return None
     gap = before - floor
     if gap < 1e-9:
         return None
     return float(np.clip((before - after) / gap, 0.0, 1.0))
 
 
-def _interpret_efficiency(efficiency: float | None) -> str:
+def _interpret_efficiency(
+    efficiency: float | None, floor: float
+) -> str:
+    if math.isnan(floor):
+        return (
+            "structural floor is encoding-bound; not yet defined for "
+            "this configuration"
+        )
     if efficiency is None:
         return "no cancellation gap available"
     if efficiency >= 0.99:
@@ -448,15 +483,133 @@ def _interpret_efficiency(efficiency: float | None) -> str:
     return "phase search underutilized"
 
 
+def _plot_grid(result: CancellationResult, plt, p: Path) -> Path:
+    if len(result.knobs) != 2:
+        raise NotImplementedError(
+            "kind='grid' is defined only when len(knobs) == 2 "
+            f"(got knobs={result.knobs!r}); use kind='before_after' "
+            "for higher-dimensional searches"
+        )
+    n = int(np.sqrt(result.trajectory.shape[0]))
+    a_path, b_path = result.knobs
+    a_lo, a_hi = float(result.trajectory[:, 0].min()), float(
+        result.trajectory[:, 0].max()
+    )
+    b_lo, b_hi = float(result.trajectory[:, 1].min()), float(
+        result.trajectory[:, 1].max()
+    )
+    overlaps = result.trajectory[:, 2].astype(float)
+    display = np.where(result.feasible_mask, overlaps, np.nan).reshape(n, n)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.imshow(
+        display.T,
+        origin="lower",
+        aspect="auto",
+        extent=(a_lo, a_hi, b_lo, b_hi),
+        cmap="viridis",
+    )
+    fig.colorbar(im, ax=ax, label="|<A|B>|²")
+    ax.scatter(
+        [result.optimized_knobs[a_path]],
+        [result.optimized_knobs[b_path]],
+        marker="*",
+        s=180,
+        c="red",
+        edgecolors="white",
+        label="optimum",
+    )
+    ax.set_xlabel(a_path)
+    ax.set_ylabel(b_path)
+    ax.set_title(
+        f"Cancellation grid — {a_path} × {b_path}\n"
+        f"after_overlap = {result.after_overlap:.4f}"
+    )
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(p, dpi=120)
+    plt.close(fig)
+    return p
+
+
+def _plot_scipy(result: CancellationResult, plt, p: Path) -> Path:
+    a_name, b_name = result.target_pair
+    fig, ax = plt.subplots(figsize=(7, 4))
+    ax.plot(
+        np.arange(result.trajectory.shape[0]),
+        result.trajectory[:, -1],
+        marker=".",
+        linewidth=1.0,
+        color="tab:blue",
+    )
+    ax.set_xlabel("evaluation")
+    ax.set_ylabel("|<A|B>|²")
+    ax.set_title(
+        f"Cancellation scipy — {a_name} × {b_name}\n"
+        f"after_overlap = {result.after_overlap:.4f}"
+    )
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(p, dpi=120)
+    plt.close(fig)
+    return p
+
+
+def _plot_before_after(result: CancellationResult, plt, p: Path) -> Path:
+    a_name, b_name = result.target_pair
+    a_idx = result.dictionary_at_optimum.feature_index(a_name)
+    b_idx = result.dictionary_at_optimum.feature_index(b_name)
+    before = np.abs(result.before_gram) ** 2
+    after = np.abs(result.after_gram) ** 2
+    vmax = float(max(before.max(), after.max()))
+
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4), constrained_layout=True)
+    for ax, mat, title in zip(
+        axes[:2], (before, after), ("before |<i|j>|²", "after |<i|j>|²")
+    ):
+        im = ax.imshow(mat, cmap="viridis", vmin=0.0, vmax=vmax)
+        ax.set_title(title)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.scatter(
+            [b_idx, a_idx], [a_idx, b_idx],
+            marker="s", s=80,
+            facecolors="none", edgecolors="red", linewidths=1.5,
+        )
+    fig.colorbar(im, ax=axes[:2].tolist(), shrink=0.7)
+
+    bar_ax = axes[2]
+    labels = ["before", "after"]
+    values = [result.before_overlap, result.after_overlap]
+    if not math.isnan(result.structural_floor):
+        labels.append("floor")
+        values.append(float(result.structural_floor))
+    bar_ax.bar(labels, values, color=["#888", "#1f77b4", "#2ca02c"][: len(labels)])
+    bar_ax.set_ylabel("|<A|B>|²")
+    bar_ax.set_title(f"{a_name} × {b_name}")
+    bar_ax.grid(axis="y", alpha=0.3)
+
+    fig.savefig(p, dpi=120)
+    plt.close(fig)
+    return p
+
+
 def _render_summary(result: CancellationResult) -> str:
     a, b = result.target_pair
     eff = result.cancellation_efficiency
     eff_str = "n/a" if eff is None else f"{eff:.4f}"
+    floor = result.structural_floor
+    floor_str = (
+        "undefined for this configuration"
+        if math.isnan(floor)
+        else f"{floor:.6f}"
+    )
     lines = [
         f"# {result.dictionary_at_optimum.name}",
         "",
         f"- target pair: `{a}` × `{b}`",
         f"- method: `{result.method}`",
+        f"- knobs: {', '.join(f'`{k}`' for k in result.knobs)}",
         f"- tolerance_met: {result.tolerance_met} "
         f"(after_overlap < tolerance)",
         f"- feasible evaluations: {result.feasible_count} of "
@@ -464,8 +617,18 @@ def _render_summary(result: CancellationResult) -> str:
         "",
         "## Optimum",
         "",
-        f"- `{a}.phi` = {result.optimized_phis[a]:.6f}",
-        f"- `{b}.phi` = {result.optimized_phis[b]:.6f}",
+    ]
+    for path in result.knobs:
+        lines.append(f"- `{path}` = {result.optimized_knobs[path]:.6f}")
+    # Surface the canonical 2-φ feature names too, for backwards-friendly
+    # readability when the default knobs are in use.
+    if result.knobs == [f"{a}.phi", f"{b}.phi"]:
+        lines.extend([
+            "",
+            f"  - {a} = {result.optimized_knobs[f'{a}.phi']:.6f}",
+            f"  - {b} = {result.optimized_knobs[f'{b}.phi']:.6f}",
+        ])
+    lines.extend([
         "",
         "## Overlap",
         "",
@@ -475,17 +638,19 @@ def _render_summary(result: CancellationResult) -> str:
         "",
         "## Structural floor",
         "",
-        f"- structural_floor: {result.structural_floor:.6f}",
+        f"- structural_floor: {floor_str}",
         f"- cancellation_efficiency: {eff_str}",
-        f"- interpretation: {_interpret_efficiency(eff)}",
+        f"- interpretation: {_interpret_efficiency(eff, floor)}",
         "",
-    ]
+    ])
     return "\n".join(lines)
 
 
 def _render_trajectory_csv(result: CancellationResult) -> str:
-    out = ["phi_a,phi_b,overlap,feasible"]
+    header = ",".join(list(result.knobs) + ["overlap", "feasible"])
+    out = [header]
     for row, feasible in zip(result.trajectory, result.feasible_mask):
-        pa, pb, ov = float(row[0]), float(row[1]), float(row[2])
-        out.append(f"{pa:.6f},{pb:.6f},{ov:.6f},{1 if feasible else 0}")
+        cells = [f"{float(v):.6f}" for v in row]
+        cells.append("1" if feasible else "0")
+        out.append(",".join(cells))
     return "\n".join(out) + "\n"

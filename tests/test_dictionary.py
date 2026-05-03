@@ -194,3 +194,75 @@ class TestHEADictionary:
             encoding=encoding,
         )
         assert d.tier_separation() is None
+
+
+class TestWithKnob:
+    def test_phi_path_works_on_mps(self):
+        d = _animals()
+        d2 = d.with_knob("dog_at_rest.phi", 0.7)
+        assert d.feature("dog_at_rest").phi == 0.0
+        assert d2.feature("dog_at_rest").phi == pytest.approx(0.7)
+        assert d2.feature("bird_at_rest").phi == d.feature("bird_at_rest").phi
+
+    def test_phi_path_works_on_hea(self):
+        d = _hea_animals()
+        d2 = d.with_knob("a.phi", 0.5)
+        assert d.feature("a").phi == 0.0
+        assert d2.feature("a").phi == pytest.approx(0.5)
+        for other in ("b", "c"):
+            assert d2.feature(other).phi == d.feature(other).phi
+
+    def test_theta_path_rejected_on_mps(self):
+        d = _animals()
+        with pytest.raises(ValueError, match=r"HEA-only"):
+            d.with_knob("dog_at_rest.theta[0,0,1]", 0.3)
+
+    def test_theta_path_writes_single_slot_on_hea(self):
+        d = _hea_animals()
+        original_default = _default_hea_theta(d.feature("a"), d.encoding)
+        d2 = d.with_knob("a.theta[1,0,1]", 0.5)
+        theta = d2.feature("a").theta
+        assert theta is not None
+        assert theta.shape == (2, 2, 3)
+        assert theta[1, 0, 1] == pytest.approx(0.5)
+        for r in range(theta.shape[0]):
+            for q in range(theta.shape[2]):
+                if (r, 0, q) == (1, 0, 1):
+                    continue
+                assert theta[r, 0, q] == pytest.approx(original_default[r, 0, q])
+        assert d.feature("a").theta is None
+
+    def test_theta_path_lifts_existing_tensor(self):
+        encoding = HEA_Rung2(depth=2)
+        baseline = np.full(encoding.theta_shape, 0.25)
+        d = Dictionary(
+            name="Lift",
+            features=[
+                Feature("a", "s1", beta=0.0, theta=baseline.copy()),
+                Feature("b", "s2", beta=0.0),
+            ],
+            hierarchy={"s1": ["a"], "s2": ["b"]},
+            encoding=encoding,
+        )
+        d2 = d.with_knob("a.theta[0,1,2]", 1.0)
+        new_theta = d2.feature("a").theta
+        assert new_theta[0, 1, 2] == pytest.approx(1.0)
+        assert new_theta is not d.feature("a").theta
+        assert d.feature("a").theta[0, 1, 2] == pytest.approx(0.25)
+
+    def test_out_of_range_slot_raises(self):
+        d = _hea_animals()
+        with pytest.raises(ValueError, match=r"\(2, 0, 0\).*theta_shape=\(2, 2, 3\)"):
+            d.with_knob("a.theta[2,0,0]", 0.0)
+
+    def test_malformed_path_raises(self):
+        d = _hea_animals()
+        with pytest.raises(ValueError, match=r"grammar"):
+            d.with_knob("a.theta", 0.0)
+        with pytest.raises(ValueError, match=r"grammar"):
+            d.with_knob("a", 0.0)
+
+    def test_unknown_feature_raises(self):
+        d = _hea_animals()
+        with pytest.raises(KeyError):
+            d.with_knob("nope.phi", 0.0)

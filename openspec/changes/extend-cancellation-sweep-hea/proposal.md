@@ -28,10 +28,26 @@ layered ansatz is not in general bilinear in the difference of two
 features' values. Rather than ship a "best-found-so-far" number
 labeled as `structural_floor`, this change makes the method raise
 `NotImplementedError` on every configuration outside the canonical
-rung-1 2-φ shape. A defensible HEA floor (e.g. a Lipschitz upper bound
-on `|∂overlap/∂θ|` giving a non-tight lower bound) is **deliberately
-deferred** to a research-track proposal once a concrete SAE workload
-needs it.
+rung-1 2-φ shape.
+
+A side-experiment on the Animals HEA dictionary surfaced an additional
+reason the deferral is load-bearing, beyond analytic tractability. The
+default 2-φ knob set on HEA cannot reduce
+`(dog_poodle, bird_hawk)` below `0.7686` (the φ-overlap landscape on
+HEA is essentially flat — only 4 unique overlap values across 50
+feasible points of a 12×12 grid). Switching to a 4-θ knob set on the
+Ry rotations *does* drive the target pair to `≈ 0` — but it
+**shatters the cluster**: sibling overlaps collapse from `0.9999` to
+`~0.58`, and `tier_separation` flips from `+0.2226` to `−0.1957`
+(siblings are now less similar than cross-cluster pairs). The
+per-feature θ rotation surgically targets the named pair while
+ignoring that they live in clusters. A useful HEA floor therefore has
+to be defined with respect to a **cluster-respecting knob set** (e.g.
+shared θ across siblings, or constrained θ-deltas) — not just over the
+raw `(R, D, Q)` slot space. A defensible HEA floor (e.g. a Lipschitz
+upper bound on `|∂overlap/∂θ|` giving a non-tight lower bound, defined
+over a cluster-respecting knob set) is **deliberately deferred** to a
+research-track proposal once a concrete SAE workload needs it.
 
 ## What Changes
 
@@ -168,6 +184,20 @@ explicitly **not** part of this change:
   search bounded below by the rung-1 `M − |V|` floor is a feature,
   not a bug — driving overlap below requires amplitude variation,
   which is a separate research-track question.
+- **Cluster-respecting HEA knob sets.** The current θ-knob surface
+  is per-feature, so a researcher cancelling
+  `(dog_poodle, bird_hawk)` via θ-rotations can drive their overlap
+  to `≈ 0` while collapsing sibling overlaps (`dog_poodle`,
+  `dog_beagle`) and inverting the tier-separation invariant — see
+  the deferral paragraph above. A future proposal can introduce
+  cluster-shared knobs (one `.theta[r,d,q]` slot patched
+  identically across all siblings) or invariant-preserving
+  optimization (Cancellation runs with `tier_separation_bound` as a
+  hard constraint), but the surface for that is a research-track
+  question. For now, researchers using θ knobs on HEA should
+  hand-check the `tier_separation` measure on the materialized
+  `_at_optimum.q.orca.md` rather than trust the cancellation
+  result alone.
 - **`QFT_Rung3` and other algebraic encoding families.** Speculative
   until SAE evidence justifies them.
 
