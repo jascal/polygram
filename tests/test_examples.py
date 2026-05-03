@@ -83,6 +83,35 @@ def test_import_from_sae_runs(tmp_path: Path):
     assert result.assertion_pass["hierarchical_ordering_preserved"].all()
 
 
+def test_animals_hea_example_runs(tmp_path: Path):
+    """Coarsened HEA emit example — verifies the dictionary builds, emits
+    a parseable file, and produces a positive tier-separation that clears
+    the declared invariant bound."""
+    from examples.animals_hea import build_dictionary, main
+
+    main(output_dir=tmp_path)
+    out = tmp_path / "animals_hea" / "AnimalsHea.q.orca.md"
+    assert out.exists()
+
+    from q_orca.parser.markdown_parser import parse_q_orca_markdown
+    from q_orca.verifier import VerifyOptions, verify
+
+    parsed = parse_q_orca_markdown(out.read_text())
+    assert not parsed.errors, parsed.errors
+    machine = parsed.file.machines[0]
+    assert machine.encoding.kind == "hea"
+    assert [r.cluster for r in machine.theta.rows] == [
+        "dogs", "dogs", "birds", "birds",
+    ]
+
+    verification = verify(machine, VerifyOptions(skip_resource_bounds=True))
+    assert verification.valid
+
+    sep = build_dictionary().tier_separation()
+    assert sep is not None
+    assert sep > 0.025
+
+
 def test_cancellation_example_runs(tmp_path: Path):
     """Coarsened combined SAE → Sweep → Cancellation walk; verifies
     both materialized `.q.orca.md` files parse + verify clean."""

@@ -1,6 +1,8 @@
+import numpy as np
 import pytest
 
-from polygram.dictionary import Dictionary, Feature, _default_betas
+from polygram.dictionary import Dictionary, Feature, _default_betas, _default_hea_theta
+from polygram.encoding import HEA_Rung2
 
 
 def _animals():
@@ -103,3 +105,92 @@ def test_with_phi_returns_modified_copy():
     assert d.feature("dog_at_rest").phi == 0.0
     assert d2.feature("dog_at_rest").phi == pytest.approx(0.7)
     assert d2.feature("bird_at_rest").phi == d.feature("bird_at_rest").phi
+
+
+def _hea_animals(encoding=None):
+    encoding = encoding or HEA_Rung2(depth=2)
+    return Dictionary(
+        name="HeaTiered",
+        features=[
+            Feature("a", "s1", beta=0.10, alpha=0.05, gamma=0.02),
+            Feature("b", "s1", beta=0.11, alpha=0.04, gamma=0.03),
+            Feature("c", "s2", beta=1.20, alpha=1.10, gamma=1.00),
+        ],
+        hierarchy={"s1": ["a", "b"], "s2": ["c"]},
+        encoding=encoding,
+    )
+
+
+class TestHEADictionary:
+    def test_feature_default_theta_is_none(self):
+        f = Feature("a", "s1", beta=0.1)
+        assert f.theta is None
+
+    def test_dictionary_accepts_hea_encoding(self):
+        d = _hea_animals()
+        assert isinstance(d.encoding, HEA_Rung2)
+        assert d.encoding.depth == 2
+
+    def test_feature_with_well_shaped_theta_is_accepted(self):
+        encoding = HEA_Rung2(depth=2)
+        theta = np.zeros(encoding.theta_shape)
+        Dictionary(
+            name="Ok",
+            features=[
+                Feature("a", "s1", beta=0.0, theta=theta),
+                Feature("b", "s2", beta=0.0),
+            ],
+            hierarchy={"s1": ["a"], "s2": ["b"]},
+            encoding=encoding,
+        )
+
+    def test_feature_with_wrong_shape_theta_raises(self):
+        encoding = HEA_Rung2(depth=3, rotations=("Ry", "Rz"))
+        bad = np.zeros((2, 2, 3))
+        with pytest.raises(ValueError, match=r"a.*\(2, 2, 3\).*\(2, 3, 3\)"):
+            Dictionary(
+                name="Bad",
+                features=[Feature("a", "s1", beta=0.0, theta=bad)],
+                hierarchy={"s1": ["a"]},
+                encoding=encoding,
+            )
+
+    def test_default_hea_theta_lays_knobs_on_first_layer(self):
+        encoding = HEA_Rung2(depth=2, rotations=("Ry", "Rz"))
+        f = Feature("a", "s1", beta=0.5, alpha=0.1, gamma=0.2, phi=0.7)
+        theta = _default_hea_theta(f, encoding)
+        assert theta.shape == (2, 2, 3)
+        assert theta[0, 0, 0] == pytest.approx(0.1)
+        assert theta[0, 0, 1] == pytest.approx(0.5)
+        assert theta[0, 0, 2] == pytest.approx(0.2)
+        assert theta[1, 0, 1] == pytest.approx(0.7)
+        assert theta[0, 1, :].sum() == 0.0
+        assert theta[1, 1, :].sum() == 0.0
+
+    def test_gram_dispatches_to_hea_helper(self):
+        d = _hea_animals()
+        gram = d.gram()
+        assert gram.shape == (3, 3)
+        assert np.iscomplexobj(gram)
+        for i in range(3):
+            assert abs(gram[i, i]) == pytest.approx(1.0, abs=1e-9)
+
+    def test_tier_separation_positive_for_clearly_tiered_fixture(self):
+        d = _hea_animals()
+        sep = d.tier_separation()
+        assert sep is not None
+        assert sep > 0.5
+
+    def test_tier_separation_returns_none_for_all_singletons(self):
+        encoding = HEA_Rung2(depth=2)
+        d = Dictionary(
+            name="Singletons",
+            features=[
+                Feature("a", "s1", beta=0.1),
+                Feature("b", "s2", beta=0.2),
+                Feature("c", "s3", beta=0.3),
+            ],
+            hierarchy={"s1": ["a"], "s2": ["b"], "s3": ["c"]},
+            encoding=encoding,
+        )
+        assert d.tier_separation() is None
