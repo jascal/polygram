@@ -44,6 +44,16 @@ def _default_hea_theta(feature: Feature, encoding: HEA_Rung2) -> np.ndarray:
     qubit 1 when an ``Rz`` slot exists. Remaining slots are zero. Small
     ``(α, β, γ)`` keeps cluster cohesion high; outsider features pick up
     a magnitude shift via larger knobs.
+
+    Heuristic boundary
+    ------------------
+    The placement assumes the canonical 3-qubit / ``("Ry", "Rz")``
+    layout. When ``rotations == ("Rz",)`` and ``n_qubits < 2``, both
+    ``α`` and ``φ`` map to the same slot ``(0, 0, 0)``: ``φ`` is written
+    last and silently overwrites ``α``. That's a degenerate
+    configuration for the rung-2 spike (which targets 3 qubits) and the
+    helper does not raise — pass an explicit ``Feature.theta`` instead
+    if you want full control over θ in such layouts.
     """
     shape = encoding.theta_shape
     theta = np.zeros(shape, dtype=float)
