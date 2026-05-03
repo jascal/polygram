@@ -1,7 +1,14 @@
 # experiment Specification
 
 ## Purpose
-TBD - created by archiving change experiment-interference-sweep. Update Purpose after archive.
+
+Polygram's experiment primitives: `InterferenceSweep` (landscape
+exploration over φ ranges) and `Cancellation` (goal-directed φ-search
+to drive a target-pair overlap below a tolerance, optionally
+preserving cluster-tier ordering). Also defines q-orca file emission
+with provenance (`polygram.emit.write_qorca`) and the structural-floor
+diagnostic that bounds what φ-only search can achieve.
+
 ## Requirements
 ### Requirement: Q-Orca file emission with provenance
 

@@ -1,7 +1,15 @@
 # sae Specification
 
 ## Purpose
-TBD - created by archiving change cancellation-primitive. Update Purpose after archive.
+
+The SAE → Polygram bridge. `polygram.from_sae_lens` consumes
+SAE Lens-style feature records (id, projection vector, cluster
+hint), runs cluster assignment and feature-knob derivation (β, α,
+optional γ via per-cluster PCA), and returns a built `Dictionary`
+plus a `SelectionReport` with reconstruction error per feature and
+a tier-preservation correlation between projection-space cosine
+overlaps and the analytic Polygram Gram.
+
 ## Requirements
 ### Requirement: SelectionReport reports per-feature reconstruction error
 

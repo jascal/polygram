@@ -1,7 +1,14 @@
 # analysis Specification
 
 ## Purpose
-TBD - created by archiving change analysis-triage-layer. Update Purpose after archive.
+
+Pre-encoding triage of SAE feature subsets using only the rung-1
+closed-form Gram. Lets researchers score and compare candidate
+subsets before committing to encoding or simulation: per-pair
+`(M, V, structural_floor, cancellation_gap)`, per-feature
+sensitivity, and an aggregate `encoding_suitability_score`. No
+quantum simulation — `O(n_features)` Gram evaluations only.
+
 ## Requirements
 ### Requirement: predict_cancellation_depth returns per-pair triage predictions
 

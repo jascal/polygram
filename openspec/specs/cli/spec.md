@@ -1,7 +1,13 @@
 # cli Specification
 
 ## Purpose
-TBD - created by archiving change polish-interference-sweep. Update Purpose after archive.
+
+The `polygram` console-script entry point and its subcommands. Covers
+how Polygram artifacts are produced from the command line: `run`
+loads and executes example modules; `analyze` triages SAE feature
+subsets via the analytic Gram. New subcommands SHALL extend this
+spec rather than introduce parallel entry points.
+
 ## Requirements
 ### Requirement: Console-script entry point
 

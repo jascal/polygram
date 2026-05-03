@@ -1,7 +1,13 @@
 # dictionary Specification
 
 ## Purpose
-TBD - created by archiving change core-dictionary-mpsrung1. Update Purpose after archive.
+
+The core data model: `Feature` (a single feature with cluster
+assignment, β, α, γ, φ knobs) and `Dictionary` (a collection of
+features under a chosen encoding). Defines the `MPSRung1` encoding
+marker and the analytic-Gram surface (`Dictionary.gram()`) that
+downstream experiments and the analysis layer build on.
+
 ## Requirements
 ### Requirement: MPSRung1 encoding marker
 
