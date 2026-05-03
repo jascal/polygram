@@ -28,14 +28,21 @@ Each change has `proposal.md` (why + scope), `tasks.md` (checklist), and
 
 ## Q-Orca dependency contract
 
-- Pinned at `q-orca>=0.7.1` (the first PyPI release with safe-`Rz` rung-1 MPS
-  matcher from q-orca-lang PR #51).
+- Pinned at `q-orca>=0.9.0` — the first PyPI release with first-class rung-2
+  HEA encoding (`## encoding` + `## theta` grammar, optional `cluster` column)
+  and the declarative `concept_gram_tier_separation` invariant enforced at
+  Stage 4b (`HEA_TIER_INVARIANT_VIOLATED` / `HEA_TIER_UNDEFINED` /
+  `HEA_TIER_INVARIANT_NOT_APPLICABLE`).
 - Treat `q_orca.compiler.concept_gram_mps.compute_concept_gram_mps` as a
   stable API surface. Always call it with `form="preparation"` — the
   inverse-form `Rz` symmetry break documented in q-orca-lang's
-  `examples/larql-animals-interference.q.orca.md` is now a hard error
+  `examples/larql-animals-interference.q.orca.md` is a hard error
   (`MpsGramConfigurationError(kind="rz_in_inverse_form")`), but stay on the
   preparation form regardless.
+- For HEA dictionaries, the stable surface is
+  `q_orca.compiler.concept_gram_hea.compute_concept_gram_hea` plus the
+  `compute_tier_separation` analysis helper. Both are part of v0.9.0's
+  public API.
 - Q-Orca is **not** vendored. If you need a fix in Q-Orca, open it there.
 
 ## File layout

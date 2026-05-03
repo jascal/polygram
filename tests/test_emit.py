@@ -4,6 +4,7 @@ import math
 
 from polygram.dictionary import Dictionary, Feature
 from polygram.emit import write_qorca
+from polygram.encoding import HEA_Rung2
 
 
 def _animals() -> Dictionary:
@@ -64,3 +65,40 @@ def test_emitted_file_uses_preparation_form(tmp_path):
     for slug in ("dog_at_rest", "dog_in_motion", "bird_at_rest", "bird_in_motion"):
         assert f"prepare_{slug}" in text
         assert f"prepared_{slug}" in text
+
+
+def _hea_animals() -> Dictionary:
+    return Dictionary(
+        name="HeaEmitTest",
+        features=[
+            Feature("a", "s1", beta=0.10, alpha=0.05, gamma=0.02),
+            Feature("b", "s1", beta=0.11, alpha=0.04, gamma=0.03),
+            Feature("c", "s2", beta=1.20, alpha=1.10, gamma=1.00),
+        ],
+        hierarchy={"s1": ["a", "b"], "s2": ["c"]},
+        encoding=HEA_Rung2(depth=2),
+    )
+
+
+def test_hea_round_trip_verifies_clean(tmp_path):
+    from q_orca.parser.markdown_parser import parse_q_orca_markdown
+    from q_orca.verifier import VerifyOptions, verify
+
+    out = tmp_path / "hea.q.orca.md"
+    write_qorca(_hea_animals(), out)
+    parsed = parse_q_orca_markdown(out.read_text())
+    assert not parsed.errors, parsed.errors
+
+    machine = parsed.file.machines[0]
+    assert machine.encoding.kind == "hea"
+    assert [r.cluster for r in machine.theta.rows] == ["s1", "s1", "s2"]
+
+    result = verify(machine, VerifyOptions(skip_resource_bounds=True))
+    assert result.valid
+    forbidden = {
+        "HEA_GRAM_INVALID",
+        "HEA_TIER_INVARIANT_VIOLATED",
+        "HEA_TIER_UNDEFINED",
+    }
+    offenders = [e for e in result.errors if e.code in forbidden]
+    assert not offenders, [(e.code, e.message) for e in offenders]

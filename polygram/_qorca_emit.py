@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from polygram.encoding import HEA_Rung2
+
 if TYPE_CHECKING:
     from polygram.dictionary import Dictionary
 
@@ -26,9 +28,20 @@ def feature_slug(name: str) -> str:
 
 
 def render_machine_markdown(dictionary: Dictionary) -> str:
-    """Render the Dictionary as a larql-animals-interference-style
-    `.q.orca.md` string. No file I/O, no provenance header — that's the
-    public emitter's job."""
+    """Render the Dictionary as a `.q.orca.md` string.
+
+    Dispatches on ``dictionary.encoding``: ``MPSRung1`` produces the
+    larql-animals-interference-style staircase machine; ``HEA_Rung2``
+    produces the larql-hea-minimal-style ``## encoding`` + ``## theta``
+    machine. No file I/O, no provenance header — that's the public
+    emitter's job.
+    """
+    if isinstance(dictionary.encoding, HEA_Rung2):
+        return _render_hea_markdown(dictionary)
+    return _render_mps_rung1_markdown(dictionary)
+
+
+def _render_mps_rung1_markdown(dictionary: Dictionary) -> str:
     feats = dictionary.features
     slugs = [feature_slug(f.name) for f in feats]
 
@@ -99,6 +112,101 @@ def render_machine_markdown(dictionary: Dictionary) -> str:
     lines.append("")
 
     return "\n".join(lines)
+
+
+def _render_hea_markdown(dictionary: Dictionary) -> str:
+    from polygram.dictionary import _default_hea_theta
+
+    encoding = dictionary.encoding
+    assert isinstance(encoding, HEA_Rung2)
+    feats = dictionary.features
+    slugs = [feature_slug(f.name) for f in feats]
+    n_qubits = encoding.n_qubits
+
+    lines: list[str] = []
+    lines.append(f"# machine {dictionary.name}")
+    lines.append("")
+    lines.append(
+        f"Polygram-generated rung-2 HEA dictionary "
+        f"({len(feats)} features, {len(dictionary.hierarchy)} clusters; "
+        f"depth={encoding.depth}, entangler={encoding.entangler}, "
+        f"rotations={list(encoding.rotations)})."
+    )
+    lines.append("")
+
+    qubit_list = "[" + ", ".join(f"q{i}" for i in range(n_qubits)) + "]"
+    qubit_pad = " " * max(0, len(qubit_list) - len("[q0, q1, q2]"))
+    lines.append("## context")
+    lines.append("| Field  | Type        | Default          |")
+    lines.append("|--------|-------------|------------------|")
+    lines.append(f"| qubits | list<qubit> | {qubit_list}{qubit_pad} |")
+    lines.append("")
+
+    lines.append("## events")
+    for slug in slugs:
+        lines.append(f"- prep_{slug}")
+    lines.append("")
+
+    lines.append("## state idle [initial]")
+    lines.append(
+        f"> Ground state of the {n_qubits}-qubit register, "
+        f"before any concept preparation."
+    )
+    lines.append("")
+    for f, slug in zip(feats, slugs):
+        lines.append(f"## state queried_{slug} [final]")
+        lines.append(
+            f"> Register holds concept `{f.name}` (cluster: {f.cluster})."
+        )
+        lines.append("")
+
+    lines.append("## transitions")
+    lines.append("| Source | Event   | Guard | Target       | Action        |")
+    lines.append("|--------|---------|-------|--------------|---------------|")
+    for slug in slugs:
+        lines.append(
+            f"| idle   | prep_{slug} |       | queried_{slug} | query_concept |"
+        )
+    lines.append("")
+
+    lines.append("## actions")
+    lines.append("| Name          | Signature   |")
+    lines.append("|---------------|-------------|")
+    lines.append("| query_concept | (qs) -> qs  |")
+    lines.append("")
+
+    lines.append("## encoding")
+    lines.append("| key       | value  |")
+    lines.append("|-----------|--------|")
+    lines.append("| kind      | hea    |")
+    lines.append(f"| depth     | {encoding.depth}      |")
+    lines.append(f"| entangler | {encoding.entangler}   |")
+    rotations_str = ", ".join(encoding.rotations)
+    lines.append(f"| rotations | {rotations_str} |")
+    lines.append("")
+
+    lines.append("## theta")
+    lines.append("| concept | tensor | cluster |")
+    lines.append("|---------|--------|---------|")
+    for f, slug in zip(feats, slugs):
+        theta = f.theta if f.theta is not None else _default_hea_theta(f, encoding)
+        tensor_repr = _theta_to_literal(theta)
+        lines.append(f"| {slug} | {tensor_repr} | {f.cluster} |")
+    lines.append("")
+
+    if encoding.tier_separation_bound is not None:
+        lines.append("## invariants")
+        lines.append(
+            f"- concept_gram_tier_separation >= {encoding.tier_separation_bound}"
+        )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _theta_to_literal(theta) -> str:
+    """Render a θ tensor as a literal-eval-able Python list-of-lists string."""
+    return repr(theta.tolist())
 
 
 def build_machine(dictionary: Dictionary):
