@@ -59,4 +59,4 @@
 
 - [x] 6.1 `openspec validate import-sae-dictionaries --strict` ✓
 - [x] 6.2 73 tests pass; ruff clean
-- [ ] 6.3 Commit + push
+- [x] 6.3 Commit + push
