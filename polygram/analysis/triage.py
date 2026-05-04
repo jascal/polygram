@@ -134,6 +134,40 @@ class TriagePrediction:
 # ---------------------------------------------------------------------------
 
 
+def triage_dictionary(dictionary: Dictionary) -> TriagePrediction:
+    """Build a `TriagePrediction` from an existing `Dictionary` directly.
+
+    Used when callers already have a hand-crafted dictionary (or a
+    dictionary with a non-MPS encoding) and want the rung-1 closed-form
+    pair decomposition without going through `from_sae_lens`. The
+    returned `TriagePrediction.selection_report` has
+    `cluster_method="dictionary"` and minimal placeholder fields — the
+    triage signal is in `.pairs`, `.feature_sensitivity`, and
+    `.encoding_suitability_score`.
+    """
+    pairs = _predict_pairs_from_dictionary(dictionary)
+    sensitivity = _feature_sensitivity_from_pairs(dictionary, pairs)
+    score = _suitability_score_from_pairs(pairs)
+    feature_names = [f.name for f in dictionary.features]
+    cluster_of = {f.name: f.cluster for f in dictionary.features}
+    report = SelectionReport(
+        n_input_features=len(feature_names),
+        n_selected=len(feature_names),
+        cluster_assignments={n: cluster_of[n] for n in feature_names},
+        cluster_method="dictionary",
+        beta_variance_explained=1.0,
+        reconstruction_error={n: 0.0 for n in feature_names},
+        tier_preservation=None,
+    )
+    return TriagePrediction(
+        dictionary=dictionary,
+        selection_report=report,
+        pairs=pairs,
+        feature_sensitivity=sensitivity,
+        encoding_suitability_score=score,
+    )
+
+
 def predict_cancellation_depth(
     sae_dict: dict[int, SAEFeatureRecord],
     feature_ids: list[int],

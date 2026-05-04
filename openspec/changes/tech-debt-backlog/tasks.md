@@ -48,3 +48,36 @@ reference.
       holds for `MPSRung1 <cluster>.phi`; HEA cluster-shared paths
       ship as a search-space dimensionality reduction (no algebraic
       bound). Per-knob/joint floor diagnostics remain deferred.
+
+## 3. Encoding-invariance verification — research-track follow-up
+
+- [ ] 3.1 Encoding-invariance spike (MPS vs HEA classification
+      stability). Both `add-sharing-graph-triage` and
+      `add-batch-experiment` ride on the rung-1 closed-form
+      `(M, V, structural_floor, cancellation_gap)` decomposition,
+      which is exact for `MPSRung1` and only-approximate for
+      `HEA_Rung2` (the analytic floor isn't defined in the multi-knob
+      HEA case — see the `structural_floor()`
+      `NotImplementedError` rail in `polygram/cancellation.py`).
+      The open question is whether a feature pair classified as
+      "good sharing candidate" or "must separate" under `MPSRung1`
+      stays in that bucket when re-encoded as `HEA_Rung2(depth=2)`
+      (or vice-versa). If classifications drift across encodings,
+      the `BatchResults` carrying both predictions and observations
+      will silently disagree with the input `FeatureGraph` on
+      genuine SAE workloads.
+      Concrete plan: pick one fixture (the `tests/fixtures/toy_sae.json`
+      4-feature subset is enough), run `triage_dictionary` →
+      `build_separation_graph` and `build_sharing_graph` against
+      both `MPSRung1` and `HEA_Rung2(depth=2)` instantiations of the
+      same `(name, hierarchy, beta, alpha, gamma, phi)` features,
+      and compare:
+      (a) the kept-edge set per kind;
+      (b) per-pair `(M, V, structural_floor)` distances;
+      (c) `BatchExperiment(top_k=4).run().runs` outputs.
+      Ship as a research note under `docs/research/` once empirical
+      data exists. This blocks any future
+      compression-pipeline work that depends on the predictions
+      being stable across encodings.
+      (Source: `add-batch-experiment` proposal Out of Scope; flagged
+      while landing the `BatchExperiment` consumer of `FeatureGraph`.)

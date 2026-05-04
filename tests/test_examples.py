@@ -171,3 +171,25 @@ def test_cancellation_example_runs(tmp_path: Path):
 
     assert (out / "ToySAEAnimals4_at_optimum_trajectory.csv").exists()
     assert (out / "ToySAEAnimals4_at_optimum_summary.md").exists()
+
+
+def test_batch_animals_hea_runs(tmp_path: Path):
+    """Batch-experiment walk-through: triage_dictionary →
+    build_separation_graph → BatchExperiment(top_k=4) on the Animals
+    HEA dictionary. Asserts the standard artifact bundle lands."""
+    import json
+
+    from examples.batch_animals_hea import main
+
+    main(output_dir=tmp_path)
+    out = tmp_path / "batch_animals_hea"
+    assert (out / "input_separation_graph.json").is_file()
+    results_path = out / "batch_results.json"
+    assert results_path.is_file()
+    data = json.loads(results_path.read_text())
+    assert data["dictionary_name"] == "AnimalsHea"
+    assert data["knobs"] == "cluster_shared"
+    assert 1 <= len(data["runs"]) <= 4
+    for run in data["runs"]:
+        sub = out / f"{run['source']}_x_{run['target']}"
+        assert sub.is_dir()

@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import importlib
 import importlib.util
+import json
 import sys
+import tempfile
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable
@@ -176,6 +178,121 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_dictionary_ref(ref: str) -> Any:
+    """Resolve `--dictionary REF` to a `Dictionary` instance.
+
+    Accepts a `module:callable` form whose callable returns a
+    Dictionary. `.q.orca.md` paths are surfaced today as a clear
+    `SystemExit` pointing at the supported form — the rung-1
+    .q.orca.md surface does not carry cluster information, so the
+    inverse round-trip is a follow-up research-track task (tracked in
+    `openspec/changes/tech-debt-backlog/`).
+    """
+    if Path(ref).suffix == ".q.orca.md" or (
+        ":" not in ref and Path(ref).exists() and ref.endswith(".q.orca.md")
+    ):
+        raise SystemExit(
+            "polygram: .q.orca.md → Dictionary round-trip is not yet "
+            "implemented (rung-1 machines do not carry cluster info on "
+            "the wire). Pass a `module:callable` reference instead, e.g. "
+            "`examples.animals_hea:build_dictionary`."
+        )
+    if ":" not in ref:
+        raise SystemExit(
+            f"polygram: --dictionary {ref!r} must be `module:callable` "
+            "(e.g. `examples.animals_hea:build_dictionary`)."
+        )
+    module_name, _, attr = ref.partition(":")
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        raise SystemExit(
+            f"polygram: cannot import dictionary module {module_name!r}: {exc}"
+        ) from None
+    if not hasattr(module, attr):
+        raise SystemExit(
+            f"polygram: dictionary module {module_name!r} has no attribute "
+            f"{attr!r}"
+        )
+    obj = getattr(module, attr)
+    if not callable(obj):
+        raise SystemExit(
+            f"polygram: --dictionary {ref!r} is not callable"
+        )
+    try:
+        result = obj()
+    except Exception as exc:
+        raise SystemExit(
+            f"polygram: dictionary callable {ref!r} raised: {exc}"
+        ) from None
+
+    from polygram.dictionary import Dictionary
+
+    if not isinstance(result, Dictionary):
+        raise SystemExit(
+            f"polygram: dictionary callable {ref!r} returned "
+            f"{type(result).__name__}, expected Dictionary"
+        )
+    return result
+
+
+def _topk_argtype(value: str) -> int:
+    try:
+        n = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"--top-k expects an integer, got {value!r}"
+        ) from None
+    from polygram.batch import TOP_K_MAX, TOP_K_MIN
+
+    if n < TOP_K_MIN or n > TOP_K_MAX:
+        raise argparse.ArgumentTypeError(
+            f"--top-k must be in [{TOP_K_MIN}, {TOP_K_MAX}]; got {n}"
+        )
+    return n
+
+
+def _cmd_batch(args: argparse.Namespace) -> int:
+    from polygram.analysis.feature_graph import FeatureGraph
+    from polygram.batch import BatchExperiment
+
+    graph_path = Path(args.feature_graph)
+    if not graph_path.exists():
+        raise SystemExit(
+            f"polygram: --feature-graph file not found: {graph_path}"
+        )
+    try:
+        graph = FeatureGraph.from_json(graph_path.read_text())
+    except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
+        raise SystemExit(
+            f"polygram: failed to parse --feature-graph {graph_path}: {exc}"
+        ) from None
+
+    dictionary = _resolve_dictionary_ref(args.dictionary)
+
+    if args.output_dir is not None:
+        out_dir = Path(args.output_dir).resolve()
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="polygram-batch-"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        experiment = BatchExperiment(
+            feature_graph=graph,
+            dictionary=dictionary,
+            top_k=args.top_k,
+            knobs=args.knobs,
+            output_dir=out_dir,
+        )
+    except ValueError as exc:
+        raise SystemExit(f"polygram: batch failed: {exc}") from None
+
+    experiment.run()
+    results_path = out_dir / "batch_results.json"
+    print(f"polygram: wrote batch results → {results_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="polygram")
     parser.add_argument(
@@ -236,6 +353,37 @@ def main(argv: list[str] | None = None) -> int:
              "ignored unless --separation-graph is set)",
     )
     p_an.set_defaults(func=_cmd_analyze)
+
+    p_batch = sub.add_parser(
+        "batch",
+        help="run Cancellation on the top-K edges of a FeatureGraph",
+    )
+    p_batch.add_argument(
+        "--feature-graph", required=True,
+        help="path to a JSON FeatureGraph (output of "
+             "`build_sharing_graph` / `build_separation_graph`)",
+    )
+    p_batch.add_argument(
+        "--dictionary", required=True,
+        help="`module:callable` returning a Dictionary "
+             "(e.g. `examples.animals_hea:build_dictionary`)",
+    )
+    p_batch.add_argument(
+        "--top-k", type=_topk_argtype, default=8,
+        help="number of input-graph edges to run (default 8; cap 16)",
+    )
+    p_batch.add_argument(
+        "--knobs", choices=("cluster_shared", "per_feature"),
+        default="cluster_shared",
+        help="knob path style passed to per-pair Cancellation "
+             "(default: cluster_shared)",
+    )
+    p_batch.add_argument(
+        "--output-dir", default=None,
+        help="where per-pair artifacts and batch_results.json land "
+             "(default: a freshly-created temp directory)",
+    )
+    p_batch.set_defaults(func=_cmd_batch)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
