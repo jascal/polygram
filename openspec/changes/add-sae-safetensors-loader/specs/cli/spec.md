@@ -65,3 +65,32 @@ The handler SHALL:
 
 - **WHEN** the CLI is invoked with `<path>` pointing at a file that does not exist
 - **THEN** the process exits non-zero with stderr naming the missing path
+
+### Requirement: analyze subcommand exposes assign_gamma and n_clusters
+
+The `polygram analyze` subcommand SHALL accept two additional optional flags forwarded directly to `polygram.from_sae_lens` via `predict_cancellation_depth`:
+
+- `--assign-gamma` (boolean flag, default false) — when set, forwards `assign_gamma=True` so each feature's γ knob is derived from per-cluster PCA on the centered projection vectors. Without this flag every feature's γ stays at 0, which collapses within-cluster overlaps to 1.0 on diverse-projection inputs (the default `from_sae_lens` behaviour). Real-SAE workloads almost always need it.
+- `--n-clusters N` (integer, default `None` → `from_sae_lens` defaults to 2) — forwarded as the `n_clusters` argument when `from_sae_lens` falls back to k-means. Out-of-range values (`< 1`) SHALL be rejected at argparse layer.
+
+These flags affect the `Dictionary` produced by `from_sae_lens` and therefore every downstream artifact: the markdown report's pair predictions, the optional `--sharing-graph` and `--separation-graph` JSON outputs, and the suitability score. They do not interact with each other beyond what `from_sae_lens` documents.
+
+#### Scenario: --assign-gamma forwards to from_sae_lens
+
+- **GIVEN** a toy-SAE JSON file with at least one cluster of size ≥ 2 whose features have diverse projection vectors
+- **WHEN** the CLI is invoked with `--assign-gamma`
+- **THEN** the report's per-pair `current` overlaps for within-cluster pairs are NOT all `1.0000` (γ-PCA differentiates siblings)
+- **AND WHEN** the same file is analyzed without `--assign-gamma`
+- **THEN** within-cluster `current` overlaps DO collapse to `1.0000`
+
+#### Scenario: --n-clusters forwards to from_sae_lens
+
+- **GIVEN** a toy-SAE JSON whose features lack `cluster/name` labels (so k-means is the cluster path)
+- **WHEN** the CLI is invoked with `--n-clusters 3 --features 0,1,2,3`
+- **THEN** the report's `Cluster method` line names `kmeans`
+- **AND** the per-pair table reflects 3-cluster grouping (not the default 2-cluster)
+
+#### Scenario: invalid --n-clusters rejected
+
+- **WHEN** the CLI is invoked with `--n-clusters 0`
+- **THEN** the process exits non-zero with stderr naming the value and the valid range

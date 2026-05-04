@@ -253,8 +253,17 @@ the chain `sae-import → analyze` works without further plumbing:
 
 ```bash
 polygram sae-import sae.safetensors --features 0,12,1042 --output picked.json
-polygram analyze picked.json --features 0,12,1042 --sharing-graph g.json
+polygram analyze picked.json --features 0,12,1042 --assign-gamma --sharing-graph g.json
 ```
+
+> **`--assign-gamma` is almost always wanted on real-SAE inputs.** Without
+> it, every feature in a k-means cluster gets `γ = 0` and rung-1
+> within-cluster overlaps collapse to `1.0` regardless of how
+> diverse the underlying projection vectors are — the SAE's
+> geometry becomes invisible to the triage layer. With the flag set,
+> per-cluster PCA on the centered projections derives each feature's
+> γ. The companion `--n-clusters N` flag (default `2`) tunes the
+> k-means cluster count when label-based clustering isn't available.
 
 A first-class HuggingFace / SAE-Lens reader (with auto-download +
 metadata round-trip) is a separate follow-up — both would pull in

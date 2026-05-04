@@ -103,8 +103,16 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     feature_ids = _parse_feature_ids(args.features)
     records = load_toy_sae(sae_path)
 
+    from_sae_lens_kwargs: dict[str, Any] = {}
+    if args.assign_gamma:
+        from_sae_lens_kwargs["assign_gamma"] = True
+    if args.n_clusters is not None:
+        from_sae_lens_kwargs["n_clusters"] = args.n_clusters
+
     try:
-        prediction = predict_cancellation_depth(records, feature_ids)
+        prediction = predict_cancellation_depth(
+            records, feature_ids, **from_sae_lens_kwargs
+        )
     except ValueError as exc:
         raise SystemExit(f"polygram: analyze failed: {exc}") from None
 
@@ -248,6 +256,20 @@ def _topk_argtype(value: str) -> int:
     if n < TOP_K_MIN or n > TOP_K_MAX:
         raise argparse.ArgumentTypeError(
             f"--top-k must be in [{TOP_K_MIN}, {TOP_K_MAX}]; got {n}"
+        )
+    return n
+
+
+def _positive_int_argtype(value: str) -> int:
+    try:
+        n = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got {value!r}"
+        ) from None
+    if n < 1:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer (>= 1), got {n}"
         )
     return n
 
@@ -462,6 +484,20 @@ def main(argv: list[str] | None = None) -> int:
         "--separation-threshold", type=float, default=0.2,
         help="separation-graph weight threshold (default: 0.2; "
              "ignored unless --separation-graph is set)",
+    )
+    p_an.add_argument(
+        "--assign-gamma", action="store_true",
+        help="forward assign_gamma=True to from_sae_lens; per-cluster "
+             "PCA on projection vectors derives each feature's γ. "
+             "Without this flag every feature gets γ=0, which collapses "
+             "within-cluster overlaps to 1.0 on diverse-projection "
+             "inputs. Real-SAE workloads almost universally need it.",
+    )
+    p_an.add_argument(
+        "--n-clusters", type=_positive_int_argtype, default=None,
+        help="forward n_clusters=N to from_sae_lens (used when k-means "
+             "is the cluster fallback). default delegates to "
+             "from_sae_lens (currently 2). Must be >= 1.",
     )
     p_an.set_defaults(func=_cmd_analyze)
 

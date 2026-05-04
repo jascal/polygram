@@ -71,6 +71,16 @@
       `load_toy_sae` semantics).
 - [x] 3.6 `--output` omitted → write JSON to stdout. `--output`
       supplied → write to file; print resolved path to stderr.
+- [x] 3.7 `polygram/cli.py` — `_cmd_analyze` gains
+      `--assign-gamma` (store-true) and `--n-clusters N` flags;
+      forwarded to `predict_cancellation_depth` as
+      `assign_gamma=...` and `n_clusters=...` when set.
+      argparse-level rejection for `--n-clusters < 1`. Discovered
+      during real-SAE testing on
+      `jbloom/GPT2-Small-SAEs-Reformatted` `blocks.0.hook_resid_pre`:
+      without `--assign-gamma`, all within-cluster Gram entries
+      collapse to 1.0 regardless of feature choice, hiding the SAE's
+      geometry from the triage layer.
 
 ## 4. Tests
 
@@ -101,6 +111,12 @@
       mixed-type names).
 - [x] 4.7 `tests/test_examples.py::test_sae_safetensors_runs` —
       example produces the expected `.q.orca.md` artifact.
+- [x] 4.8 `tests/test_cli.py::TestAnalyzeAssignGamma` — assert
+      `polygram analyze --assign-gamma` produces a report whose
+      within-cluster `current` overlap is below 1.0 on a fixture
+      with diverse-projection siblings, and assert the
+      no-flag baseline collapses to 1.0 on the same fixture.
+      Plus `--n-clusters 3` and `--n-clusters 0` rejection.
 
 ## 5. Example
 

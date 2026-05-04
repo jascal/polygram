@@ -24,6 +24,12 @@ This change closes the gap for the simplest case (a local `.safetensors` file) w
 - `--names labels.json` accepts a JSON file mapping `{feature_id: name}` (auto-detected by inspecting the first value's type — string-valued maps are interpreted as `id → name`; int-valued maps as `name → id` and inverted).
 - `--output` defaults to writing the JSON document to stdout.
 
+### `polygram analyze` — γ-PCA flag
+
+- `polygram analyze` gains `--assign-gamma` (boolean) and `--n-clusters N` (integer) flags. Both forward directly to `polygram.from_sae_lens` via `predict_cancellation_depth`'s `**from_sae_lens_kwargs` passthrough.
+- Rationale (added during real-data testing): without `--assign-gamma`, every feature within a k-means cluster gets `γ=0` and the rung-1 encoding collapses sibling overlaps to 1.0 regardless of projection diversity — the SAE's actual geometry is invisible to the triage layer. Real SAE workloads almost universally need `--assign-gamma`. Surfacing it on the CLI keeps the user out of Python for the standard flow.
+- `--n-clusters` is a less-frequently-touched companion; default delegates to `from_sae_lens`'s default of `2`. Required when the user wants the k-means cluster fallback to produce a different cluster count than the default.
+
 ### `[sae]` extra populated
 
 - `pyproject.toml`: `[sae]` extra (currently empty) gains `safetensors>=0.4`. Still NO torch, sae_lens, huggingface_hub.
@@ -55,7 +61,7 @@ This change closes the gap for the simplest case (a local `.safetensors` file) w
 
 - `polygram/sae_import.py` — new `load_sae_safetensors` function and a tiny key-detection helper.
 - `polygram/__init__.py` — re-export.
-- `polygram/cli.py` — new `sae-import` subcommand handler.
+- `polygram/cli.py` — new `sae-import` subcommand handler; existing `analyze` handler gains `--assign-gamma` and `--n-clusters` flag plumbing.
 - `pyproject.toml` — `[sae]` extra gains `safetensors>=0.4`; the `[all]` extra inherits.
 - `tests/test_sae_safetensors.py` — new module.
 - `tests/test_cli.py` — new `TestSaeImportSubcommand`.
