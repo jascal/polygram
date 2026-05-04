@@ -2,21 +2,33 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from polygram import Cancellation, load_toy_sae
+from polygram import Cancellation, Dictionary, Feature, load_toy_sae
 from polygram.analysis import (
+    FLOOR_BLOCK,
     KNOB_SELECTION_GUIDANCE,
+    SEPARATION_EDGE_FORMULA,
+    SHARING_EDGE_FORMULA,
     SUITABILITY_FORMULA,
+    FeatureEdge,
+    FeatureGraph,
+    PairPrediction,
+    TriagePrediction,
+    build_separation_graph,
+    build_sharing_graph,
     encoding_suitability_score,
     feature_sensitivity,
     predict_cancellation_depth,
+    render_feature_graph_section,
     render_report,
 )
 from polygram.cli import main as cli_main
+from polygram.sae_import import SelectionReport
 
 FIXTURE = Path("tests/fixtures/toy_sae.json")
 
@@ -165,3 +177,348 @@ def test_cli_analyze_missing_path(tmp_path: Path):
                 str(tmp_path / "r.md"),
             ]
         )
+
+
+# ---------------------------------------------------------------------------
+# Sharing / separation graph artifacts
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_prediction(
+    pairs: list[PairPrediction],
+    feature_names: list[str],
+    cluster_per_feature: dict[str, str],
+) -> TriagePrediction:
+    """Build a TriagePrediction without re-running the analytic Gram —
+    handy for hand-tuned edge-weight scenarios."""
+    features = [
+        Feature(name=n, cluster=cluster_per_feature[n], beta=0.0)
+        for n in feature_names
+    ]
+    hierarchy: dict[str, list[str]] = {}
+    for n in feature_names:
+        hierarchy.setdefault(cluster_per_feature[n], []).append(n)
+    dictionary = Dictionary(
+        name="Synthetic", features=features, hierarchy=hierarchy
+    )
+    report = SelectionReport(
+        n_input_features=len(features),
+        n_selected=len(features),
+        cluster_assignments={n: cluster_per_feature[n] for n in feature_names},
+        cluster_method="user",
+        beta_variance_explained=1.0,
+        reconstruction_error={n: 0.0 for n in feature_names},
+        tier_preservation=None,
+    )
+    sensitivity = {n: 0.0 for n in feature_names}
+    return TriagePrediction(
+        dictionary=dictionary,
+        selection_report=report,
+        pairs=pairs,
+        feature_sensitivity=sensitivity,
+        encoding_suitability_score=0.0,
+    )
+
+
+def _pair(
+    a: str,
+    b: str,
+    *,
+    ca: str,
+    cb: str,
+    current: float,
+    floor: float,
+) -> PairPrediction:
+    gap = current - floor
+    big_v = 0.5 * (current - floor)
+    big_m = 0.5 * (current + floor)
+    return PairPrediction(
+        feature_a=a,
+        feature_b=b,
+        cluster_a=ca,
+        cluster_b=cb,
+        current_overlap=current,
+        m_pi=floor,
+        M=big_m,
+        V=big_v,
+        structural_floor=floor,
+        cancellation_gap=gap,
+    )
+
+
+class TestSharingGraph:
+    def test_edges_respect_threshold(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_sharing_graph(prediction, threshold=0.6)
+        for e in graph.edges:
+            assert e.weight >= 0.6 - 1e-12
+
+    def test_weights_in_unit_interval(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_sharing_graph(
+            prediction, threshold=0.0, allow_cross_cluster=True
+        )
+        for e in graph.edges:
+            assert 0.0 <= e.weight <= 1.0
+
+    def test_cross_cluster_gated_by_flag(self):
+        # Cross-cluster pair with low floor + high gap so the cluster
+        # gate is the only thing blocking it.
+        cross = _pair("a", "x", ca="c1", cb="c2", current=0.4, floor=0.05)
+        within = _pair("a", "b", ca="c1", cb="c1", current=0.4, floor=0.05)
+        prediction = _synthetic_prediction(
+            pairs=[cross, within],
+            feature_names=["a", "b", "x"],
+            cluster_per_feature={"a": "c1", "b": "c1", "x": "c2"},
+        )
+        gated = build_sharing_graph(
+            prediction, threshold=0.0, allow_cross_cluster=False
+        )
+        for e in gated.edges:
+            assert not e.is_cross_cluster
+
+        opened = build_sharing_graph(
+            prediction, threshold=0.0, allow_cross_cluster=True
+        )
+        assert any(e.is_cross_cluster for e in opened.edges)
+
+    def test_high_floor_blocks_edge(self):
+        # Floor above FLOOR_BLOCK with a tiny gap — would otherwise pass
+        # threshold=0 but the floor gate must zero the weight.
+        high = _pair("x", "y", ca="c1", cb="c1", current=0.95, floor=0.7)
+        low = _pair("p", "q", ca="c1", cb="c1", current=0.30, floor=0.05)
+        prediction = _synthetic_prediction(
+            pairs=[high, low],
+            feature_names=["x", "y", "p", "q"],
+            cluster_per_feature={"x": "c1", "y": "c1", "p": "c1", "q": "c1"},
+        )
+        graph = build_sharing_graph(prediction, threshold=0.0)
+        names = {(e.source, e.target) for e in graph.edges}
+        assert ("x", "y") not in names
+        assert ("p", "q") in names
+        assert FLOOR_BLOCK == 0.5
+
+    def test_clusters_are_connected_components(self):
+        # Edges: a–b kept, b–c kept, d–e kept, f isolated.
+        # Expected components: {a,b,c}, {d,e}, {f}.
+        ab = _pair("a", "b", ca="g1", cb="g1", current=0.40, floor=0.04)
+        bc = _pair("b", "c", ca="g1", cb="g1", current=0.40, floor=0.04)
+        de = _pair("d", "e", ca="g2", cb="g2", current=0.40, floor=0.04)
+        # Force these below threshold:
+        af = _pair("a", "f", ca="g1", cb="g3", current=0.10, floor=0.09)
+        prediction = _synthetic_prediction(
+            pairs=[ab, bc, de, af],
+            feature_names=["a", "b", "c", "d", "e", "f"],
+            cluster_per_feature={
+                "a": "g1", "b": "g1", "c": "g1",
+                "d": "g2", "e": "g2",
+                "f": "g3",
+            },
+        )
+        graph = build_sharing_graph(
+            prediction, threshold=0.5, allow_cross_cluster=True
+        )
+        # All nodes appear exactly once across components.
+        flat = [n for c in graph.clusters for n in c]
+        assert sorted(flat) == sorted(graph.nodes)
+        assert len(flat) == len(set(flat))
+        component_sets = [set(c) for c in graph.clusters]
+        assert {"a", "b", "c"} in component_sets
+        assert {"d", "e"} in component_sets
+        assert {"f"} in component_sets
+
+    def test_kind_and_formula_are_sharing(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_sharing_graph(prediction)
+        assert graph.kind == "sharing"
+        assert graph.metadata["kind"] == "sharing"
+        assert graph.metadata["formula"] == SHARING_EDGE_FORMULA
+        assert graph.metadata["threshold"] == 0.5
+        assert graph.metadata["allow_cross_cluster"] is False
+        assert graph.metadata["total_features"] == 4
+
+
+class TestSeparationGraph:
+    def test_weights_equal_floor_on_kept_pairs(self):
+        # Two cross-cluster pairs above threshold; weight should equal
+        # the structural floor (clipped).
+        cross_hi = _pair("a", "x", ca="c1", cb="c2", current=0.6, floor=0.5)
+        cross_lo = _pair("a", "y", ca="c1", cb="c2", current=0.3, floor=0.25)
+        # Below-threshold cross-cluster pair (floor < 0.2):
+        cross_drop = _pair("b", "y", ca="c1", cb="c2", current=0.2, floor=0.1)
+        prediction = _synthetic_prediction(
+            pairs=[cross_hi, cross_lo, cross_drop],
+            feature_names=["a", "b", "x", "y"],
+            cluster_per_feature={
+                "a": "c1", "b": "c1", "x": "c2", "y": "c2",
+            },
+        )
+        graph = build_separation_graph(prediction, threshold=0.2)
+        kept = {(e.source, e.target): e for e in graph.edges}
+        assert ("a", "x") in kept
+        assert ("a", "y") in kept
+        assert ("b", "y") not in kept
+        for src, tgt, expected_floor in [("a", "x", 0.5), ("a", "y", 0.25)]:
+            edge = kept[(src, tgt)]
+            assert abs(edge.weight - min(expected_floor, 1.0)) < 1e-12
+            assert abs(edge.floor - expected_floor) < 1e-12
+
+    def test_within_cluster_gated_by_flag(self):
+        # Within-cluster pair with high floor — gated by include flag.
+        within = _pair("a", "b", ca="c1", cb="c1", current=0.95, floor=0.6)
+        # Provide a cross-cluster anchor so feature x doesn't drop out.
+        cross = _pair("a", "x", ca="c1", cb="c2", current=0.4, floor=0.3)
+        prediction = _synthetic_prediction(
+            pairs=[within, cross],
+            feature_names=["a", "b", "x"],
+            cluster_per_feature={"a": "c1", "b": "c1", "x": "c2"},
+        )
+        gated = build_separation_graph(
+            prediction, threshold=0.2, include_within_cluster=False
+        )
+        for e in gated.edges:
+            assert e.is_cross_cluster
+
+        opened = build_separation_graph(
+            prediction, threshold=0.2, include_within_cluster=True
+        )
+        kept = {(e.source, e.target) for e in opened.edges}
+        assert ("a", "b") in kept
+
+    def test_clusters_are_connected_components(self):
+        # Cross-cluster floor edges form a chain a–x–c, plus d alone.
+        ax = _pair("a", "x", ca="c1", cb="c2", current=0.6, floor=0.5)
+        xc = _pair("x", "c", ca="c2", cb="c3", current=0.5, floor=0.4)
+        # Below threshold:
+        dx = _pair("d", "x", ca="c4", cb="c2", current=0.2, floor=0.05)
+        prediction = _synthetic_prediction(
+            pairs=[ax, xc, dx],
+            feature_names=["a", "x", "c", "d"],
+            cluster_per_feature={
+                "a": "c1", "x": "c2", "c": "c3", "d": "c4",
+            },
+        )
+        graph = build_separation_graph(prediction, threshold=0.2)
+        component_sets = [set(c) for c in graph.clusters]
+        assert {"a", "x", "c"} in component_sets
+        assert {"d"} in component_sets
+        flat = [n for c in graph.clusters for n in c]
+        assert sorted(flat) == ["a", "c", "d", "x"]
+
+    def test_kind_and_formula_are_separation(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_separation_graph(prediction)
+        assert graph.kind == "separation"
+        assert graph.metadata["kind"] == "separation"
+        assert graph.metadata["formula"] == SEPARATION_EDGE_FORMULA
+        assert graph.metadata["threshold"] == 0.2
+        assert graph.metadata["include_within_cluster"] is False
+        assert graph.metadata["total_features"] == 4
+
+
+class TestFeatureGraphSerialization:
+    def test_to_json_round_trips(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_sharing_graph(
+            prediction, threshold=0.0, allow_cross_cluster=True
+        )
+        parsed = json.loads(graph.to_json())
+        assert parsed["kind"] == graph.kind
+        assert parsed["nodes"] == list(graph.nodes)
+        assert len(parsed["edges"]) == len(graph.edges)
+        for raw, edge in zip(parsed["edges"], graph.edges):
+            for fld in (
+                "source",
+                "target",
+                "weight",
+                "floor",
+                "gap",
+                "is_cross_cluster",
+                "reason",
+            ):
+                assert fld in raw
+            assert raw["source"] == edge.source
+            assert raw["target"] == edge.target
+            assert raw["reason"] == edge.reason
+        assert parsed["metadata"]["formula"] == SHARING_EDGE_FORMULA
+        assert parsed["clusters"] == [list(c) for c in graph.clusters]
+
+    def test_to_json_byte_identical(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_separation_graph(prediction, threshold=0.05)
+        a = graph.to_json()
+        b = graph.to_json()
+        assert a == b
+        # Independent build of an "equal" graph also serializes the
+        # same — the deterministic ordering is what we promise.
+        again = build_separation_graph(prediction, threshold=0.05)
+        assert again.to_json() == a
+
+
+class TestRenderFeatureGraphSection:
+    def test_sharing_section_headings_and_formula(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_sharing_graph(prediction, threshold=0.0)
+        text = render_feature_graph_section(graph)
+        assert "## Sharing graph" in text
+        assert "## Separation graph" not in text
+        assert SHARING_EDGE_FORMULA in text
+        assert "### Edges" in text
+        assert "### Components" in text
+        assert "### Formula" in text
+
+    def test_separation_section_headings_and_formula(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_separation_graph(prediction, threshold=0.0)
+        text = render_feature_graph_section(graph)
+        assert "## Separation graph" in text
+        assert "## Sharing graph" not in text
+        assert SEPARATION_EDGE_FORMULA in text
+
+
+class TestSharingGraphEdgeOrdering:
+    def test_edges_sorted_by_descending_weight(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_sharing_graph(
+            prediction, threshold=0.0, allow_cross_cluster=True
+        )
+        weights = [e.weight for e in graph.edges]
+        assert weights == sorted(weights, reverse=True)
+
+
+class TestFeatureGraphBuilderInvariants:
+    def test_nodes_order_matches_dictionary(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_sharing_graph(prediction)
+        assert list(graph.nodes) == [
+            f.name for f in prediction.dictionary.features
+        ]
+
+    def test_singletons_appear_as_size_one_components(self, records):
+        prediction = predict_cancellation_depth(records, [0, 1, 4, 5])
+        graph = build_separation_graph(prediction, threshold=0.95)
+        # threshold high enough that no edges survive — every feature
+        # should still appear as a singleton component.
+        flat = [n for c in graph.clusters for n in c]
+        assert sorted(flat) == sorted(graph.nodes)
+        assert all(len(c) == 1 for c in graph.clusters)
+
+    def test_edges_and_feature_edge_dataclass_fields(self):
+        e = FeatureEdge(
+            source="a",
+            target="b",
+            weight=0.42,
+            floor=0.1,
+            gap=0.3,
+            is_cross_cluster=True,
+            reason="phase_headroom",
+        )
+        # Frozen — assignment must fail.
+        with pytest.raises(Exception):
+            e.weight = 0.5
+        assert isinstance(e, FeatureEdge)
+        empty = FeatureGraph(
+            kind="sharing", nodes=("a",), edges=(), clusters=(("a",),)
+        )
+        assert empty.metadata == {}
+        assert empty.to_json()

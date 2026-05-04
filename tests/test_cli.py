@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from polygram.cli import main
+
+FIXTURE = Path("tests/fixtures/toy_sae.json")
 
 
 def _write_target(tmp_path: Path, body: str) -> Path:
@@ -65,3 +68,97 @@ def test_run_skips_n_points_when_target_rejects_kwarg(tmp_path):
     rc = main(["run", str(target), "--output-dir", str(out), "--n-points", "9"])
     assert rc == 0
     assert (out / "ok").read_text() == "1"
+
+
+def test_analyze_emits_sharing_graph(tmp_path: Path):
+    report = tmp_path / "report.md"
+    sharing = tmp_path / "sharing.json"
+    rc = main(
+        [
+            "analyze",
+            str(FIXTURE),
+            "--features",
+            "0,1,4,5",
+            "--output",
+            str(report),
+            "--sharing-graph",
+            str(sharing),
+            "--sharing-threshold",
+            "0.4",
+        ]
+    )
+    assert rc == 0
+    assert report.exists()
+    data = json.loads(sharing.read_text())
+    assert data["kind"] == "sharing"
+    for key in ("kind", "nodes", "edges", "clusters", "metadata"):
+        assert key in data
+    assert data["metadata"]["threshold"] == 0.4
+
+
+def test_analyze_emits_separation_graph(tmp_path: Path):
+    report = tmp_path / "report.md"
+    sep = tmp_path / "sep.json"
+    rc = main(
+        [
+            "analyze",
+            str(FIXTURE),
+            "--features",
+            "0,1,4,5",
+            "--output",
+            str(report),
+            "--separation-graph",
+            str(sep),
+            "--separation-threshold",
+            "0.15",
+        ]
+    )
+    assert rc == 0
+    data = json.loads(sep.read_text())
+    assert data["kind"] == "separation"
+    assert data["metadata"]["threshold"] == 0.15
+
+
+def test_analyze_emits_both_graphs(tmp_path: Path):
+    report = tmp_path / "report.md"
+    sharing = tmp_path / "sharing.json"
+    sep = tmp_path / "sep.json"
+    rc = main(
+        [
+            "analyze",
+            str(FIXTURE),
+            "--features",
+            "0,1,4,5",
+            "--output",
+            str(report),
+            "--sharing-graph",
+            str(sharing),
+            "--separation-graph",
+            str(sep),
+        ]
+    )
+    assert rc == 0
+    sharing_data = json.loads(sharing.read_text())
+    sep_data = json.loads(sep.read_text())
+    assert sharing_data["kind"] == "sharing"
+    assert sep_data["kind"] == "separation"
+
+
+def test_analyze_threshold_malformed(tmp_path: Path):
+    report = tmp_path / "report.md"
+    sharing = tmp_path / "sharing.json"
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "analyze",
+                str(FIXTURE),
+                "--features",
+                "0,1,4,5",
+                "--output",
+                str(report),
+                "--sharing-graph",
+                str(sharing),
+                "--sharing-threshold",
+                "not-a-float",
+            ]
+        )
