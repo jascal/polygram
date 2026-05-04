@@ -643,6 +643,21 @@ def _render_summary(result: CancellationResult) -> str:
         f"- interpretation: {_interpret_efficiency(eff, floor)}",
         "",
     ])
+    if math.isnan(floor):
+        has_theta = any(".theta[" in k for k in result.knobs)
+        warning = (
+            "**Note:** the reported `after` is the best value found by "
+            f"`{result.method}`, not a guaranteed lower bound. Cross-term "
+            "interactions among knobs can drive the true achievable "
+            "overlap below this value"
+        )
+        if has_theta:
+            warning += (
+                ", and θ knobs can break cluster invariants — verify "
+                "`concept_gram_tier_separation` on the optimum"
+            )
+        warning += "."
+        lines.extend(["## Caveat", "", warning, ""])
     return "\n".join(lines)
 
 
