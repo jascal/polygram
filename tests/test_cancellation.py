@@ -343,6 +343,36 @@ class TestStructuralFloorContract:
         artifacts = result.materialize(tmp_path)
         text = artifacts["summary"].read_text()
         assert "undefined for this configuration" in text
+        assert "## Caveat" in text
+        assert "best value found" in text
+        # 2-φ HEA has no θ knob → tier-invariant addendum should not fire.
+        assert "concept_gram_tier_separation" not in text
+
+    def test_summary_caveat_flags_theta_cluster_hazard(
+        self, tmp_path: Path
+    ):
+        canc = Cancellation(
+            dictionary=_hea_pair(),
+            target_pair=("a", "c"),
+            knobs=["a.theta[0,0,0]", "c.theta[0,0,0]"],
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        result = canc.run()
+        artifacts = result.materialize(tmp_path)
+        text = artifacts["summary"].read_text()
+        assert "## Caveat" in text
+        assert "concept_gram_tier_separation" in text
+
+    def test_summary_omits_caveat_on_canonical_mps(self, tmp_path: Path):
+        canc = Cancellation(
+            dictionary=_animals(dog_phi=np.pi / 3),
+            target_pair=("dog_poodle", "bird_hawk"),
+            optimize={"method": "grid", "max_steps": 6},
+        )
+        result = canc.run()
+        artifacts = result.materialize(tmp_path)
+        text = artifacts["summary"].read_text()
+        assert "## Caveat" not in text
 
 
 class TestBeforeAfterPlot:
