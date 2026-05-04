@@ -293,6 +293,117 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_names_file(path: str) -> dict[int, str]:
+    """Load a `--names` JSON file, auto-detect its shape, and return
+    a `dict[int, str]` (`{id: name}`) suitable for
+    `load_sae_safetensors(names=...)`.
+
+    String-valued maps are interpreted as `{id: name}`; int-valued
+    maps as `{name: id}` and inverted. Mixed-type values exit
+    non-zero with a clear error.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise SystemExit(f"polygram: --names file not found: {path}")
+    try:
+        raw = json.loads(p.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"polygram: failed to parse --names {path}: {exc}"
+        ) from None
+    if not isinstance(raw, dict):
+        raise SystemExit(
+            f"polygram: --names {path} must contain a JSON object, "
+            f"got {type(raw).__name__}"
+        )
+    if not raw:
+        return {}
+
+    value_types = {type(v) for v in raw.values()}
+    if len(value_types) != 1:
+        raise SystemExit(
+            f"polygram: --names {path} mixes value types {value_types!r}; "
+            "expected a uniform `{id: name}` (string values) or "
+            "`{name: id}` (int values) map"
+        )
+    sole = next(iter(value_types))
+    if sole is str:
+        try:
+            return {int(k): str(v) for k, v in raw.items()}
+        except ValueError as exc:
+            raise SystemExit(
+                f"polygram: --names {path}: keys must parse as ints "
+                f"under the {{id: name}} shape: {exc}"
+            ) from None
+    if sole is int:
+        return {int(v): str(k) for k, v in raw.items()}
+    raise SystemExit(
+        f"polygram: --names {path} value type {sole.__name__} not "
+        "supported; use string values for `{id: name}` or int values "
+        "for `{name: id}`"
+    )
+
+
+def _cmd_sae_import(args: argparse.Namespace) -> int:
+    from polygram.sae_import import load_sae_safetensors
+
+    src = Path(args.path)
+    if not src.exists():
+        raise SystemExit(f"polygram: SAE file not found: {src}")
+
+    names = _resolve_names_file(args.names) if args.names is not None else None
+
+    try:
+        records = load_sae_safetensors(src, names=names)
+    except (ValueError, ImportError) as exc:
+        raise SystemExit(f"polygram: sae-import failed: {exc}") from None
+
+    if args.features is not None:
+        feature_ids = _parse_feature_ids(args.features)
+        missing = [fid for fid in feature_ids if fid not in records]
+        if missing:
+            raise SystemExit(
+                f"polygram: --features id(s) not in source SAE: "
+                f"{missing} (valid range: [0, {len(records)}))"
+            )
+        records = {fid: records[fid] for fid in feature_ids}
+
+    payload = {
+        "schema_version": 1,
+        "description": (
+            f"Polygram sae-import — {src.name}, "
+            f"{len(records)} features"
+        ),
+        "features": [
+            _record_to_json(rec) for rec in records.values()
+        ],
+    }
+    text = json.dumps(payload, indent=2)
+    if args.output is None:
+        print(text)
+    else:
+        out = Path(args.output).resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text)
+        sys.stderr.write(f"polygram: wrote {len(records)} features → {out}\n")
+    return 0
+
+
+def _record_to_json(rec: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "feature_id": int(rec.feature_id),
+        "name": rec.name,
+        "projection": [float(x) for x in rec.projection.tolist()],
+    }
+    if rec.label is not None:
+        out["label"] = rec.label
+    if rec.activation_mean is not None:
+        out["activation_mean"] = float(rec.activation_mean)
+    if rec.activation_std is not None:
+        out["activation_std"] = float(rec.activation_std)
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="polygram")
     parser.add_argument(
@@ -384,6 +495,33 @@ def main(argv: list[str] | None = None) -> int:
              "(default: a freshly-created temp directory)",
     )
     p_batch.set_defaults(func=_cmd_batch)
+
+    p_sae = sub.add_parser(
+        "sae-import",
+        help="convert a .safetensors SAE checkpoint to the toy-SAE JSON "
+             "schema consumed by `polygram analyze`",
+    )
+    p_sae.add_argument(
+        "path",
+        help="path to a .safetensors file containing decoder weights "
+             "(W_dec / decoder.weight / dec)",
+    )
+    p_sae.add_argument(
+        "--features", default=None,
+        help="optional comma-separated feature ids to keep "
+             "(default: every feature loaded)",
+    )
+    p_sae.add_argument(
+        "--names", default=None,
+        help="optional JSON file mapping {id: name} (string values) "
+             "or {name: id} (int values); auto-detected by value type",
+    )
+    p_sae.add_argument(
+        "--output", default=None,
+        help="output path for the toy-SAE JSON document "
+             "(default: stdout)",
+    )
+    p_sae.set_defaults(func=_cmd_sae_import)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

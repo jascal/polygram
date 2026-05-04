@@ -226,11 +226,47 @@ PCA on the centered projection vectors (rescaled into
 records `"zero"` (default) or `"projection_pca"`.
 
 The bundled `tests/fixtures/toy_sae.json` is a 16-feature, 4-cluster,
-8-dim deterministic toy. To swap in a real SAE-Lens / safetensors / HF
-SAE, hand-roll a `dict[int, SAEFeatureRecord]` from your loader of
-choice and pass it to `from_sae_lens`. A first-class
-`load_sae_lens(...)` reader for SAE-Lens checkpoints is on the
-roadmap; v0 stays out of the safetensors / torch dep tree.
+8-dim deterministic toy.
+
+### Loading from safetensors
+
+`polygram.load_sae_safetensors(path, *, names=None)` reads a single
+`.safetensors` file and returns the `dict[int, SAEFeatureRecord]`
+shape `from_sae_lens` consumes. Decoder weight tensor key is
+auto-detected via the precedence list `("W_dec", "decoder.weight",
+"dec")`; rows are features (the loader transposes only when the
+matched key is `decoder.weight` and the matrix is non-square — that's
+the PyTorch `nn.Linear` `out × in` convention). Requires the `[sae]`
+extra (`pip install polygram[sae]`) which pulls in `safetensors>=0.4`
+only — no torch, no `sae_lens`, no `huggingface_hub`.
+
+```python
+from polygram import from_sae_lens, load_sae_safetensors
+
+records = load_sae_safetensors("path/to/sae.safetensors")
+dictionary, report = from_sae_lens(records, [0, 1, 4, 5])
+```
+
+The companion `polygram sae-import` CLI subcommand wraps the loader
+and emits the same JSON schema as `tests/fixtures/toy_sae.json`, so
+the chain `sae-import → analyze` works without further plumbing:
+
+```bash
+polygram sae-import sae.safetensors --features 0,12,1042 --output picked.json
+polygram analyze picked.json --features 0,12,1042 --sharing-graph g.json
+```
+
+A first-class HuggingFace / SAE-Lens reader (with auto-download +
+metadata round-trip) is a separate follow-up — both would pull in
+`huggingface_hub` and / or `sae_lens` + torch, which v0 deliberately
+keeps out of the runtime dep tree until real-data signal arrives.
+
+### Hand-rolled loaders
+
+To swap in any SAE format the bundled loaders don't cover yet
+(custom serialization, multi-file checkpoints, in-memory tensors),
+hand-roll a `dict[int, SAEFeatureRecord]` from your loader of choice
+and pass it to `from_sae_lens` directly.
 
 See `examples/import_from_sae.py` for the full flow (toy SAE →
 Dictionary → `InterferenceSweep` → verified `.q.orca.md` + plot).
