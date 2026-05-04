@@ -86,7 +86,12 @@ def _parse_feature_ids(raw: str) -> list[int]:
 
 
 def _cmd_analyze(args: argparse.Namespace) -> int:
-    from polygram.analysis import predict_cancellation_depth, render_report
+    from polygram.analysis import (
+        build_separation_graph,
+        build_sharing_graph,
+        predict_cancellation_depth,
+        render_report,
+    )
     from polygram.sae_import import load_toy_sae
 
     sae_path = Path(args.sae_path)
@@ -111,6 +116,41 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
         f"polygram: analyzed {len(feature_ids)} features → {out} "
         f"(score={prediction.encoding_suitability_score:.4f})"
     )
+
+    if args.sharing_graph is not None:
+        try:
+            sharing = build_sharing_graph(
+                prediction, threshold=args.sharing_threshold
+            )
+        except ValueError as exc:
+            raise SystemExit(
+                f"polygram: build_sharing_graph failed: {exc}"
+            ) from None
+        sharing_path = Path(args.sharing_graph).resolve()
+        sharing_path.parent.mkdir(parents=True, exist_ok=True)
+        sharing_path.write_text(sharing.to_json())
+        print(
+            f"polygram: wrote sharing graph → {sharing_path} "
+            f"(threshold={args.sharing_threshold})"
+        )
+
+    if args.separation_graph is not None:
+        try:
+            separation = build_separation_graph(
+                prediction, threshold=args.separation_threshold
+            )
+        except ValueError as exc:
+            raise SystemExit(
+                f"polygram: build_separation_graph failed: {exc}"
+            ) from None
+        separation_path = Path(args.separation_graph).resolve()
+        separation_path.parent.mkdir(parents=True, exist_ok=True)
+        separation_path.write_text(separation.to_json())
+        print(
+            f"polygram: wrote separation graph → {separation_path} "
+            f"(threshold={args.separation_threshold})"
+        )
+
     return 0
 
 
@@ -176,6 +216,24 @@ def main(argv: list[str] | None = None) -> int:
     p_an.add_argument(
         "--output", default="analysis_report.md",
         help="markdown report output path (default: analysis_report.md)",
+    )
+    p_an.add_argument(
+        "--sharing-graph", default=None,
+        help="when set, write the sharing FeatureGraph JSON to this path",
+    )
+    p_an.add_argument(
+        "--sharing-threshold", type=float, default=0.5,
+        help="sharing-graph weight threshold (default: 0.5; "
+             "ignored unless --sharing-graph is set)",
+    )
+    p_an.add_argument(
+        "--separation-graph", default=None,
+        help="when set, write the separation FeatureGraph JSON to this path",
+    )
+    p_an.add_argument(
+        "--separation-threshold", type=float, default=0.2,
+        help="separation-graph weight threshold (default: 0.2; "
+             "ignored unless --separation-graph is set)",
     )
     p_an.set_defaults(func=_cmd_analyze)
 

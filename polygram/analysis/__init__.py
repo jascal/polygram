@@ -7,6 +7,16 @@ Useful when an SAE has 16k+ features and a researcher needs to pick
 experiment without simulating every subset.
 """
 
+from polygram.analysis.feature_graph import (
+    FLOOR_BLOCK,
+    SEPARATION_EDGE_FORMULA,
+    SHARING_EDGE_FORMULA,
+    FeatureEdge,
+    FeatureGraph,
+    build_separation_graph,
+    build_sharing_graph,
+    render_feature_graph_section,
+)
 from polygram.analysis.triage import (
     KNOB_SELECTION_GUIDANCE,
     PairPrediction,
@@ -19,12 +29,20 @@ from polygram.analysis.triage import (
 )
 
 __all__ = [
+    "FLOOR_BLOCK",
+    "FeatureEdge",
+    "FeatureGraph",
     "KNOB_SELECTION_GUIDANCE",
     "PairPrediction",
+    "SEPARATION_EDGE_FORMULA",
+    "SHARING_EDGE_FORMULA",
     "SUITABILITY_FORMULA",
     "TriagePrediction",
+    "build_separation_graph",
+    "build_sharing_graph",
     "encoding_suitability_score",
     "feature_sensitivity",
     "predict_cancellation_depth",
+    "render_feature_graph_section",
     "render_report",
 ]
