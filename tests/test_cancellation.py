@@ -375,6 +375,208 @@ class TestStructuralFloorContract:
         assert "## Caveat" not in text
 
 
+def _hea_two_clusters() -> Dictionary:
+    """HEA fixture with two size-2 clusters for cluster-shared tests."""
+    from polygram import HEA_Rung2
+
+    return Dictionary(
+        name="HeaTwoClusters",
+        features=[
+            Feature("dog_poodle", "dogs", beta=-0.50, alpha=0.05, gamma=0.02),
+            Feature("dog_beagle", "dogs", beta=-0.48, alpha=0.04, gamma=0.03),
+            Feature("bird_hawk", "birds", beta=0.50, alpha=-0.04, gamma=0.02),
+            Feature("bird_sparrow", "birds", beta=0.52, alpha=-0.03, gamma=0.01),
+        ],
+        hierarchy={
+            "dogs": ["dog_poodle", "dog_beagle"],
+            "birds": ["bird_hawk", "bird_sparrow"],
+        },
+        encoding=HEA_Rung2(depth=2),
+    )
+
+
+class TestClusterSharedKnobs:
+    def test_cluster_shared_theta_knobs_run(self):
+        canc = Cancellation(
+            dictionary=_hea_two_clusters(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            knobs=["dogs.theta[0,0,0]", "birds.theta[0,0,0]"],
+            optimize={"method": "grid", "max_steps": 8},
+            preserve_tiers=False,
+        )
+        result = canc.run()
+        assert result.trajectory.shape == (64, 3)
+        assert set(result.optimized_knobs.keys()) == {
+            "dogs.theta[0,0,0]", "birds.theta[0,0,0]",
+        }
+
+    def test_cluster_shared_phi_accepted(self):
+        canc = Cancellation(
+            dictionary=_hea_two_clusters(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            knobs=["dogs.phi", "birds.phi"],
+            optimize={"method": "grid", "max_steps": 6},
+            preserve_tiers=False,
+        )
+        result = canc.run()
+        assert result.trajectory.shape == (36, 3)
+
+    def test_mps_cluster_shared_phi_preserves_sibling_overlaps(self):
+        # Bit-for-bit case: MPS rung-1 + cluster-shared phi.
+        d = _animals()  # all phi default to 0 in this fixture path
+        canc = Cancellation(
+            dictionary=d,
+            target_pair=("dog_poodle", "bird_hawk"),
+            knobs=["dogs.phi", "birds.phi"],
+            optimize={"method": "grid", "max_steps": 6},
+            preserve_tiers=False,
+        )
+        result = canc.run()
+        for cluster in ("dogs", "birds"):
+            i, j = (d.feature_index(m) for m in d.hierarchy[cluster])
+            assert abs(
+                result.before_gram[i, j] - result.after_gram[i, j]
+            ) < 1e-9
+
+    def test_hea_cluster_shared_theta_does_not_preserve_siblings(self):
+        # On diverse-sibling HEA fixtures the bit-for-bit invariant does
+        # NOT hold. Run completes; sibling Gram MAY drift. Assert only
+        # the trajectory shape (search-space-reduction guarantee).
+        canc = Cancellation(
+            dictionary=_hea_two_clusters(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            knobs=["dogs.theta[0,0,0]", "birds.theta[0,0,0]"],
+            optimize={"method": "grid", "max_steps": 6},
+            preserve_tiers=False,
+        )
+        result = canc.run()
+        # 2 cluster-shared axes at resolution 6 → 36 evaluations.
+        assert result.trajectory.shape == (36, 3)
+
+    def test_summary_caveat_mps_phi_names_factorization(
+        self, tmp_path: Path
+    ):
+        # Pure cluster-shared phi on MPS — bit-for-bit caveat.
+        # Use HEA-encoded version since structural_floor only fires NaN
+        # outside the canonical 2-φ shape; cluster-shared phi on MPS is
+        # not the canonical 2-phi shape so floor will be NaN.
+        canc = Cancellation(
+            dictionary=_animals(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            knobs=["dogs.phi", "birds.phi"],
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        result = canc.run()
+        artifacts = result.materialize(tmp_path)
+        text = artifacts["summary"].read_text()
+        assert "## Caveat" in text
+        assert "final-Rz factorization" in text
+        assert "bit-for-bit" in text
+        assert "best value found" not in text
+
+    def test_summary_caveat_hea_pure_cluster_names_search_space(
+        self, tmp_path: Path
+    ):
+        canc = Cancellation(
+            dictionary=_hea_two_clusters(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            knobs=["dogs.theta[0,0,0]", "birds.theta[0,0,0]"],
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        result = canc.run()
+        artifacts = result.materialize(tmp_path)
+        text = artifacts["summary"].read_text()
+        assert "## Caveat" in text
+        assert "search-space dimensionality reduction" in text
+        assert "MAY drift" in text
+        assert "concept_gram_tier_separation" in text
+        assert "best value found" not in text
+
+    def test_grid_4_axis_cap_counts_cluster_shared_as_one(self):
+        # Five paths total, but len(knobs) is what the cap watches.
+        # Confirm a 4-axis cluster-shared list is accepted; a 5th entry
+        # (whether feature or cluster) trips the cap.
+        from polygram import HEA_Rung2
+
+        d = Dictionary(
+            name="HeaFour",
+            features=[
+                Feature("a", "g1", beta=0.10, alpha=0.05, gamma=0.02),
+                Feature("b", "g1", beta=0.11, alpha=0.04, gamma=0.03),
+                Feature("c", "g2", beta=0.20, alpha=0.05, gamma=0.02),
+                Feature("d", "g2", beta=0.22, alpha=0.04, gamma=0.03),
+                Feature("e", "g3", beta=0.30, alpha=0.05, gamma=0.02),
+                Feature("f", "g3", beta=0.32, alpha=0.04, gamma=0.03),
+                Feature("g", "g4", beta=0.40, alpha=0.05, gamma=0.02),
+                Feature("h", "g4", beta=0.42, alpha=0.04, gamma=0.03),
+                Feature("i", "g5", beta=0.50, alpha=0.05, gamma=0.02),
+                Feature("j", "g5", beta=0.52, alpha=0.04, gamma=0.03),
+            ],
+            hierarchy={
+                "g1": ["a", "b"], "g2": ["c", "d"], "g3": ["e", "f"],
+                "g4": ["g", "h"], "g5": ["i", "j"],
+            },
+            encoding=HEA_Rung2(depth=2),
+        )
+        Cancellation(
+            dictionary=d,
+            target_pair=("a", "c"),
+            knobs=[
+                "g1.theta[0,0,0]", "g2.theta[0,0,0]",
+                "g3.theta[0,0,0]", "g4.theta[0,0,0]",
+            ],
+            optimize={"method": "grid", "max_steps": 3},
+        )
+        with pytest.raises(ValueError, match="at most 4 knobs"):
+            Cancellation(
+                dictionary=d,
+                target_pair=("a", "c"),
+                knobs=[
+                    "g1.theta[0,0,0]", "g2.theta[0,0,0]",
+                    "g3.theta[0,0,0]", "g4.theta[0,0,0]",
+                    "g5.theta[0,0,0]",
+                ],
+                optimize={"method": "grid", "max_steps": 3},
+            )
+
+    def test_unknown_cluster_rejected(self):
+        with pytest.raises(ValueError, match="not declared"):
+            Cancellation(
+                dictionary=_hea_two_clusters(),
+                target_pair=("dog_poodle", "bird_hawk"),
+                knobs=["cats.phi", "birds.phi"],
+            )
+
+
+class TestMixedKnobs:
+    def test_mixed_knob_list_accepted(self):
+        canc = Cancellation(
+            dictionary=_hea_two_clusters(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            knobs=["dog_poodle.theta[0,0,0]", "birds.theta[0,0,0]"],
+            optimize={"method": "grid", "max_steps": 4},
+            preserve_tiers=False,
+        )
+        result = canc.run()
+        assert result.trajectory.shape == (16, 3)
+
+    def test_summary_caveat_names_both_warnings_for_mixed(
+        self, tmp_path: Path
+    ):
+        canc = Cancellation(
+            dictionary=_hea_two_clusters(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            knobs=["dog_poodle.theta[0,0,0]", "birds.theta[0,0,0]"],
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        result = canc.run()
+        artifacts = result.materialize(tmp_path)
+        text = artifacts["summary"].read_text()
+        assert "## Caveat" in text
+        assert "best value found" in text
+        assert "mixes per-feature and cluster-shared" in text
+
+
 class TestBeforeAfterPlot:
     def test_before_after_writes_png(self, tmp_path: Path):
         pytest.importorskip("matplotlib")

@@ -218,11 +218,13 @@ class Cancellation:
             )
 
     def _validate_knob(self, path: str) -> None:
-        feat_name, kind, slot = _parse_knob_path(path)
+        name, kind, slot = _parse_knob_path(path)
         feature_names = [f.name for f in self.dictionary.features]
-        if feat_name not in feature_names:
+        cluster_names = list(self.dictionary.hierarchy.keys())
+        if name not in feature_names and name not in cluster_names:
             raise ValueError(
-                f"knob path {path!r}: feature {feat_name!r} not declared"
+                f"knob path {path!r}: identifier {name!r} not declared "
+                f"(features={feature_names}, clusters={cluster_names})"
             )
         if kind == "theta":
             if not _is_hea(self.dictionary):
@@ -644,21 +646,82 @@ def _render_summary(result: CancellationResult) -> str:
         "",
     ])
     if math.isnan(floor):
-        has_theta = any(".theta[" in k for k in result.knobs)
-        warning = (
-            "**Note:** the reported `after` is the best value found by "
-            f"`{result.method}`, not a guaranteed lower bound. Cross-term "
-            "interactions among knobs can drive the true achievable "
-            "overlap below this value"
-        )
-        if has_theta:
-            warning += (
-                ", and θ knobs can break cluster invariants — verify "
-                "`concept_gram_tier_separation` on the optimum"
-            )
-        warning += "."
-        lines.extend(["## Caveat", "", warning, ""])
+        caveat_paragraphs = _summary_caveat_paragraphs(result)
+        lines.append("## Caveat")
+        lines.append("")
+        for para in caveat_paragraphs:
+            lines.append(para)
+            lines.append("")
     return "\n".join(lines)
+
+
+def _summary_caveat_paragraphs(result: CancellationResult) -> list[str]:
+    """Return the ``## Caveat`` body paragraphs for a NaN-floor result.
+
+    Three knob-list shapes:
+
+    - **pure cluster-shared** (every leading identifier is a cluster):
+      one paragraph noting the within-cluster Gram entries are
+      preserved exactly by unitarity.
+    - **mixed** (both per-feature and cluster-shared paths): emit the
+      multi-knob "best value found" warning *and* a note that mixed
+      lists do NOT inherit the cluster-shared invariant.
+    - **per-feature** (no cluster-shared paths): existing multi-knob
+      warning, plus the θ-knob tier-separation addendum if any path is
+      a ``.theta[...]`` slot.
+    """
+    cluster_names = set(result.dictionary_at_optimum.hierarchy.keys())
+    leading = [k.split(".", 1)[0] for k in result.knobs]
+    cluster_paths = [k for k, lead in zip(result.knobs, leading) if lead in cluster_names]
+    feature_paths = [k for k, lead in zip(result.knobs, leading) if lead not in cluster_names]
+    has_theta = any(".theta[" in k for k in result.knobs)
+    is_mps = isinstance(result.dictionary_at_optimum.encoding, MPSRung1)
+    pure_cluster_phi_only = not has_theta
+
+    if is_mps and pure_cluster_phi_only:
+        pure_cluster_note = (
+            "**Note:** every knob is a cluster-shared `<cluster>.phi` path "
+            "on `MPSRung1`. The final-Rz factorization makes the same outer "
+            "rotation appear on every sibling branch, and the unitarity "
+            "cancellation `<U_C a | U_C b> = <a|U_C†U_C|b> = <a|b>` "
+            "preserves within-cluster Gram entries bit-for-bit (to numeric "
+            "round-off) when sibling pre-mutation `phi` values agree."
+        )
+    else:
+        pure_cluster_note = (
+            "**Note:** every knob is a cluster-shared path. On HEA "
+            "encodings (or any cluster-shared θ), this is a search-space "
+            "dimensionality reduction — one axis per cluster instead of "
+            "one per feature — which bounds optimizer leverage on each "
+            "sibling but does NOT guarantee bit-for-bit Gram preservation. "
+            "Within-cluster Gram entries MAY drift on diverse-sibling "
+            "fixtures. Verify `concept_gram_tier_separation` on the "
+            "materialized optimum to confirm tier ordering."
+        )
+    multi_knob_note = (
+        f"**Note:** the reported `after` is the best value found by "
+        f"`{result.method}`, not a guaranteed lower bound. Cross-term "
+        "interactions among knobs can drive the true achievable "
+        "overlap below this value"
+    )
+    if has_theta:
+        multi_knob_note += (
+            ", and θ knobs can break cluster invariants — verify "
+            "`concept_gram_tier_separation` on the optimum"
+        )
+    multi_knob_note += "."
+    mixed_note = (
+        "**Note:** this knob list mixes per-feature and cluster-shared "
+        "paths. The within-cluster Gram invariant that pure "
+        "cluster-shared lists enjoy does NOT apply here — per-feature "
+        "mutations on one branch break the matched unitarity."
+    )
+
+    if cluster_paths and not feature_paths:
+        return [pure_cluster_note]
+    if cluster_paths and feature_paths:
+        return [multi_knob_note, mixed_note]
+    return [multi_knob_note]
 
 
 def _render_trajectory_csv(result: CancellationResult) -> str:

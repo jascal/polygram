@@ -130,6 +130,17 @@ def test_animals_hea_example_runs(tmp_path: Path):
     except ImportError:
         pass
 
+    cluster_dir = canc_dir / "cluster_shared"
+    assert (cluster_dir / "AnimalsHea_at_optimum.q.orca.md").exists()
+    assert (cluster_dir / "AnimalsHea_at_optimum_summary.md").exists()
+    assert (cluster_dir / "AnimalsHea_at_optimum_trajectory.csv").exists()
+    try:
+        import matplotlib  # noqa: F401
+
+        assert (cluster_dir / "before_after.png").exists()
+    except ImportError:
+        pass
+
 
 def test_cancellation_example_runs(tmp_path: Path):
     """Coarsened combined SAE → Sweep → Cancellation walk; verifies

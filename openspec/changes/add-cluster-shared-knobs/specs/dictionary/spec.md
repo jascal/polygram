@@ -57,13 +57,23 @@ NOT collide") guarantees the resolution is unambiguous.
 - an `(r, d, q)` triple outside `encoding.theta_shape`,
 - any other malformed path that does not match the grammar above.
 
-The cluster-shared application SHALL preserve the within-cluster
-Gram entries exactly: for any features `a, b` both in the same
-cluster `C`, the Gram entry `gram[a, b]` after a cluster-shared
-`with_knob("C.<slot>", v)` mutation SHALL equal the original
-`gram[a, b]` to within numeric round-off. This is an algebraic
-property of unitarity, not a numerical guarantee — the same unitary
-applied to both branches of an inner product cancels.
+The cluster-shared application's Gram-preservation guarantee is
+**conditional on the encoding and the knob path**:
+
+- **MPSRung1 `<cluster>.phi`** — bit-for-bit preserved (to numeric
+  round-off): when every sibling in the cluster shares the same
+  pre-mutation `phi`, the cluster-shared write produces the same
+  outer `Rz(qs[1], v)` on each branch, and the
+  `<U_C a | U_C b> = <a|U_C†U_C|b> = <a|b>` cancellation holds.
+- **HEA_Rung2 `<cluster>.theta[r,d,q]` or `<cluster>.phi`** — NOT a
+  bit-for-bit invariant in general. Sharing a single rotation slot
+  across siblings does not produce identical sibling unitaries
+  unless the sibling baselines (every other θ slot) already agree.
+  In the degenerate case of fully identical siblings (overlap 1.0),
+  the invariant trivially holds; for diverse siblings it does not.
+  The HEA cluster-shared paths are a search-space dimensionality
+  reduction (one axis per cluster, bounding optimizer leverage),
+  not an algebraic preservation guarantee.
 
 #### Scenario: .phi works on both encodings
 
@@ -128,16 +138,30 @@ applied to both branches of an inner product cancels.
   `_default_hea_theta(original_feature, encoding)`; the bird
   feature is unchanged
 
-#### Scenario: cluster-shared mutation preserves within-cluster Gram
+#### Scenario: cluster-shared MPS phi preserves within-cluster Gram
 
-- **GIVEN** any `Dictionary` with at least one cluster of size ≥ 2
-  and a path `"<cluster>.<slot>"` that this requirement accepts
-- **WHEN** the dictionary is mutated by `with_knob("<cluster>.<slot>",
-  v)` for any value `v` in the per-knob bounds
+- **GIVEN** a `Dictionary(encoding=MPSRung1())` with at least one
+  cluster of size ≥ 2 in which every sibling shares the same
+  pre-mutation `phi` value
+- **WHEN** the dictionary is mutated by `with_knob("<cluster>.phi",
+  v)` for any value `v` in `(0, 2π)`
 - **THEN** for every pair of features `a, b` both in the named
   cluster, `mutated.gram()[i_a, i_b]` equals
   `original.gram()[i_a, i_b]` to within numeric round-off
   (`abs(after − before) < 1e-9`)
+
+#### Scenario: HEA cluster-shared path may shift within-cluster Gram
+
+- **GIVEN** an HEA-encoded `Dictionary` with at least one cluster of
+  size ≥ 2 whose sibling features have any per-feature parameter
+  variation (e.g. distinct `alpha` or `gamma`)
+- **WHEN** the dictionary is mutated by `with_knob("<cluster>.<slot>",
+  v)` for a value `v` in the per-knob bounds
+- **THEN** the call SHALL succeed (cluster-shared paths are accepted
+  on HEA), but the within-cluster Gram entries MAY differ from the
+  pre-mutation values. The implementation makes no bit-for-bit
+  preservation guarantee in this regime; cluster-shared on HEA is a
+  search-space dimensionality reduction, not an algebraic invariant.
 
 #### Scenario: unknown identifier rejected
 

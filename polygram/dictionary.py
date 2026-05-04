@@ -121,6 +121,14 @@ class Dictionary:
             dups = [n for n in feature_names if feature_names.count(n) > 1]
             raise ValueError(f"duplicate feature name(s): {sorted(set(dups))}")
 
+        collisions = sorted(set(self.hierarchy.keys()) & set(feature_names))
+        if collisions:
+            raise ValueError(
+                f"name collision between feature(s) and cluster(s): "
+                f"{collisions}; rename either the feature or the cluster so "
+                f"with_knob paths resolve unambiguously"
+            )
+
         seen: dict[str, str] = {}
         for cluster, members in self.hierarchy.items():
             for m in members:
@@ -192,14 +200,33 @@ class Dictionary:
           ``theta`` is ``None``, the default tensor is materialized via
           ``_default_hea_theta(...)``, copied, and the slot is set on
           the copy.
-        """
-        feat_name, kind, slot = _parse_knob_path(path)
-        idx = self.feature_index(feat_name)
-        feature = self.features[idx]
+        - ``<cluster>.phi`` — *cluster-shared*: applies ``phi=value`` to
+          every feature in ``self.hierarchy[cluster]`` (both encodings).
+        - ``<cluster>.theta[r,d,q]`` — *cluster-shared*: writes the
+          ``(r, d, q)`` slot of every member's θ tensor (HEA only).
 
-        if kind == "phi":
-            new_feature = replace(feature, phi=value)
+        The leading identifier resolves as a feature name first, then
+        falls back to a cluster name. Construction-time uniqueness
+        (``Dictionary.__post_init__`` rejects feature/cluster collisions)
+        guarantees the resolution is unambiguous.
+        """
+        name, kind, slot = _parse_knob_path(path)
+        feature_names = [f.name for f in self.features]
+
+        if name in feature_names:
+            target_indices = [self.feature_index(name)]
+        elif name in self.hierarchy:
+            target_indices = [
+                self.feature_index(m) for m in self.hierarchy[name]
+            ]
         else:
+            raise ValueError(
+                f"knob path {path!r}: identifier {name!r} matches neither "
+                f"a feature name (have {feature_names}) nor a cluster name "
+                f"(have {sorted(self.hierarchy.keys())})"
+            )
+
+        if kind == "theta":
             if not isinstance(self.encoding, HEA_Rung2):
                 raise ValueError(
                     f"knob path {path!r}: .theta[...] paths are HEA-only; "
@@ -212,16 +239,22 @@ class Dictionary:
                     f"knob path {path!r}: slot {slot} is outside "
                     f"theta_shape={shape} for encoding={self.encoding!r}"
                 )
-            base = (
-                feature.theta.copy()
-                if feature.theta is not None
-                else _default_hea_theta(feature, self.encoding).copy()
-            )
-            base[r, d, q] = float(value)
-            new_feature = replace(feature, theta=base)
 
         new_features = list(self.features)
-        new_features[idx] = new_feature
+        for idx in target_indices:
+            feature = new_features[idx]
+            if kind == "phi":
+                new_features[idx] = replace(feature, phi=value)
+            else:
+                base = (
+                    feature.theta.copy()
+                    if feature.theta is not None
+                    else _default_hea_theta(feature, self.encoding).copy()
+                )
+                r, d, q = slot
+                base[r, d, q] = float(value)
+                new_features[idx] = replace(feature, theta=base)
+
         return replace(self, features=new_features)
 
     def gram(self) -> np.ndarray:

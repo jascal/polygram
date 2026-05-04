@@ -111,17 +111,30 @@ the objective at infeasible candidates.
   `result.optimized_knobs` keys are `{"dogs.theta[0,0,0]",
   "birds.theta[0,0,0]"}`
 
-#### Scenario: cluster-shared mutation preserves sibling overlaps
+#### Scenario: MPS cluster-shared phi preserves sibling overlaps
 
-- **GIVEN** an HEA-encoded dictionary `D` with cluster `"dogs"` of
-  size 2 (members `dog_poodle`, `dog_beagle`) and `Cancellation`
-  on `("dog_poodle", "bird_hawk")` with cluster-shared θ knobs on
-  both clusters
+- **GIVEN** an `MPSRung1`-encoded dictionary with cluster `"dogs"` of
+  size 2 whose siblings share the same pre-mutation `phi`, and
+  `Cancellation` on `("dog_poodle", "bird_hawk")` with cluster-shared
+  `<cluster>.phi` knobs on both clusters
 - **WHEN** the cancellation runs and produces
   `result.dictionary_at_optimum`
 - **THEN** `abs(result.before_gram[i_poodle, i_beagle] -
   result.after_gram[i_poodle, i_beagle]) < 1e-9` (and likewise for
-  every pair within `"birds"`)
+  every pair within `"birds"`); this is the bit-for-bit case
+  guaranteed by the final-Rz factorization
+
+#### Scenario: HEA cluster-shared sibling overlaps may drift
+
+- **GIVEN** an HEA-encoded dictionary with diverse sibling baselines
+  (any per-feature `alpha`, `gamma`, or explicit `theta` variation)
+  and `Cancellation` with cluster-shared θ knobs
+- **WHEN** the cancellation runs
+- **THEN** the run SHALL complete and the within-cluster Gram entries
+  MAY differ from the pre-mutation values. The cluster-shared regime
+  bounds optimizer leverage (one axis per cluster instead of one per
+  feature) but does not zero the drift; bit-for-bit preservation is
+  reserved for the MPS phi case
 
 #### Scenario: mixed cluster + feature knob list accepted but not invariant-preserving
 
@@ -155,10 +168,15 @@ SHALL also append a `## Caveat` section whose body depends on the
 shape of the knob list:
 
 - **Pure cluster-shared** (every path's leading identifier is a
-  cluster name): the caveat SHALL state that within-cluster Gram
-  entries are preserved exactly by unitarity, and recommend
-  verifying `concept_gram_tier_separation` on the materialized
-  optimum.
+  cluster name): the caveat SHALL describe the cluster-shared regime
+  honestly. For `MPSRung1` `<cluster>.phi` knobs the caveat SHALL
+  state that within-cluster Gram entries are preserved bit-for-bit
+  by the final-Rz factorization (when sibling pre-mutation phi
+  values agree). For HEA cluster-shared paths the caveat SHALL
+  describe the regime as a search-space dimensionality reduction
+  (one axis per cluster) and warn that within-cluster Gram MAY drift
+  on diverse-sibling fixtures, recommending verification of
+  `concept_gram_tier_separation` on the materialized optimum.
 - **Mixed** (knob list contains both per-feature and cluster-shared
   paths): the caveat SHALL fire the multi-knob warning *and* an
   explicit note that mixed lists do not inherit the cluster-shared
@@ -185,14 +203,24 @@ shape of the knob list:
   section reports "undefined for this configuration" and the
   one-line interpretation matches the floor-undefined branch
 
-#### Scenario: cluster-shared caveat names the unitarity guarantee
+#### Scenario: pure-cluster caveat on MPS phi names the unitarity guarantee
 
-- **WHEN** the knob list contains only cluster-shared paths and
-  `materialize` is called
-- **THEN** the produced `<name>_summary.md` `## Caveat` section
-  text mentions that within-cluster Gram entries are preserved
-  exactly (and does NOT use the per-feature "best value found"
-  language)
+- **WHEN** the knob list contains only `<cluster>.phi` paths on an
+  `MPSRung1`-encoded dictionary and `materialize` is called
+- **THEN** the produced `<name>_summary.md` `## Caveat` section text
+  mentions that within-cluster Gram entries are preserved bit-for-bit
+  by the final-Rz factorization, and does NOT use the per-feature
+  "best value found" language
+
+#### Scenario: pure-cluster caveat on HEA names the search-space framing
+
+- **WHEN** the knob list contains only cluster-shared paths on an
+  `HEA_Rung2`-encoded dictionary and `materialize` is called
+- **THEN** the produced `<name>_summary.md` `## Caveat` section text
+  describes the cluster-shared regime as a search-space dimensionality
+  reduction (one axis per cluster), warns that within-cluster Gram
+  MAY drift on diverse-sibling fixtures, and recommends verifying
+  `concept_gram_tier_separation` on the optimum
 
 #### Scenario: mixed caveat names both warnings
 
