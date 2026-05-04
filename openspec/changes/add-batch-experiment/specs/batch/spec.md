@@ -1,195 +1,207 @@
 ## ADDED Requirements
 
-### Requirement: BatchExperiment runs experiments across feature pairs
+### Requirement: BatchExperiment runs Cancellation on a FeatureGraph's top-K edges
 
-Polygram SHALL expose a `BatchExperiment` dataclass that orchestrates
-multi-pair experiment runs over a single `Dictionary`. The class is
-imported as `polygram.BatchExperiment`.
+`polygram.BatchExperiment` SHALL be a dataclass that consumes a `FeatureGraph` (input) plus a `Dictionary` and runs `Cancellation` on the top-K edges of the input graph.
 
-Fields: `dictionary: Dictionary`, `experiments: list[str]`,
-`pairs: str | list[tuple[str, str]] = "all"`,
-`output_dir: Path | None = None`,
-`cancellation_kwargs: dict | None = None`,
-`sweep_kwargs: dict | None = None`,
-`force: bool = False`.
+The dataclass exposes the following fields:
 
-`experiments` SHALL be a non-empty list drawn from the supported set
-`("sweep", "cancellation")`. Unknown values SHALL be rejected by
-`__post_init__` with `ValueError` listing the supported kinds.
+- `feature_graph: FeatureGraph` — required. The input graph,
+  typically produced by `polygram.analysis.build_sharing_graph` or
+  `polygram.analysis.build_separation_graph`. Any `FeatureGraph` whose
+  `nodes` are a subset of `dictionary.feature_names()` is acceptable.
+- `dictionary: Dictionary` — required. The encoded dictionary the
+  graph was built against.
+- `top_k: int = 8` — number of input-graph edges to run, taken in
+  the input graph's existing edge order (sorted by descending
+  `weight` per the `FeatureGraph` invariant).
+- `knobs: Literal["cluster_shared", "per_feature"] =
+  "cluster_shared"` — knob path style passed to the per-pair
+  `Cancellation`. The cluster-shared default is the regime that the
+  `add-cluster-shared-knobs` archive demonstrated is bit-for-bit
+  invariant-preserving on `MPSRung1` `<cluster>.phi` paths.
+- `output_dir: Path | None = None` — when set, the per-pair
+  Cancellation artifact bundle SHALL be written to
+  `output_dir/{source}_x_{target}/`, and the aggregated
+  `batch_results.json` SHALL be written at the top of `output_dir`.
+- `cancellation_kwargs: dict | None = None` — keyword arguments
+  forwarded to each per-pair `Cancellation` constructor (e.g.
+  `tolerance`, `max_steps`).
 
-`pairs` SHALL select which feature pairs to run on:
+`__post_init__` SHALL:
 
-- `"all"` — every unordered pair `(N choose 2)` of distinct
-  features in `dictionary.features`.
-- `"cross_cluster"` — pairs whose two features have different
-  `cluster` values.
-- `"within_cluster"` — pairs whose two features share a `cluster`
-  value (excluding self-pairs).
-- `list[tuple[str, str]]` — explicit list. Each tuple SHALL name
-  two distinct features declared in `dictionary.features`. Order
-  within each tuple is normalized alphabetically.
+1. Reject `top_k > 16` with `ValueError` naming the value and the
+   16-pair cap. The cap exists because cluster-shared `Cancellation`
+   runs at ~seconds per pair on grid backend; 16 caps wall time at a
+   couple of minutes. There is no `force=True` override — the input
+   FeatureGraph already encodes the user's pair-selection decision.
+2. Reject `top_k < 1` with `ValueError`.
+3. Reject `knobs` values outside `{"cluster_shared", "per_feature"}`
+   with `ValueError`.
+4. Reject input graphs whose node set is not a subset of
+   `dictionary.feature_names()` with `ValueError` naming the missing
+   feature(s).
 
-The resolved pair list SHALL be deduplicated and sorted
-alphabetically by `(a, b)`.
+`BatchExperiment.run() -> BatchResults` SHALL iterate the first
+`min(self.top_k, len(self.feature_graph.edges))` edges of the input
+graph, build a `Cancellation` per edge with `target_pair=(edge.source,
+edge.target)` and a knob-path list determined by `self.knobs`, run it
+with `self.cancellation_kwargs or {}`, and assemble a `BatchResults`.
+When `output_dir is not None`, each per-pair `Cancellation` SHALL
+materialize its artifact bundle under
+`output_dir/{source}_x_{target}/` and `batch_results.json` SHALL be
+written at the top level of `output_dir`.
 
-A safety rail SHALL fire when the resolved pair count exceeds 50
-unless `force=True`: `__post_init__` raises `ValueError` naming the
-count and recommending the user narrow `pairs` or pass `force=True`.
+`knobs == "cluster_shared"` SHALL produce knob paths
+`<cluster>.phi` for `MPSRung1` dictionaries and
+`<cluster>.theta[r,d,q]` for `HEA_Rung2`, applied to every cluster
+mentioned by the pair's two endpoints (typically two clusters when
+the pair is cross-cluster, one when within-cluster).
+`knobs == "per_feature"` SHALL produce paths
+`<feature>.phi` (MPS) or `<feature>.theta[r,d,q]` (HEA) for both
+endpoints.
 
-`BatchExperiment.run() -> SharingGraph` SHALL run the requested
-experiments on each resolved pair and assemble the results into a
-`SharingGraph`. When `output_dir` is non-`None`, per-pair
-sub-artifacts SHALL be materialized under
-`output_dir/{a}_x_{b}/` and the aggregated `sharing_graph.json`
-SHALL be written at the top level.
+#### Scenario: pairs run are the input graph's top-K edges in order
 
-#### Scenario: default pair selection covers every distinct pair
+- **GIVEN** a `FeatureGraph` whose `edges` field has length 5 and
+  whose edges are sorted by descending `weight`
+- **WHEN** `BatchExperiment(feature_graph=g, dictionary=d,
+  top_k=3).run()` returns
+- **THEN** the returned `BatchResults.runs` has exactly 3 entries,
+  each `BatchRun.(source, target)` matching the corresponding input
+  edge's `(source, target)` in the same order
 
-- **GIVEN** a `Dictionary` with 4 features
-- **WHEN** `BatchExperiment(dictionary=d, experiments=["cancellation"]).run()`
+#### Scenario: top_k larger than edge count is silently clamped
+
+- **GIVEN** a `FeatureGraph` with 2 edges
+- **WHEN** `BatchExperiment(feature_graph=g, dictionary=d,
+  top_k=8).run()` returns
+- **THEN** `BatchResults.runs` has exactly 2 entries — no error is
+  raised for `top_k > len(g.edges)`
+
+#### Scenario: top_k above 16 rejected
+
+- **WHEN** `BatchExperiment(feature_graph=g, dictionary=d,
+  top_k=17)` is constructed
+- **THEN** `__post_init__` raises `ValueError` naming the value
+  `17` and the 16-pair cap
+
+#### Scenario: knobs default produces cluster-shared phi paths on MPS
+
+- **GIVEN** an `MPSRung1`-encoded `Dictionary` with two clusters and
+  a `FeatureGraph` whose top edge is cross-cluster
+- **WHEN** `BatchExperiment(feature_graph=g, dictionary=d).run()`
   returns
-- **THEN** the returned `SharingGraph` contains exactly 6 edges
-  (one per `(N choose 2)` pair) and every edge's `(a, b)` is in
-  alphabetical order
+- **THEN** the corresponding `BatchRun.best_knobs` keys are exactly
+  the two `<cluster>.phi` paths for the two clusters touched by the
+  pair
 
-#### Scenario: cross_cluster filter excludes within-cluster pairs
+#### Scenario: dictionary missing a graph node rejected
 
-- **GIVEN** a `Dictionary` with `hierarchy = {"dogs":
-  ["dog_poodle", "dog_beagle"], "birds": ["bird_hawk",
-  "bird_sparrow"]}`
-- **WHEN** `BatchExperiment(..., pairs="cross_cluster").run()`
-  returns
-- **THEN** the SharingGraph has exactly 4 edges (2×2 cross
-  product) and no edge has both endpoints in `"dogs"` or both in
-  `"birds"`
-
-#### Scenario: explicit pair list is honored verbatim
-
-- **GIVEN** a 4-feature dictionary
-- **WHEN** `BatchExperiment(..., pairs=[("dog_poodle",
-  "bird_hawk")]).run()` returns
-- **THEN** the SharingGraph has exactly 1 edge with
-  `(a, b) == ("bird_hawk", "dog_poodle")` (alphabetical
-  normalization)
-
-#### Scenario: safety rail rejects oversized batches
-
-- **GIVEN** a 12-feature dictionary (66 pairs) with
-  `pairs="all"`
-- **WHEN** `BatchExperiment(...)` is constructed without
-  `force=True`
-- **THEN** `__post_init__` raises `ValueError` naming the count
-  `66` and recommending the user pass `force=True` or narrow
-  `pairs`
-
-#### Scenario: unsupported experiment kind rejected
-
-- **WHEN** `BatchExperiment(..., experiments=["bogus"])` is
+- **GIVEN** a `FeatureGraph` whose `nodes` includes a feature
+  `"ghost"` not declared by the dictionary
+- **WHEN** `BatchExperiment(feature_graph=g, dictionary=d)` is
   constructed
-- **THEN** `__post_init__` raises `ValueError` listing the
-  supported kinds
+- **THEN** `__post_init__` raises `ValueError` naming `"ghost"`
 
-#### Scenario: per-pair sub-artifacts written under output_dir
+#### Scenario: per-pair artifacts written under output_dir
 
-- **GIVEN** a `BatchExperiment` with
-  `experiments=["cancellation"]` and `output_dir=tmp_path`
+- **GIVEN** a `BatchExperiment` with `output_dir=tmp_path` and an
+  input graph with 3 edges, `top_k=3`
 - **WHEN** `run()` returns
-- **THEN** for every resolved pair `(a, b)`,
-  `tmp_path / f"{a}_x_{b}"` exists and contains a
-  `<dictionary_name>_at_optimum.q.orca.md`, and
-  `tmp_path / "sharing_graph.json"` exists at the top level
+- **THEN** for every input edge `(a, b)`, the directory
+  `tmp_path / f"{a}_x_{b}"` exists and contains the standard
+  `Cancellation` artifact bundle, AND
+  `tmp_path / "batch_results.json"` exists at the top level
 
-### Requirement: SharingGraph is the aggregated batch artifact
+### Requirement: BatchResults pairs predictions with observations
 
-Polygram SHALL expose a `SharingGraph` dataclass and a
-`SharingEdge` dataclass under `polygram.batch`, re-exported at the
-top level as `polygram.SharingGraph` and `polygram.SharingEdge`.
+`polygram.BatchResults` SHALL be a frozen dataclass exposing:
 
-`SharingGraph` fields: `nodes: list[str]` (feature names),
-`clusters: dict[str, str]` (feature name → cluster name),
-`edges: list[SharingEdge]`,
-`experiment_kinds: list[str]`,
-`dictionary_name: str`,
-`created_at: str` (ISO 8601 timestamp at run start).
+- `source_graph: FeatureGraph` — the input graph carried verbatim.
+- `dictionary_name: str`
+- `knobs: str` — one of `"cluster_shared"`, `"per_feature"`.
+- `created_at: str` — ISO 8601 timestamp at run start.
+- `runs: tuple[BatchRun, ...]` — one record per pair run, ordered as
+  the input graph's first `top_k` edges.
 
-`SharingEdge` fields: `a: str`, `b: str` (alphabetically ordered
-endpoints), `before_overlap: float`,
-`after_overlap: float | None`,
-`cancellation_gap: float | None`,
-`optimized_knobs: dict[str, float] | None`,
-`tier_separation_after: float | None`,
-`phase_sensitivity_std: float | None`,
-`structural_floor: float | None`.
+`polygram.BatchRun` SHALL be a frozen dataclass with the per-pair
+fields:
 
-`SharingEdge` SHALL be a frozen dataclass. Fields whose
-corresponding experiment did not run SHALL be `None` (e.g.
-`cancellation_gap is None` when `"cancellation"` was not in
-`experiments`).
+- `source: str`, `target: str` — the pair, copied from the input
+  `FeatureEdge`.
+- `predicted_floor: float` — `FeatureEdge.floor`.
+- `predicted_gap: float` — `FeatureEdge.gap`.
+- `current_overlap: float` — squared overlap at default knobs,
+  measured by `Cancellation` before optimization.
+- `achieved_overlap: float` — `Cancellation.run().min_overlap`.
+- `cancellation_efficiency: float` — defined as
+  `(current_overlap − achieved_overlap) / predicted_gap` if
+  `predicted_gap > 1e-12`, else `0.0`. Values near 1.0 mean φ-search
+  realized the closed-form prediction; values near 0.0 mean the
+  prediction was right that there was nothing to find (separation
+  kind), or the search got stuck (sharing kind).
+- `best_knobs: dict[str, float]` — `Cancellation.run().best_knobs`.
+- `tier_separation_after: float | None` — tier separation at the
+  optimum, when the dictionary has computable tiers; `None`
+  otherwise.
+- `artifact_subpath: str | None` — relative path
+  `f"{source}_x_{target}"` under the run's `output_dir`, or `None` if
+  `output_dir` was not set.
 
-`SharingGraph.to_json(path)` SHALL write a deterministic JSON
-document: nodes sorted alphabetically; edges sorted alphabetically
-by `(a, b)`; floats formatted with up to 6 significant figures;
-`None` represented as JSON `null`. The same input SHALL produce
-byte-identical output across runs.
+`BatchResults.to_json(path)` SHALL write a deterministic JSON
+document. Numeric values SHALL be formatted to 6 significant figures;
+`None` SHALL serialize as JSON `null`. The nested `source_graph`
+SHALL be emitted via the existing `FeatureGraph.to_json()`. The
+output SHALL be byte-identical across repeated runs of the same
+inputs.
 
-`SharingGraph.from_json(path) -> SharingGraph` SHALL reconstruct a
-graph from a JSON document produced by `to_json`. Round-trip
-property: `from_json(to_json(g)) == g` for every `g` reachable
-from `BatchExperiment.run()`.
+`BatchResults.from_json(path) -> BatchResults` SHALL be the inverse:
+`from_json(to_json(b)) == b` for every `b` reachable from
+`BatchExperiment.run()`.
 
-`SharingGraph.plot(path)` SHALL render a node-link diagram via
-matplotlib. Edge width SHALL be proportional to
-`cancellation_gap` (when populated); edge color SHALL encode
-`tier_separation_after` (when populated). When neither is
-populated for any edge, the method SHALL fall back to a per-edge
-scatter showing `before_overlap`. Lazy `import matplotlib`; if
-unavailable, `ImportError` SHALL name the `polygram[plot]` extra.
+#### Scenario: cancellation_efficiency is zero when predicted_gap is zero
 
-#### Scenario: every edge field is preserved by JSON round-trip
+- **GIVEN** a `BatchRun` whose corresponding input edge has
+  `gap == 0.0`
+- **THEN** `BatchRun.cancellation_efficiency == 0.0` regardless of
+  `current_overlap` and `achieved_overlap`
 
-- **GIVEN** a SharingGraph `g` produced by
-  `BatchExperiment.run()` with both `"sweep"` and
-  `"cancellation"` requested
-- **WHEN** `g.to_json(p)` is called and the result is read back
-  via `SharingGraph.from_json(p)`
-- **THEN** every field of every edge equals the original
-  (`None`s preserved as `None`)
+#### Scenario: source_graph is preserved verbatim
+
+- **GIVEN** a `FeatureGraph g` passed to
+  `BatchExperiment(feature_graph=g, ...).run()` returning `r`
+- **THEN** `r.source_graph.to_json() == g.to_json()` byte-for-byte
+
+#### Scenario: JSON round-trip preserves every field
+
+- **GIVEN** a `BatchResults` `b` produced by
+  `BatchExperiment.run()`
+- **WHEN** `b.to_json(p)` is called and the result is read back via
+  `BatchResults.from_json(p)`
+- **THEN** the reconstructed object equals `b` field-for-field,
+  including every nested `BatchRun` and the embedded `source_graph`
 
 #### Scenario: JSON output is deterministic
 
-- **GIVEN** the same `BatchExperiment` configuration run twice
+- **GIVEN** the same `BatchExperiment` configuration run twice on
+  inputs that produce identical `Cancellation` outputs
 - **WHEN** both runs call `to_json` to the same path
 - **THEN** the produced byte sequences are identical
 
-#### Scenario: edges are alphabetically ordered
-
-- **WHEN** any `SharingGraph` is constructed via
-  `BatchExperiment.run()`
-- **THEN** for every edge, `edge.a < edge.b` lexicographically,
-  and the edge list is sorted by `(a, b)` lexicographically
-
-#### Scenario: plot writes a non-empty PNG
-
-- **GIVEN** a SharingGraph with `cancellation_gap` populated on
-  every edge
-- **WHEN** `g.plot(tmp_path / "graph.png")` is called
-- **THEN** the path exists and the file size is non-zero
-
 ### Requirement: BatchExperiment supports both encodings
 
-`BatchExperiment` SHALL accept dictionaries with either
-`MPSRung1` or `HEA_Rung2` encoding. Per-pair experiments
-dispatch on the encoding via the existing
-`Dictionary.gram()` mechanism; no encoding-specific code paths
-are introduced in this layer.
+`BatchExperiment` SHALL accept dictionaries with either `MPSRung1` or
+`HEA_Rung2` encoding. Per-pair experiments dispatch on the encoding
+via the existing `Dictionary.gram()` mechanism; no encoding-specific
+code paths are introduced in this layer beyond knob-path selection.
 
-#### Scenario: HEA dictionary produces a valid SharingGraph
+#### Scenario: HEA dictionary produces a valid BatchResults
 
-- **GIVEN** a `Dictionary` with
-  `encoding=HEA_Rung2(depth=2)` and 4 features
-- **WHEN** `BatchExperiment(dictionary=d,
-  experiments=["cancellation"]).run()` returns
-- **THEN** the SharingGraph has 6 edges with populated
-  `before_overlap` and `after_overlap` fields, and
-  `structural_floor` is `None` on every edge (per the
-  `Cancellation.structural_floor()` contract on HEA)
+- **GIVEN** a `Dictionary` with `encoding=HEA_Rung2(depth=2)` and a
+  `FeatureGraph` built against it
+- **WHEN** `BatchExperiment(feature_graph=g, dictionary=d,
+  knobs="cluster_shared", top_k=2).run()` returns
+- **THEN** the returned `BatchResults.runs` has 2 entries with
+  populated `current_overlap` and `achieved_overlap`, and
+  `BatchRun.best_knobs` keys are `<cluster>.theta[r,d,q]` paths

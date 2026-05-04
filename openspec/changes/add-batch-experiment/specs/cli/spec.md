@@ -1,87 +1,100 @@
 ## ADDED Requirements
 
-### Requirement: batch subcommand runs BatchExperiment from the CLI
+### Requirement: batch subcommand consumes a FeatureGraph and a Dictionary
 
-The `polygram` CLI SHALL register a `batch` subcommand that builds a
-`Dictionary` from one of two input forms, runs a
-`BatchExperiment`, and writes a `sharing_graph.json` artifact.
+The `polygram` CLI SHALL register a `batch` subcommand that consumes a serialized `FeatureGraph`, a `Dictionary` reference, and runs `BatchExperiment.run()` on the graph's top-K edges, writing a `batch_results.json` artifact.
 
 Argument set:
 
-- `--sae PATH` — load an SAE JSON file (schema matching
-  `tests/fixtures/toy_sae.json`) via the existing `from_sae_lens`
-  helper. Required `--features id1,id2,...` selects which feature
-  ids to include.
-- `--dictionary REF` — load a `Dictionary` either from a
-  `.q.orca.md` file (parsed via the existing q-orca round-trip) or
-  from a `module:callable` reference exposing a
-  `build_dictionary()` function. When this form is used,
-  `--features` is ignored.
-- `--experiments KINDS` (default `"sweep,cancellation"`) — comma-
-  separated list of experiment kinds.
-- `--pairs SEL` (default `"all"`) — pair selection forwarded to
-  `BatchExperiment.pairs`. The CLI accepts only the string forms
-  (`"all"`, `"cross_cluster"`, `"within_cluster"`); explicit pair
-  lists are not exposed at the CLI level (use the Python API).
-- `--output-dir DIR` (default: a fresh temp directory) — directory
-  to write per-pair sub-artifacts and `sharing_graph.json` into.
-- `--force` — flag forwarded to `BatchExperiment.force` to
-  override the ≤50-pair safety rail.
-
-Exactly one of `--sae` or `--dictionary` SHALL be required;
-specifying neither or both SHALL raise an argparse usage error and
-exit non-zero.
+- `--feature-graph FILE.json` — required. Path to a JSON document
+  produced by `FeatureGraph.to_json()` (output of
+  `polygram.analysis.build_sharing_graph` or
+  `build_separation_graph`). The CLI parses it via the
+  `FeatureGraph.from_json` round-trip helper.
+- `--dictionary REF` — required. Either a `.q.orca.md` file path
+  (parsed via the existing q-orca round-trip) or a `module:callable`
+  reference whose callable returns a `Dictionary` (e.g.
+  `examples.animals_hea:build_dictionary`).
+- `--top-k N` (default `8`) — forwarded to `BatchExperiment.top_k`.
+  Hard cap of 16 is enforced at the dataclass layer; values outside
+  `[1, 16]` SHALL produce an argparse-level error before the
+  `BatchExperiment` is constructed.
+- `--knobs cluster_shared|per_feature` (default `cluster_shared`) —
+  forwarded to `BatchExperiment.knobs`.
+- `--output-dir DIR` (default: a fresh temp directory) — forwarded
+  to `BatchExperiment.output_dir`. The resolved path is printed to
+  stdout regardless of whether the user provided it.
 
 The handler SHALL:
 
-1. Build a `Dictionary` per the chosen input form.
-2. Construct a `BatchExperiment` with the parsed arguments.
-3. Call `BatchExperiment.run()`, materializing per-pair
-   sub-artifacts under `--output-dir` and writing
-   `sharing_graph.json` at the top level.
-4. Print the `sharing_graph.json` path to stdout.
-5. Exit 0 on success.
+1. Parse `--feature-graph` via `FeatureGraph.from_json`. On parse
+   failure, exit non-zero with stderr naming the offending path and
+   the parse error.
+2. Resolve `--dictionary` via the existing q-orca file loader or
+   `module:callable` import. On any resolution error, exit non-zero
+   with stderr.
+3. Construct a `BatchExperiment` with the parsed arguments. Any
+   `ValueError` raised by `__post_init__` (e.g. graph node missing
+   from dictionary, `top_k` out of range) SHALL be caught and
+   reported on stderr with exit code non-zero.
+4. Call `BatchExperiment.run()`. Write `batch_results.json` at the
+   top of `--output-dir`.
+5. Print the resolved `batch_results.json` path on stdout. Exit 0.
 
-The subcommand SHALL exit non-zero with a clear stderr message on
-any of: missing/invalid input file, malformed `--features`,
-unknown experiment kind, or any error raised by
-`BatchExperiment.run()`.
+#### Scenario: end-to-end run on a separation graph
 
-#### Scenario: --sae invocation writes a SharingGraph JSON
+- **GIVEN** a `FeatureGraph` produced by
+  `build_separation_graph(predict_cancellation_depth(toy_sae,
+  [0,1,4,5]))` and serialized to `/tmp/sep.json`, AND
+  `examples/animals_hea.py` exposes
+  `build_dictionary()` returning the matching dictionary
+- **WHEN** the CLI is invoked as `polygram batch --feature-graph
+  /tmp/sep.json --dictionary examples.animals_hea:build_dictionary
+  --top-k 2 --output-dir /tmp/out`
+- **THEN** the process exits 0, `/tmp/out/batch_results.json`
+  exists and parses as a JSON document with exactly 2 `runs`
+  entries, and the printed stdout line names that path
 
-- **WHEN** the CLI is invoked as `polygram batch --sae
-  tests/fixtures/toy_sae.json --features 0,1,4,5
-  --experiments cancellation --output-dir /tmp/out`
-- **THEN** the process exits 0 and `/tmp/out/sharing_graph.json`
-  exists and parses as a JSON document with at least 6 edges
+#### Scenario: feature-graph with node not in dictionary rejected
 
-#### Scenario: --dictionary REF on a build_dictionary callable
-
-- **WHEN** the CLI is invoked as `polygram batch --dictionary
-  examples.animals_hea:build_dictionary --pairs cross_cluster
-  --output-dir /tmp/out` and `examples/animals_hea.py` exposes
-  `build_dictionary()` returning a 4-feature 2-cluster Dictionary
-- **THEN** the process exits 0 and the produced
-  `sharing_graph.json` has exactly 4 edges, all with
-  cross-cluster `(a, b)` endpoints
-
-#### Scenario: --sae and --dictionary mutually exclusive
-
-- **WHEN** the CLI is invoked with both `--sae PATH` and
-  `--dictionary REF`
-- **THEN** the process exits non-zero with stderr explaining the
-  mutual exclusion
-
-#### Scenario: oversized batch rejected without --force
-
-- **WHEN** the CLI is invoked on a Dictionary whose pair count
-  exceeds 50 without `--force`
+- **GIVEN** a `FeatureGraph` whose `nodes` includes a name not
+  declared by the resolved dictionary
+- **WHEN** the CLI is invoked
 - **THEN** the process exits non-zero with stderr naming the
-  pair count and recommending `--force` or a narrower `--pairs`
+  missing feature(s) and pointing at the dictionary reference
 
-#### Scenario: unknown experiment kind rejected
+#### Scenario: malformed feature-graph JSON rejected
 
-- **WHEN** the CLI is invoked as `polygram batch ...
-  --experiments bogus,sweep`
+- **WHEN** the CLI is invoked with `--feature-graph` pointing at a
+  file that is not valid `FeatureGraph` JSON
+- **THEN** the process exits non-zero with stderr naming the path
+  and the parse error
+
+#### Scenario: top-k above 16 rejected at argparse layer
+
+- **WHEN** the CLI is invoked with `--top-k 17`
+- **THEN** the process exits non-zero with stderr naming the value
+  `17` and the 16-pair cap, before any `BatchExperiment` is
+  constructed
+
+#### Scenario: top-k below 1 rejected
+
+- **WHEN** the CLI is invoked with `--top-k 0`
+- **THEN** the process exits non-zero with stderr naming the value
+  and the `[1, 16]` valid range
+
+#### Scenario: unknown knobs value rejected
+
+- **WHEN** the CLI is invoked with `--knobs bogus`
 - **THEN** the process exits non-zero with stderr listing the
-  supported kinds (`sweep`, `cancellation`)
+  supported choices (`cluster_shared`, `per_feature`)
+
+#### Scenario: defaults produce a runnable invocation
+
+- **GIVEN** a valid `--feature-graph` and `--dictionary`
+- **WHEN** the CLI is invoked WITHOUT `--top-k`, `--knobs`, or
+  `--output-dir`
+- **THEN** the process exits 0, `--top-k` defaults to `8`,
+  `--knobs` defaults to `cluster_shared`, `--output-dir` defaults
+  to a freshly-created temp directory, and the resolved temp path
+  is printed on stdout
