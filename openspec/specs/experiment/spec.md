@@ -151,19 +151,31 @@ Fields: `dictionary: Dictionary`, `target_pair: tuple[str, str]`,
 `optimize_all: bool = False`, `knobs: list[str] | None = None`.
 
 `knobs` declares the search space as a list of knob paths in the
-same grammar as `Dictionary.with_knob`: `<feature>.phi` (both
-encodings) or `<feature>.theta[r,d,q]` (HEA only). When `None`,
-`__post_init__` SHALL resolve `knobs` to
+same grammar as `Dictionary.with_knob`. Each path is one of:
+
+- `<feature>.phi` (both encodings),
+- `<feature>.theta[r,d,q]` (HEA only),
+- `<cluster>.phi` (both encodings) — *cluster-shared* φ; one search
+  axis whose value is applied to every feature in the named cluster,
+- `<cluster>.theta[r,d,q]` (HEA only) — *cluster-shared* θ slot;
+  applied to every feature in the named cluster.
+
+When `knobs is None`, `__post_init__` SHALL resolve `knobs` to
 `[f"{a}.phi", f"{b}.phi"]` for backwards compatibility, where
 `(a, b) == target_pair`.
 
+A cluster-shared path counts as a single search axis regardless of
+how many features the cluster contains. `len(self.knobs)` after
+resolution is therefore the search-space dimensionality.
+
 Per-knob search bounds: `(0.0, 2π)` for `.phi` paths,
-`(-π, π)` for `.theta[r,d,q]` paths.
+`(-π, π)` for `.theta[r,d,q]` paths — independent of whether the
+leading identifier is a feature or a cluster.
 
 `__post_init__` SHALL reject `.theta[...]` knobs on `MPSRung1`
 dictionaries (`ValueError` naming the encoding) and forward
 malformed paths to the same grammar errors that
-`Dictionary.with_knob` raises.
+`Dictionary.with_knob` raises (including unknown identifiers).
 
 `optimize_all=True` is reserved and SHALL raise
 `NotImplementedError` in v0.
@@ -223,31 +235,53 @@ the objective at infeasible candidates.
 - **THEN** `result.trajectory.shape == (max_steps**2, 3)` and each
   trajectory row's first two columns are values within `[-π, π]`
 
-#### Scenario: theta-slot knobs rejected on MPS dictionary
+#### Scenario: cluster-shared knobs accepted
 
-- **GIVEN** an `MPSRung1`-encoded dictionary
-- **WHEN** `Cancellation(..., knobs=["a.theta[0,0,1]"])` is
-  constructed
-- **THEN** `__post_init__` raises `ValueError` naming the encoding
+- **GIVEN** an HEA-encoded dictionary with two clusters
+  `"dogs"` (size 2) and `"birds"` (size 2), and
+  `Cancellation(..., knobs=["dogs.theta[0,0,0]",
+  "birds.theta[0,0,0]"], optimize={"method": "grid", "max_steps":
+  8})`
+- **WHEN** the cancellation runs
+- **THEN** `result.trajectory.shape == (64, 3)` (two search axes,
+  one column per cluster-shared knob plus overlap), and
+  `result.optimized_knobs` keys are `{"dogs.theta[0,0,0]",
+  "birds.theta[0,0,0]"}`
 
-#### Scenario: grid backend caps at 4 knobs
+#### Scenario: MPS cluster-shared phi preserves sibling overlaps
 
-- **WHEN** a `Cancellation` is constructed with five-knob `knobs`
-  and `optimize={"method": "grid", "max_steps": 30}`
-- **THEN** `__post_init__` raises `ValueError` recommending
-  `method="scipy"`
+- **GIVEN** an `MPSRung1`-encoded dictionary with cluster `"dogs"` of
+  size 2 whose siblings share the same pre-mutation `phi`, and
+  `Cancellation` on `("dog_poodle", "bird_hawk")` with cluster-shared
+  `<cluster>.phi` knobs on both clusters
+- **WHEN** the cancellation runs and produces
+  `result.dictionary_at_optimum`
+- **THEN** `abs(result.before_gram[i_poodle, i_beagle] -
+  result.after_gram[i_poodle, i_beagle]) < 1e-9` (and likewise for
+  every pair within `"birds"`); this is the bit-for-bit case
+  guaranteed by the final-Rz factorization
 
-#### Scenario: grid backend finds best feasible point on Animals
+#### Scenario: HEA cluster-shared sibling overlaps may drift
 
-- **WHEN** a `Cancellation` is run on the 4-feature Animals
-  Dictionary, starting from a mismatched-φ configuration (e.g.
-  `dog_poodle.phi=π/2, bird_hawk.phi=0`), with target
-  `(dog_poodle, bird_hawk)`, `preserve_tiers=True`,
-  `optimize={"method": "grid", "max_steps": 30}`
-- **THEN** `result.after_overlap <= result.before_overlap + 1e-9`,
-  `result.feasible_count > 0`, and `result.dictionary_at_optimum`
-  is a valid `Dictionary` whose target-pair Gram entry matches
-  `result.after_overlap` to within 1e-6
+- **GIVEN** an HEA-encoded dictionary with diverse sibling baselines
+  (any per-feature `alpha`, `gamma`, or explicit `theta` variation)
+  and `Cancellation` with cluster-shared θ knobs
+- **WHEN** the cancellation runs
+- **THEN** the run SHALL complete and the within-cluster Gram entries
+  MAY differ from the pre-mutation values. The cluster-shared regime
+  bounds optimizer leverage (one axis per cluster instead of one per
+  feature) but does not zero the drift; bit-for-bit preservation is
+  reserved for the MPS phi case
+
+#### Scenario: mixed cluster + feature knob list accepted but not invariant-preserving
+
+- **GIVEN** a `Cancellation` whose `knobs` list mixes
+  `<feature>.theta[r,d,q]` and `<cluster>.theta[r,d,q]` paths
+- **WHEN** the cancellation runs
+- **THEN** the run completes (mixed lists are valid input), but the
+  cluster-shared invariant on within-cluster Gram entries does NOT
+  apply (the per-feature mutations on one branch break the matched
+  unitarity)
 
 ### Requirement: CancellationResult fields
 
@@ -456,6 +490,30 @@ computation; they SHALL NOT trigger a second optimization pass.
   - efficiency `None` and floor defined → "no cancellation gap
     available"
 
+When `structural_floor` is undefined (NaN), the materialized summary
+SHALL also append a `## Caveat` section whose body depends on the
+shape of the knob list:
+
+- **Pure cluster-shared** (every path's leading identifier is a
+  cluster name): the caveat SHALL describe the cluster-shared regime
+  honestly. For `MPSRung1` `<cluster>.phi` knobs the caveat SHALL
+  state that within-cluster Gram entries are preserved bit-for-bit
+  by the final-Rz factorization (when sibling pre-mutation phi
+  values agree). For HEA cluster-shared paths the caveat SHALL
+  describe the regime as a search-space dimensionality reduction
+  (one axis per cluster) and warn that within-cluster Gram MAY drift
+  on diverse-sibling fixtures, recommending verification of
+  `concept_gram_tier_separation` on the materialized optimum.
+- **Mixed** (knob list contains both per-feature and cluster-shared
+  paths): the caveat SHALL fire the multi-knob warning *and* an
+  explicit note that mixed lists do not inherit the cluster-shared
+  invariant.
+- **Per-feature** (no cluster-shared paths): the caveat SHALL fire
+  the existing multi-knob warning that the reported `after` is the
+  best value found by the optimizer, not a guaranteed bound; if any
+  knob is a `.theta[...]` path, the caveat SHALL also recommend
+  hand-checking `concept_gram_tier_separation` on the optimum.
+
 #### Scenario: summary contains floor and efficiency lines on MPS
 
 - **WHEN** `CancellationResult.materialize(output_dir)` is called
@@ -471,6 +529,34 @@ computation; they SHALL NOT trigger a second optimization pass.
 - **THEN** the produced `<name>_summary.md` "Structural floor"
   section reports "undefined for this configuration" and the
   one-line interpretation matches the floor-undefined branch
+
+#### Scenario: pure-cluster caveat on MPS phi names the unitarity guarantee
+
+- **WHEN** the knob list contains only `<cluster>.phi` paths on an
+  `MPSRung1`-encoded dictionary and `materialize` is called
+- **THEN** the produced `<name>_summary.md` `## Caveat` section text
+  mentions that within-cluster Gram entries are preserved bit-for-bit
+  by the final-Rz factorization, and does NOT use the per-feature
+  "best value found" language
+
+#### Scenario: pure-cluster caveat on HEA names the search-space framing
+
+- **WHEN** the knob list contains only cluster-shared paths on an
+  `HEA_Rung2`-encoded dictionary and `materialize` is called
+- **THEN** the produced `<name>_summary.md` `## Caveat` section text
+  describes the cluster-shared regime as a search-space dimensionality
+  reduction (one axis per cluster), warns that within-cluster Gram
+  MAY drift on diverse-sibling fixtures, and recommends verifying
+  `concept_gram_tier_separation` on the optimum
+
+#### Scenario: mixed caveat names both warnings
+
+- **WHEN** the knob list mixes per-feature and cluster-shared paths
+  and `materialize` is called
+- **THEN** the produced `<name>_summary.md` `## Caveat` section
+  contains both the per-feature "best value found" warning and an
+  explicit note that the cluster-shared invariant does NOT apply to
+  mixed lists
 
 ### Requirement: Sweep keys accept HEA θ slot syntax
 
