@@ -103,8 +103,16 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     feature_ids = _parse_feature_ids(args.features)
     records = load_toy_sae(sae_path)
 
+    from_sae_lens_kwargs: dict[str, Any] = {}
+    if args.assign_gamma:
+        from_sae_lens_kwargs["assign_gamma"] = True
+    if args.n_clusters is not None:
+        from_sae_lens_kwargs["n_clusters"] = args.n_clusters
+
     try:
-        prediction = predict_cancellation_depth(records, feature_ids)
+        prediction = predict_cancellation_depth(
+            records, feature_ids, **from_sae_lens_kwargs
+        )
     except ValueError as exc:
         raise SystemExit(f"polygram: analyze failed: {exc}") from None
 
@@ -252,6 +260,20 @@ def _topk_argtype(value: str) -> int:
     return n
 
 
+def _positive_int_argtype(value: str) -> int:
+    try:
+        n = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer, got {value!r}"
+        ) from None
+    if n < 1:
+        raise argparse.ArgumentTypeError(
+            f"expected a positive integer (>= 1), got {n}"
+        )
+    return n
+
+
 def _cmd_batch(args: argparse.Namespace) -> int:
     from polygram.analysis.feature_graph import FeatureGraph
     from polygram.batch import BatchExperiment
@@ -291,6 +313,117 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     results_path = out_dir / "batch_results.json"
     print(f"polygram: wrote batch results → {results_path}")
     return 0
+
+
+def _resolve_names_file(path: str) -> dict[int, str]:
+    """Load a `--names` JSON file, auto-detect its shape, and return
+    a `dict[int, str]` (`{id: name}`) suitable for
+    `load_sae_safetensors(names=...)`.
+
+    String-valued maps are interpreted as `{id: name}`; int-valued
+    maps as `{name: id}` and inverted. Mixed-type values exit
+    non-zero with a clear error.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise SystemExit(f"polygram: --names file not found: {path}")
+    try:
+        raw = json.loads(p.read_text())
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"polygram: failed to parse --names {path}: {exc}"
+        ) from None
+    if not isinstance(raw, dict):
+        raise SystemExit(
+            f"polygram: --names {path} must contain a JSON object, "
+            f"got {type(raw).__name__}"
+        )
+    if not raw:
+        return {}
+
+    value_types = {type(v) for v in raw.values()}
+    if len(value_types) != 1:
+        raise SystemExit(
+            f"polygram: --names {path} mixes value types {value_types!r}; "
+            "expected a uniform `{id: name}` (string values) or "
+            "`{name: id}` (int values) map"
+        )
+    sole = next(iter(value_types))
+    if sole is str:
+        try:
+            return {int(k): str(v) for k, v in raw.items()}
+        except ValueError as exc:
+            raise SystemExit(
+                f"polygram: --names {path}: keys must parse as ints "
+                f"under the {{id: name}} shape: {exc}"
+            ) from None
+    if sole is int:
+        return {int(v): str(k) for k, v in raw.items()}
+    raise SystemExit(
+        f"polygram: --names {path} value type {sole.__name__} not "
+        "supported; use string values for `{id: name}` or int values "
+        "for `{name: id}`"
+    )
+
+
+def _cmd_sae_import(args: argparse.Namespace) -> int:
+    from polygram.sae_import import load_sae_safetensors
+
+    src = Path(args.path)
+    if not src.exists():
+        raise SystemExit(f"polygram: SAE file not found: {src}")
+
+    names = _resolve_names_file(args.names) if args.names is not None else None
+
+    feature_ids = (
+        _parse_feature_ids(args.features) if args.features is not None else None
+    )
+
+    try:
+        # When --features is supplied, propagate to the lazy-slice path
+        # so we don't read the full decoder tensor just to filter it
+        # down. For GB-class SAEs this is the difference between
+        # OOM and a sub-MB read.
+        records = load_sae_safetensors(
+            src, names=names, feature_ids=feature_ids
+        )
+    except (ValueError, ImportError) as exc:
+        raise SystemExit(f"polygram: sae-import failed: {exc}") from None
+
+    payload = {
+        "schema_version": 1,
+        "description": (
+            f"Polygram sae-import — {src.name}, "
+            f"{len(records)} features"
+        ),
+        "features": [
+            _record_to_json(rec) for rec in records.values()
+        ],
+    }
+    text = json.dumps(payload, indent=2)
+    if args.output is None:
+        print(text)
+    else:
+        out = Path(args.output).resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text)
+        sys.stderr.write(f"polygram: wrote {len(records)} features → {out}\n")
+    return 0
+
+
+def _record_to_json(rec: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "feature_id": int(rec.feature_id),
+        "name": rec.name,
+        "projection": [float(x) for x in rec.projection.tolist()],
+    }
+    if rec.label is not None:
+        out["label"] = rec.label
+    if rec.activation_mean is not None:
+        out["activation_mean"] = float(rec.activation_mean)
+    if rec.activation_std is not None:
+        out["activation_std"] = float(rec.activation_std)
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -352,6 +485,20 @@ def main(argv: list[str] | None = None) -> int:
         help="separation-graph weight threshold (default: 0.2; "
              "ignored unless --separation-graph is set)",
     )
+    p_an.add_argument(
+        "--assign-gamma", action="store_true",
+        help="forward assign_gamma=True to from_sae_lens; per-cluster "
+             "PCA on projection vectors derives each feature's γ. "
+             "Without this flag every feature gets γ=0, which collapses "
+             "within-cluster overlaps to 1.0 on diverse-projection "
+             "inputs. Real-SAE workloads almost universally need it.",
+    )
+    p_an.add_argument(
+        "--n-clusters", type=_positive_int_argtype, default=None,
+        help="forward n_clusters=N to from_sae_lens (used when k-means "
+             "is the cluster fallback). default delegates to "
+             "from_sae_lens (currently 2). Must be >= 1.",
+    )
     p_an.set_defaults(func=_cmd_analyze)
 
     p_batch = sub.add_parser(
@@ -384,6 +531,33 @@ def main(argv: list[str] | None = None) -> int:
              "(default: a freshly-created temp directory)",
     )
     p_batch.set_defaults(func=_cmd_batch)
+
+    p_sae = sub.add_parser(
+        "sae-import",
+        help="convert a .safetensors SAE checkpoint to the toy-SAE JSON "
+             "schema consumed by `polygram analyze`",
+    )
+    p_sae.add_argument(
+        "path",
+        help="path to a .safetensors file containing decoder weights "
+             "(W_dec / decoder.weight / dec)",
+    )
+    p_sae.add_argument(
+        "--features", default=None,
+        help="optional comma-separated feature ids to keep "
+             "(default: every feature loaded)",
+    )
+    p_sae.add_argument(
+        "--names", default=None,
+        help="optional JSON file mapping {id: name} (string values) "
+             "or {name: id} (int values); auto-detected by value type",
+    )
+    p_sae.add_argument(
+        "--output", default=None,
+        help="output path for the toy-SAE JSON document "
+             "(default: stdout)",
+    )
+    p_sae.set_defaults(func=_cmd_sae_import)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

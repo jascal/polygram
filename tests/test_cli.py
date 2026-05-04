@@ -321,3 +321,162 @@ class TestBatchSubcommand:
                     str(qpath),
                 ]
             )
+
+
+# ---------------------------------------------------------------------------
+# `polygram sae-import` subcommand
+# ---------------------------------------------------------------------------
+
+
+def _synth_safetensors_for_cli(path: Path, *, n: int, d: int) -> None:
+    import numpy as np
+    from safetensors.numpy import save_file
+
+    rng = np.random.default_rng(42)
+    save_file(
+        {"W_dec": rng.standard_normal((n, d)).astype(np.float32)},
+        str(path),
+    )
+
+
+class TestSaeImportSubcommand:
+    def test_end_to_end_round_trips_through_load_toy_sae(
+        self, tmp_path: Path
+    ):
+        from polygram import load_toy_sae
+
+        src = tmp_path / "sae.safetensors"
+        out = tmp_path / "picked.json"
+        _synth_safetensors_for_cli(src, n=8, d=16)
+        rc = main(
+            [
+                "sae-import",
+                str(src),
+                "--features",
+                "0,1,4,5",
+                "--output",
+                str(out),
+            ]
+        )
+        assert rc == 0
+        records = load_toy_sae(out)
+        assert set(records.keys()) == {0, 1, 4, 5}
+        assert all(records[k].projection.shape == (16,) for k in records)
+
+    def test_chains_into_polygram_analyze(self, tmp_path: Path):
+        # Spec scenario: `sae-import → analyze` works without further
+        # plumbing.
+        src = tmp_path / "sae.safetensors"
+        picked = tmp_path / "picked.json"
+        report = tmp_path / "report.md"
+        _synth_safetensors_for_cli(src, n=8, d=16)
+        rc = main(
+            [
+                "sae-import",
+                str(src),
+                "--features",
+                "0,1,2,3",
+                "--output",
+                str(picked),
+            ]
+        )
+        assert rc == 0
+        rc = main(
+            [
+                "analyze",
+                str(picked),
+                "--features",
+                "0,1,2,3",
+                "--output",
+                str(report),
+            ]
+        )
+        assert rc == 0
+        assert report.exists()
+
+    def test_missing_source_rejected(self, tmp_path: Path):
+        with pytest.raises(SystemExit, match="SAE file not found"):
+            main(["sae-import", str(tmp_path / "ghost.safetensors")])
+
+    def test_features_with_unknown_id_rejected(self, tmp_path: Path):
+        src = tmp_path / "sae.safetensors"
+        _synth_safetensors_for_cli(src, n=4, d=4)
+        with pytest.raises(SystemExit, match=r"\[0, 4\)"):
+            main(
+                [
+                    "sae-import",
+                    str(src),
+                    "--features",
+                    "0,5",
+                ]
+            )
+
+    def test_names_id_to_name_shape(self, tmp_path: Path):
+        from polygram import load_toy_sae
+
+        src = tmp_path / "sae.safetensors"
+        out = tmp_path / "picked.json"
+        labels = tmp_path / "labels.json"
+        _synth_safetensors_for_cli(src, n=4, d=4)
+        labels.write_text(json.dumps({"0": "dog_poodle", "2": "bird_hawk"}))
+        rc = main(
+            [
+                "sae-import",
+                str(src),
+                "--names",
+                str(labels),
+                "--output",
+                str(out),
+            ]
+        )
+        assert rc == 0
+        recs = load_toy_sae(out)
+        assert recs[0].name == "dog_poodle"
+        assert recs[1].name == "feat_1"
+        assert recs[2].name == "bird_hawk"
+
+    def test_names_name_to_id_shape_inverted(self, tmp_path: Path):
+        from polygram import load_toy_sae
+
+        src = tmp_path / "sae.safetensors"
+        out = tmp_path / "picked.json"
+        labels = tmp_path / "labels.json"
+        _synth_safetensors_for_cli(src, n=4, d=4)
+        labels.write_text(
+            json.dumps({"dog_poodle": 0, "bird_hawk": 2})
+        )
+        rc = main(
+            [
+                "sae-import",
+                str(src),
+                "--names",
+                str(labels),
+                "--output",
+                str(out),
+            ]
+        )
+        assert rc == 0
+        recs = load_toy_sae(out)
+        assert recs[0].name == "dog_poodle"
+        assert recs[2].name == "bird_hawk"
+
+    def test_names_mixed_value_types_rejected(self, tmp_path: Path):
+        src = tmp_path / "sae.safetensors"
+        labels = tmp_path / "labels.json"
+        _synth_safetensors_for_cli(src, n=4, d=4)
+        labels.write_text(json.dumps({"0": "dog_poodle", "1": 5}))
+        with pytest.raises(SystemExit, match="mixes value types"):
+            main(["sae-import", str(src), "--names", str(labels)])
+
+    def test_output_omitted_writes_to_stdout(
+        self, tmp_path: Path, capsys
+    ):
+        src = tmp_path / "sae.safetensors"
+        _synth_safetensors_for_cli(src, n=2, d=3)
+        rc = main(["sae-import", str(src)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        # Output is JSON with the toy-SAE schema.
+        data = json.loads(out)
+        assert data["schema_version"] == 1
+        assert len(data["features"]) == 2

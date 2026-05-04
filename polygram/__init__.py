@@ -10,6 +10,7 @@ from polygram.sae_import import (
     SAEFeatureRecord,
     SelectionReport,
     from_sae_lens,
+    load_sae_safetensors,
     load_toy_sae,
 )
 
@@ -31,6 +32,7 @@ __all__ = [
     "SAEFeatureRecord",
     "SelectionReport",
     "from_sae_lens",
+    "load_sae_safetensors",
     "load_toy_sae",
     "write_qorca",
 ]

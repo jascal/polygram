@@ -22,6 +22,15 @@ from polygram.encoding import MPSRung1
 
 MAX_FEATURES_PER_DICTIONARY = 8
 
+# Decoder weight tensor key auto-detect precedence — see
+# `load_sae_safetensors`. Update only with empirical signal from a
+# real-world checkpoint that uses a key outside this list.
+_DECODER_KEY_PRECEDENCE = ("W_dec", "decoder.weight", "dec")
+_SAE_EXTRA_INSTALL_HINT = (
+    "safetensors is required for load_sae_safetensors; "
+    "install with `pip install polygram[sae]`."
+)
+
 
 @dataclass(frozen=True)
 class SAEFeatureRecord:
@@ -86,6 +95,204 @@ class SelectionReport:
     tier_preservation: float | None = None
     gamma_method: str = "zero"
     warnings: list[str] = field(default_factory=list)
+
+
+def _detect_decoder_key(
+    keys: list[str],
+) -> tuple[str, list[str]]:
+    """Return `(matched_key, sorted_present_keys)`. `matched_key` is the
+    first entry of `_DECODER_KEY_PRECEDENCE` that appears in `keys`;
+    raises `ValueError` listing both the precedence and what was found
+    when no entry matches.
+    """
+    present = sorted(keys)
+    for candidate in _DECODER_KEY_PRECEDENCE:
+        if candidate in present:
+            return candidate, present
+    raise ValueError(
+        f"load_sae_safetensors: no decoder weight tensor found. "
+        f"Looked for {list(_DECODER_KEY_PRECEDENCE)} in priority order; "
+        f"file contains: {present}"
+    )
+
+
+def load_sae_safetensors(
+    path: str | Path,
+    *,
+    names: dict[int, str] | None = None,
+    feature_ids: list[int] | None = None,
+) -> dict[int, SAEFeatureRecord]:
+    """Read a single ``.safetensors`` file and return the
+    ``dict[int, SAEFeatureRecord]`` shape that
+    :func:`from_sae_lens` already consumes.
+
+    Decoder weight tensor key is auto-detected via the fixed
+    precedence list ``("W_dec", "decoder.weight", "dec")``. Decoder
+    rows are features (one row → one record), matching the SAE-Lens
+    canonical layout. The loader transposes only when the matched key
+    is ``"decoder.weight"`` and the matrix is non-square (PyTorch
+    ``nn.Linear`` weight convention is ``out × in``, where for a
+    decoder ``out = d_model`` and ``in = d_sae``); ``W_dec`` and
+    ``dec`` are always row-as-feature.
+
+    Returned records have ``label=None``,
+    ``activation_mean=None``, and ``activation_std=None``. Attaching
+    those is downstream tooling.
+
+    Parameters
+    ----------
+    path : str | Path
+        Path to a ``.safetensors`` file on disk.
+    names : dict[int, str] | None
+        Optional per-feature name override. Keys outside
+        ``[0, n_features)`` raise ``ValueError``. Absent keys default
+        to ``f"feat_{i}"``.
+    feature_ids : list[int] | None
+        When ``None`` (default), every feature is loaded eagerly.
+        When set, only the named rows are read off disk via
+        ``safetensors.safe_open(...).get_slice(...)`` slicing — the
+        rest of the decoder tensor is never materialized in memory.
+        For SAEs in the GB-class range this is the difference
+        between a multi-GB working set and a few-MB one. Out-of-range
+        ids raise ``ValueError``; the returned dict is keyed by
+        ``feature_ids`` (so callers know they got what they asked for)
+        and the dict's iteration order matches the input list.
+
+    Raises
+    ------
+    ImportError
+        When the optional ``[sae]`` extra is not installed (i.e. the
+        ``safetensors`` package is unavailable). The message points at
+        ``pip install polygram[sae]``.
+    ValueError
+        When the file contains no recognized decoder weight tensor,
+        the matched tensor is not 2D, a ``names`` key is outside
+        the valid range, or any ``feature_ids`` entry is outside
+        the valid range.
+    """
+    try:
+        from safetensors import safe_open  # noqa: F401
+        from safetensors.numpy import load_file  # noqa: F401
+    except ImportError as exc:  # pragma: no cover - exercised via monkeypatch
+        raise ImportError(_SAE_EXTRA_INSTALL_HINT) from exc
+
+    if feature_ids is not None:
+        return _load_subset(path, feature_ids, names=names)
+
+    from safetensors.numpy import load_file
+
+    tensors = load_file(str(path))
+    matched, present = _detect_decoder_key(list(tensors.keys()))
+    weight = tensors[matched]
+    if weight.ndim != 2:
+        raise ValueError(
+            f"load_sae_safetensors: tensor {matched!r} has shape "
+            f"{tuple(weight.shape)}; expected 2D"
+        )
+    if matched == "decoder.weight" and weight.shape[0] != weight.shape[1]:
+        # PyTorch nn.Linear stores weights as (out, in); for a decoder
+        # out = d_model and in = d_sae, so transpose to put features
+        # on rows. Square matrices are ambiguous — prefer the
+        # row-as-feature default (no transpose) and document the
+        # ambiguity in the design doc.
+        weight = weight.T
+
+    n_features = weight.shape[0]
+    resolved_names: dict[int, str] = {}
+    if names is not None:
+        for key, value in names.items():
+            if not (0 <= int(key) < n_features):
+                raise ValueError(
+                    f"load_sae_safetensors: names key {key!r} is outside the "
+                    f"valid range [0, {n_features})"
+                )
+            resolved_names[int(key)] = str(value)
+
+    out: dict[int, SAEFeatureRecord] = {}
+    for i in range(n_features):
+        proj = np.asarray(weight[i, :], dtype=float)
+        out[i] = SAEFeatureRecord(
+            feature_id=i,
+            name=resolved_names.get(i, f"feat_{i}"),
+            projection=proj,
+            label=None,
+            activation_mean=None,
+            activation_std=None,
+        )
+    # Surface the matched key for downstream debugging without
+    # changing the public return shape — callers who want it can
+    # re-run `_detect_decoder_key`.
+    del present
+    return out
+
+
+def _load_subset(
+    path: str | Path,
+    feature_ids: list[int],
+    *,
+    names: dict[int, str] | None = None,
+) -> dict[int, SAEFeatureRecord]:
+    """Lazy-load a subset of decoder rows via ``safetensors.safe_open``.
+
+    The full decoder tensor is never materialized in memory — each
+    requested row (or column, post-orientation) is sliced individually
+    off disk. For GB-class SAEs this turns a multi-GB working set into
+    a per-row ``d_model × 8`` byte read.
+    """
+    from safetensors import safe_open
+
+    with safe_open(str(path), framework="numpy") as f:
+        keys = list(f.keys())
+        matched, _ = _detect_decoder_key(keys)
+        slc = f.get_slice(matched)
+        shape = tuple(slc.get_shape())
+        if len(shape) != 2:
+            raise ValueError(
+                f"load_sae_safetensors: tensor {matched!r} has shape "
+                f"{shape}; expected 2D"
+            )
+        # Mirror the eager path's orientation rule: only transpose for a
+        # non-square decoder.weight (PyTorch out × in convention).
+        if matched == "decoder.weight" and shape[0] != shape[1]:
+            n_features = shape[1]
+            transpose = True
+        else:
+            n_features = shape[0]
+            transpose = False
+
+        for fid in feature_ids:
+            if not (0 <= int(fid) < n_features):
+                raise ValueError(
+                    f"load_sae_safetensors: feature_id {fid!r} is outside the "
+                    f"valid range [0, {n_features})"
+                )
+
+        resolved_names: dict[int, str] = {}
+        if names is not None:
+            for key, value in names.items():
+                if not (0 <= int(key) < n_features):
+                    raise ValueError(
+                        f"load_sae_safetensors: names key {key!r} is outside the "
+                        f"valid range [0, {n_features})"
+                    )
+                resolved_names[int(key)] = str(value)
+
+        out: dict[int, SAEFeatureRecord] = {}
+        for fid in feature_ids:
+            fid_int = int(fid)
+            if transpose:
+                row = np.asarray(slc[:, fid_int], dtype=float)
+            else:
+                row = np.asarray(slc[fid_int, :], dtype=float)
+            out[fid_int] = SAEFeatureRecord(
+                feature_id=fid_int,
+                name=resolved_names.get(fid_int, f"feat_{fid_int}"),
+                projection=row,
+                label=None,
+                activation_mean=None,
+                activation_std=None,
+            )
+    return out
 
 
 def load_toy_sae(path: str | Path) -> dict[int, SAEFeatureRecord]:

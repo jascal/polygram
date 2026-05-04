@@ -87,3 +87,39 @@ The dict returned by `load_sae_safetensors` SHALL be directly consumable by `pol
 - **WHEN** `records = load_sae_safetensors(path)` and `dictionary, _ = from_sae_lens(records, [0, 1, 4, 5])` are called
 - **THEN** `from_sae_lens` returns a `Dictionary` with 4 features whose names match the records'
 - **AND** the call raises no errors
+
+### Requirement: load_sae_safetensors supports lazy row slicing via feature_ids
+
+`load_sae_safetensors` SHALL accept a `feature_ids: list[int] | None = None` keyword argument. When `None` (the default), the loader behaves as the eager path documented above and reads the full decoder tensor into memory.
+
+When `feature_ids` is set, the loader SHALL:
+
+1. Open the file via `safetensors.safe_open(path, framework="numpy")` instead of `safetensors.numpy.load_file`. The full decoder tensor SHALL NOT be loaded into memory.
+2. Auto-detect the decoder key and apply the same orientation rule as the eager path (decoder.weight non-square → operate on columns rather than rows).
+3. Slice each requested feature_id individually via `safe_open(...).get_slice(matched)[fid, :]` (or `[:, fid]` post-orientation), reading at most `d_model × dtype_size` bytes per requested feature.
+4. Return a `dict[int, SAEFeatureRecord]` keyed by exactly the requested `feature_ids`. Iteration order SHALL match the input list.
+5. Reject out-of-range entries in `feature_ids` with `ValueError` naming the offending id and the valid range — using the same `[0, n_features)` rule as `names` validation.
+
+The lazy path SHALL be observably equivalent to the eager path: for any `path` and any `ids`, `load_sae_safetensors(path, feature_ids=ids)` SHALL produce records whose `projection` arrays equal the corresponding entries from `load_sae_safetensors(path)` element-wise.
+
+#### Scenario: lazy load reads only the requested rows
+
+- **GIVEN** a `.safetensors` file with `W_dec` of shape `(8, 16)`
+- **WHEN** `load_sae_safetensors(path, feature_ids=[0, 4])` is called
+- **THEN** the returned dict has exactly two entries keyed by `0` and `4`
+- **AND** the iteration order of the returned dict yields `0` then `4` (matching the input list order)
+- **AND** the projection arrays match the eager-path output for the same ids
+
+#### Scenario: lazy load preserves orientation correction
+
+- **GIVEN** a `.safetensors` file whose only matching key is `decoder.weight` with shape `(8, 4)` (PyTorch out × in convention)
+- **WHEN** `load_sae_safetensors(path, feature_ids=[0, 1, 2, 3])` is called
+- **THEN** the returned dict has 4 entries
+- **AND** each `records[i].projection` equals `decoder.weight[:, i]` (column slicing post-orientation)
+- **AND** each `records[i].projection.shape == (8,)`
+
+#### Scenario: out-of-range feature_id rejected in lazy mode
+
+- **GIVEN** a `.safetensors` file with `W_dec` of shape `(4, 8)`
+- **WHEN** `load_sae_safetensors(path, feature_ids=[0, 9])` is called
+- **THEN** a `ValueError` is raised naming the offending id `9` and the valid range `[0, 4)`

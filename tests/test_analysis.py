@@ -179,6 +179,138 @@ def test_cli_analyze_missing_path(tmp_path: Path):
         )
 
 
+def _write_diverse_sibling_fixture(path: Path) -> list[int]:
+    """Write a 4-feature toy-SAE JSON whose two cluster siblings have
+    deliberately diverse projection vectors. Without `assign_gamma`,
+    rung-1's identical-β-per-cluster collapses within-cluster overlap
+    to 1.0; with `assign_gamma`, per-cluster PCA gives each sibling a
+    distinct γ and the overlap drops below 1.
+
+    Returns the list of feature ids written.
+    """
+    payload = {
+        "schema_version": 1,
+        "description": "diverse-sibling fixture",
+        "features": [
+            {
+                "feature_id": 0,
+                "name": "a0",
+                "label": "alpha/a0",
+                "projection": [1.0, 0.0, 0.0, 0.0, 0.05, -0.02, 0.03, -0.04],
+            },
+            {
+                "feature_id": 1,
+                "name": "a1",
+                "label": "alpha/a1",
+                "projection": [0.0, 1.0, 0.0, 0.0, -0.05, 0.04, -0.03, 0.02],
+            },
+            {
+                "feature_id": 2,
+                "name": "b0",
+                "label": "beta/b0",
+                "projection": [0.0, 0.0, 1.0, 0.0, 0.02, -0.05, 0.04, -0.03],
+            },
+            {
+                "feature_id": 3,
+                "name": "b1",
+                "label": "beta/b1",
+                "projection": [0.0, 0.0, 0.0, 1.0, -0.02, 0.05, -0.04, 0.03],
+            },
+        ],
+    }
+    path.write_text(json.dumps(payload))
+    return [0, 1, 2, 3]
+
+
+class TestAnalyzeAssignGamma:
+    def test_no_flag_collapses_within_cluster_overlap_to_one(
+        self, tmp_path: Path
+    ):
+        fix = tmp_path / "diverse.json"
+        ids = _write_diverse_sibling_fixture(fix)
+        out = tmp_path / "report_no_gamma.md"
+        rc = cli_main(
+            [
+                "analyze",
+                str(fix),
+                "--features",
+                ",".join(str(i) for i in ids),
+                "--output",
+                str(out),
+            ]
+        )
+        assert rc == 0
+        text = out.read_text()
+        # Within-cluster pairs (a0↔a1, b0↔b1) collapse to 1.0000.
+        assert "| a0 ↔ a1 | intra | 1.0000 |" in text
+        assert "| b0 ↔ b1 | intra | 1.0000 |" in text
+
+    def test_flag_breaks_within_cluster_collapse(self, tmp_path: Path):
+        fix = tmp_path / "diverse.json"
+        ids = _write_diverse_sibling_fixture(fix)
+        out = tmp_path / "report_gamma.md"
+        rc = cli_main(
+            [
+                "analyze",
+                str(fix),
+                "--features",
+                ",".join(str(i) for i in ids),
+                "--output",
+                str(out),
+                "--assign-gamma",
+            ]
+        )
+        assert rc == 0
+        text = out.read_text()
+        # Within-cluster pairs no longer collapse to 1.0 — γ-PCA
+        # differentiates the siblings.
+        assert "| a0 ↔ a1 | intra | 1.0000 |" not in text
+        assert "| b0 ↔ b1 | intra | 1.0000 |" not in text
+
+    def test_n_clusters_forwarded(self, tmp_path: Path):
+        # Strip labels so k-means is the cluster path; ask for 3
+        # clusters and confirm the report names kmeans.
+        fix = tmp_path / "diverse.json"
+        ids = _write_diverse_sibling_fixture(fix)
+        # Drop labels in-place so `from_sae_lens` falls back to k-means.
+        data = json.loads(fix.read_text())
+        for entry in data["features"]:
+            entry.pop("label", None)
+        fix.write_text(json.dumps(data))
+        out = tmp_path / "report_kmeans.md"
+        rc = cli_main(
+            [
+                "analyze",
+                str(fix),
+                "--features",
+                ",".join(str(i) for i in ids),
+                "--output",
+                str(out),
+                "--n-clusters",
+                "3",
+            ]
+        )
+        assert rc == 0
+        assert "Cluster method: `kmeans`" in out.read_text()
+
+    def test_n_clusters_zero_rejected(self, tmp_path: Path):
+        fix = tmp_path / "diverse.json"
+        _write_diverse_sibling_fixture(fix)
+        with pytest.raises(SystemExit):
+            cli_main(
+                [
+                    "analyze",
+                    str(fix),
+                    "--features",
+                    "0,1,2,3",
+                    "--output",
+                    str(tmp_path / "r.md"),
+                    "--n-clusters",
+                    "0",
+                ]
+            )
+
+
 # ---------------------------------------------------------------------------
 # Sharing / separation graph artifacts
 # ---------------------------------------------------------------------------

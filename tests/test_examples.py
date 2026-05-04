@@ -173,6 +173,18 @@ def test_cancellation_example_runs(tmp_path: Path):
     assert (out / "ToySAEAnimals4_at_optimum_summary.md").exists()
 
 
+def test_sae_safetensors_runs(tmp_path: Path):
+    """Synthesize a .safetensors fixture, load it, build a Dictionary,
+    and emit a verifying .q.orca.md."""
+    from examples.sae_safetensors import main
+
+    main(output_dir=tmp_path)
+    out = tmp_path / "sae_safetensors"
+    assert (out / "synthesized.safetensors").is_file()
+    machine = out / "ImportedSafetensors.q.orca.md"
+    assert machine.is_file()
+
+
 def test_batch_animals_hea_runs(tmp_path: Path):
     """Batch-experiment walk-through: triage_dictionary →
     build_separation_graph → BatchExperiment(top_k=4) on the Animals
