@@ -51,7 +51,7 @@ reference.
 
 ## 3. Encoding-invariance verification — research-track follow-up
 
-- [ ] 3.1 Encoding-invariance spike (MPS vs HEA classification
+- [x] 3.1 Encoding-invariance spike (MPS vs HEA classification
       stability). Both `add-sharing-graph-triage` and
       `add-batch-experiment` ride on the rung-1 closed-form
       `(M, V, structural_floor, cancellation_gap)` decomposition,
@@ -81,3 +81,18 @@ reference.
       being stable across encodings.
       (Source: `add-batch-experiment` proposal Out of Scope; flagged
       while landing the `BatchExperiment` consumer of `FeatureGraph`.)
+
+      *Closed 2026-05-04*. Empirical findings landed in
+      `docs/research/cross-encoding-stability.md` and the
+      reproducible script `examples/cross_encoding_stability.py`. TL;DR
+      across three fixtures (Animals, toy SAE, real GPT-2 SAE):
+      kept-edge classifications agree perfectly between MPSRung1
+      and HEA_Rung2(depth=2) at default thresholds; per-pair
+      magnitudes differ systematically on cross-cluster pairs (HEA
+      reports up to +0.30 higher current_overlap and collapses pairs
+      sharing |Δβ| toward each other). Practical recommendation:
+      use rung-1 triage as a cheap pre-filter for pair selection
+      (its classifications transfer); regenerate magnitudes in the
+      target encoding before quantitative conclusions. Follow-up
+      worth running: depth-vs-γ-leverage at HEA depth=4/8 to confirm
+      depth=2 is the cause of cross-cluster magnitude collapse.
