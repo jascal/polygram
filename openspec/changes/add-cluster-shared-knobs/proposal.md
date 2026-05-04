@@ -14,29 +14,57 @@ drove `(dog_poodle, bird_hawk)` overlap from `0.7686` to `≈ 0` —
 The same change documented this as Out-of-Scope ("Cluster-respecting
 HEA knob sets") and `tech-debt-backlog` §2.1 captured the
 research-track follow-up. This change promotes that bullet into a
-real proposal, because the principled mechanic falls out of unitarity
-algebra rather than a heuristic.
+real proposal: cluster-shared knobs collapse the per-feature axis
+count to one-per-cluster, which bounds (and on MPS phi: zeroes) the
+within-cluster drift the optimizer can introduce.
 
 **The mechanic.** A *cluster-shared* knob is a knob path that, when
 applied, sets the same value across every feature in a named cluster.
-For features `a, b` both in cluster `C`, the same unitary `U_C` ends
-up on both branches. Then:
+The shape of the guarantee depends on whether the cluster-shared
+rotation factors cleanly out of the per-feature unitary:
 
-```
-<U_C a | U_C b> = <a | U_C† U_C | b> = <a|b>
-```
+- **MPS rung-1 `<cluster>.phi` (clean factorization).** Phi is the
+  final `Rz(qs[1], phi)` on a separate qubit; it commutes with nothing
+  earlier in the preparation. When sibling features in cluster `C`
+  share the same pre-mutation `phi` (true for any uniformly-initialized
+  cluster), `<cluster>.phi := v` produces *the same* outer rotation
+  on every sibling, and the unitarity-cancellation argument holds
+  exactly:
 
-— so within-cluster Gram entries are *exactly* unchanged. Bit-for-bit,
-not approximately. Cross-cluster Gram entries (where the two sides
-get different unitaries `U_X`, `U_Y`) are the cancellation lever; the
-optimizer pushes those down without touching siblings. The cluster
-invariant — every sibling is more similar than every cross-cluster
-pair — is preserved by construction.
+  ```
+  <U_C a | U_C b> = <a | U_C† U_C | b> = <a|b>
+  ```
 
-This is genuinely the *honest* version of "safe knobs." Per-feature
-knobs trade safety for expressivity; cluster-shared knobs trade
-expressivity (fewer degrees of freedom — one θ per cluster instead of
-one per feature) for an algebraic invariant.
+  Within-cluster Gram entries are bit-for-bit preserved (to numeric
+  round-off).
+
+- **HEA (variational; rotations interleaved with entanglers).**
+  Sharing a single θ slot across siblings does NOT produce identical
+  sibling unitaries — the entanglers between depths prevent the slot
+  rotation from factoring out, and any per-feature variation at other
+  slots (different `α`, `γ`, or default `theta` entries) keeps the
+  sibling unitaries distinct. Bit-for-bit Gram preservation holds
+  *only* in the degenerate case where siblings are already fully
+  identical (overlap already 1.0). For diverse sibling fixtures —
+  the case that matters in practice — cluster-shared θ on HEA is a
+  **search-space dimensionality reduction**, not an algebraic
+  invariant: one axis per cluster instead of one per feature, which
+  bounds the per-feature drift the optimizer can introduce, but does
+  not zero it out.
+
+The change ships both shapes: the MPS phi case is the principled
+algebraic guarantee; the HEA case is the dimensionality lever. Tests
+(see Tests section) name the precondition for each and explicitly
+mark the diverse-sibling HEA fixture as an approximate-only case.
+
+**Why this matters even when the bit-for-bit invariant doesn't hold.**
+The empirical θ-experiment that motivated this change shattered
+siblings from `0.9999 → 0.5735` under per-feature 4-θ Ry knobs.
+Cluster-shared θ collapses those four axes to one, which is what
+prevents the optimizer from individually targeting one sibling. The
+worst-case sibling drift is still nonzero on diverse fixtures, but
+strictly less than the per-feature regime. That is the practical
+safety win — no algebra required.
 
 ## What Changes
 
@@ -107,18 +135,22 @@ the existing 2-φ default:
   unknown cluster name rejected; feature/cluster collision rejected
   at construction.
 - `tests/test_cancellation.py::TestClusterSharedKnobs` —
-  cluster-shared knobs accepted; trajectory shape correct;
-  within-cluster Gram preserved bit-for-bit at the optimum (compute
-  pairwise sibling overlaps before vs at-optimum, assert equal to
-  numeric tolerance); summary caveat text reflects cluster-shared
-  mode.
+  cluster-shared knobs accepted on both encodings; trajectory shape
+  correct; **MPS `<cluster>.phi` case** asserts within-cluster Gram
+  bit-for-bit preservation; **HEA case** asserts search-space
+  dimensionality reduction (trajectory width matches axis count)
+  and explicitly does NOT assert bit-for-bit preservation; summary
+  caveat text reflects the encoding-specific framing.
 - `tests/test_cancellation.py::TestMixedKnobs` — mixed per-feature +
-  cluster-shared list accepted; summary caveat falls back to the
-  multi-knob warning (mixed lists do *not* preserve within-cluster
-  Gram).
+  cluster-shared list accepted; summary caveat fires both the
+  multi-knob warning *and* the mixed-list note that the cluster-shared
+  regime does NOT extend to mixed lists.
 - `tests/test_examples.py::test_animals_hea_example_runs` —
-  extended to assert the second before/after figure exists and that
-  the cluster-shared run preserves sibling overlaps.
+  extended to assert the cluster-shared before/after figure exists
+  and that the example runs end-to-end. Sibling-overlap preservation
+  is NOT asserted (the example fixture has diverse sibling baselines
+  and lives in the search-space-reduction regime, not the
+  bit-for-bit regime).
 
 ## Capabilities
 
@@ -140,9 +172,8 @@ the existing 2-φ default:
 - **Knob-binding across non-cluster groupings.** Arbitrary equality
   constraints (e.g. "tie `dog_poodle.theta[0,0,0]` to
   `dog_beagle.theta[0,0,0]` only") are not supported. Cluster-shared
-  is the only binding mode introduced — that's enough to give
-  invariant preservation, and arbitrary bindings invite surface
-  inflation without empirical justification.
+  is the only binding mode introduced; arbitrary bindings invite
+  surface inflation without empirical justification.
 - **`tier_separation_bound` as a hard optimization constraint.** A
   separate, complementary path (run optimizer with the bound as a
   feasibility filter, reject points that fall through it). Mentioned

@@ -264,5 +264,96 @@ class TestWithKnob:
 
     def test_unknown_feature_raises(self):
         d = _hea_animals()
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError, match="nope"):
             d.with_knob("nope.phi", 0.0)
+
+
+class TestClusterKnob:
+    def test_cluster_phi_fans_out_across_siblings(self):
+        d = _hea_animals()
+        d2 = d.with_knob("s1.phi", 0.7)
+        assert d2.feature("a").phi == pytest.approx(0.7)
+        assert d2.feature("b").phi == pytest.approx(0.7)
+        assert d2.feature("c").phi == d.feature("c").phi
+
+    def test_cluster_theta_fans_out_on_hea(self):
+        d = _hea_animals()
+        d2 = d.with_knob("s1.theta[0,0,0]", 1.5)
+        for member in ("a", "b"):
+            theta = d2.feature(member).theta
+            assert theta is not None
+            assert theta[0, 0, 0] == pytest.approx(1.5)
+            original = _default_hea_theta(d.feature(member), d.encoding)
+            for r in range(theta.shape[0]):
+                for layer in range(theta.shape[1]):
+                    for q in range(theta.shape[2]):
+                        if (r, layer, q) == (0, 0, 0):
+                            continue
+                        assert theta[r, layer, q] == pytest.approx(
+                            original[r, layer, q]
+                        )
+        assert d2.feature("c").theta is None
+
+    def test_cluster_theta_rejected_on_mps(self):
+        d = _animals()
+        with pytest.raises(ValueError, match="HEA-only"):
+            d.with_knob("dogs.theta[0,0,1]", 0.3)
+
+    def test_unknown_identifier_rejected(self):
+        d = _hea_animals()
+        with pytest.raises(ValueError, match="cats"):
+            d.with_knob("cats.phi", 0.0)
+
+    def test_feature_cluster_collision_rejected_at_construction(self):
+        with pytest.raises(ValueError, match="name collision"):
+            Dictionary(
+                name="Bad",
+                features=[
+                    Feature("dogs", "dogs", beta=-0.5),
+                    Feature("bird_hawk", "birds", beta=0.5),
+                ],
+                hierarchy={"dogs": ["dogs"], "birds": ["bird_hawk"]},
+            )
+
+    def test_cluster_theta_out_of_range_names_cluster(self):
+        d = _hea_animals()
+        with pytest.raises(ValueError, match=r"s1\.theta\[2,0,0\]"):
+            d.with_knob("s1.theta[2,0,0]", 0.0)
+
+    def test_mps_cluster_shared_phi_preserves_within_cluster_gram(self):
+        # Bit-for-bit invariant: MPSRung1 + cluster-shared phi + sibling
+        # pre-mutation phi agreement. Final-Rz factorization makes the
+        # cluster-shared rotation cancel in `<a|b>`.
+        d = Dictionary(
+            name="MpsClean",
+            features=[
+                Feature("dog_a", "dogs", beta=-0.5),
+                Feature("dog_b", "dogs", beta=-0.5),
+                Feature("bird_a", "birds", beta=0.5),
+                Feature("bird_b", "birds", beta=0.5),
+            ],
+            hierarchy={"dogs": ["dog_a", "dog_b"], "birds": ["bird_a", "bird_b"]},
+        )
+        before = d.gram()
+        d2 = d.with_knob("dogs.phi", 0.4)
+        after = d2.gram()
+        for cluster in ("dogs", "birds"):
+            i, j = (d.feature_index(m) for m in d.hierarchy[cluster])
+            assert abs(after[i, j] - before[i, j]) < 1e-9
+
+    def test_hea_cluster_shared_theta_may_drift(self):
+        # Bit-for-bit preservation on HEA requires fully identical sibling
+        # baselines. _hea_animals has α=0.05/γ=0.02 vs α=0.04/γ=0.03 —
+        # cluster-shared θ on slot (0,0,0) shifts the within-cluster Gram.
+        d = _hea_animals()
+        before = d.gram()
+        d2 = d.with_knob("s1.theta[0,0,0]", 1.0)
+        after = d2.gram()
+        i_a = d.feature_index("a")
+        i_b = d.feature_index("b")
+        # With diverse sibling baselines, the unitarity argument doesn't
+        # apply — drift is allowed. Just confirm the call runs.
+        assert d2.feature("a").theta is not None
+        assert d2.feature("b").theta is not None
+        # Drift may be small but nonzero; do NOT assert equality.
+        _ = abs(after[i_a, i_b] - before[i_a, i_b])

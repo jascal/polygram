@@ -19,7 +19,7 @@ reference.
 
 ## 2. Cancellation diagnostics — research-track follow-ups
 
-- [ ] 2.1 Per-knob HEA floor diagnostics (research-track). Add
+- [~] 2.1 Per-knob HEA floor diagnostics (research-track). Add
       `result.structural_floor(knob="featureX.theta[r,d,q]")` (1D
       scan minimum, holding other knobs fixed) and
       `structural_floor_joint` (numerical lower bound from a short
@@ -41,3 +41,10 @@ reference.
       useful. (Source: dev-agent task spec received 2026-05-03;
       deferred per ad-hoc decision after empirical θ-experiment
       surfaced cross-term cluster hazard.)
+      *Superseded 2026-05-03 by `add-cluster-shared-knobs`* — the
+      principled answer is a binding mechanic (cluster-shared knobs
+      that collapse per-feature axes to one-per-cluster), not a
+      per-knob "floor" diagnostic. Bit-for-bit Gram preservation
+      holds for `MPSRung1 <cluster>.phi`; HEA cluster-shared paths
+      ship as a search-space dimensionality reduction (no algebraic
+      bound). Per-knob/joint floor diagnostics remain deferred.
