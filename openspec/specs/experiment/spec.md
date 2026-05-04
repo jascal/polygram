@@ -17,34 +17,58 @@ and verifiable by `q_orca.verifier.verify`. The emitted file SHALL begin
 with a comment block naming the source `Dictionary`, the generation
 timestamp, and the git revision (or "unversioned" outside a repo).
 
+The renderer SHALL dispatch on `dictionary.encoding`. For `MPSRung1`
+the emitted body SHALL be the existing rung-1 staircase layout
+unchanged. For `HEA_Rung2` the emitted body SHALL include three
+extra sections in order:
+
+1. A `## encoding` table with `kind: hea`, `depth`, `entangler`,
+   and `rotations` matching `dictionary.encoding`.
+2. A `## theta` table with three columns
+   `| concept | tensor | cluster |`. The `concept` column carries
+   the feature slug, `tensor` carries the literal-eval-able Python
+   list form of each feature's θ tensor (using the encoding's
+   default-tensor generator when `feature.theta is None`), and
+   `cluster` carries the feature's `cluster` field verbatim.
+3. A `## invariants` section declaring
+   `- concept_gram_tier_separation >= <bound>` whenever
+   `encoding.tier_separation_bound is not None`. When the field
+   is `None`, the section SHALL be omitted from the HEA branch.
+
 The shipped Animals example SHALL exercise this path end-to-end as part
-of the test suite — closing the v0 milestone.
+of the example test (rung-1). A new `examples/animals_hea.py` SHALL
+exercise the HEA branch, producing a file that
+`q_orca.verifier.verify` accepts under default options (Stage 4b
+including the tier-separation invariant).
 
-#### Scenario: emitted file parses and verifies clean
+#### Scenario: HEA dictionary emits encoding/theta/invariants
 
-- **WHEN** `write_qorca` is called for a 4-feature, 2-cluster dictionary
-  and the result is round-tripped through `parse_q_orca_markdown` +
-  `verifier.verify`
-- **THEN** `verifier.verify` reports `valid == True`
+- **GIVEN** a `Dictionary(encoding=HEA_Rung2(depth=2))` with three
+  features grouped two-and-one across clusters `s1` and `s2`
+- **WHEN** `polygram.emit.write_qorca(dictionary, path)` runs
+- **THEN** the written file contains a `## encoding` section with
+  `kind: hea`, a 3-column `## theta` table whose `cluster` column
+  reads `s1, s1, s2`, and a `## invariants` section listing
+  `concept_gram_tier_separation >= 0.025`
 
-#### Scenario: emitter never produces inverse-form when phi nonzero
+#### Scenario: HEA dictionary with bound=None omits invariants
 
-- **WHEN** any feature has `phi != 0` and `write_qorca` is called
-- **THEN** the emitted transitions table uses preparation-form call
-  sites (`prepare_*` events into distinct `prepared_*` states), never
-  inverse-form rollback transitions
+- **GIVEN** a `Dictionary(encoding=HEA_Rung2(depth=2,
+  tier_separation_bound=None))`
+- **WHEN** the emitter runs
+- **THEN** the produced markdown does not contain a
+  `## invariants` section
 
-#### Scenario: animals example produces a valid q-orca artifact
+#### Scenario: HEA emission verifies clean
 
-- **WHEN** `tests/test_examples.py::test_animals_interference_runs`
-  executes a coarsened version of `examples/animals_interference.py`
-- **THEN** the emitted `.q.orca.md` parses and `verify(...).valid` is
-  `True`, the hierarchical-ordering assertion holds at every sweep
-  point, and the result tensor shapes match `(n_points, N, N)` /
-  `(n_points,)`. Destructive interference is *not* asserted on this
-  geometry — single-φ sweep on the bird_hawk side leaves the
-  dog_poodle/bird_hawk overlap above baseline; antisymmetric two-side
-  φ steering is the future `Cancellation` primitive's job.
+- **GIVEN** a `Dictionary(encoding=HEA_Rung2(depth=2))` with
+  features whose θ tensors satisfy the declared
+  `tier_separation_bound`
+- **WHEN** the emitted file is parsed and passed to
+  `q_orca.verifier.verify`
+- **THEN** `result.valid` is `True` and no error of code
+  `HEA_GRAM_INVALID`, `HEA_TIER_INVARIANT_VIOLATED`, or
+  `HEA_TIER_UNDEFINED` is reported
 
 ### Requirement: Experiment.materialize bundles artifacts
 
