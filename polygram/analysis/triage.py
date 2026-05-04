@@ -50,6 +50,52 @@ SUITABILITY_FORMULA = (
     "lives in [0, 1] too. Higher is better."
 )
 
+KNOB_SELECTION_GUIDANCE = (
+    "**Default knob.** Start with a single `<feature>.phi` per target "
+    "feature (`Cancellation`'s default). On `MPSRung1` this is the "
+    "final `Rz(qs[1], phi)` — the highest-leverage axis. On "
+    "`HEA_Rung2` it is also the cleanest single axis (`phi` factors "
+    "out of the θ tensor regardless of depth).\n"
+    "\n"
+    "**Multi-feature binding.** When several features should be tuned "
+    "coherently within a cluster, prefer the cluster-shared grammar "
+    "(`<cluster>.phi`, `<cluster>.theta[r,d,q]`) over a list of "
+    "per-feature paths. Bit-for-bit Gram preservation holds for "
+    "`MPSRung1 <cluster>.phi` (final-Rz factorization). HEA "
+    "cluster-shared paths ship as a search-space dimensionality "
+    "reduction (one axis per cluster, bounding optimizer leverage), "
+    "not an algebraic invariant.\n"
+    "\n"
+    "**Cluster-shatterer hazard.** Per-feature θ knobs on diverse-"
+    "sibling HEA fixtures can drive a target pair to ≈0 while "
+    "shattering the cluster ordering. Empirically: a 4-θ Ry knob "
+    "set drove `(dog_poodle, bird_hawk)` overlap to ≈0 while "
+    "inverting `(dog_poodle, dog_beagle)` from 0.9999 → 0.5735 and "
+    "`tier_separation` from +0.22 to −0.20. Only reach for "
+    "per-feature θ after verifying tier separation will not invert.\n"
+    "\n"
+    "**HEA Pauli leverage.** `Rz` at depth 0 has zero leverage on "
+    "`|0⟩` initial states (`Rz |0⟩` is a global phase). `Rz` at "
+    "later depths takes effect only after entanglers rotate states "
+    "off the Z basis; leverage is depth- and entangler-dependent. "
+    "`Ry` has across-the-board leverage but is the cluster-shatterer "
+    "above. There is no defensible *per-feature* safe HEA knob; the "
+    "principled answer is the cluster-shared grammar.\n"
+    "\n"
+    "**Structural floor.** Pure-φ search bounds the squared overlap "
+    "to [M − |V|, M + |V|]. The floor at `M − |V|` cannot be pierced "
+    "by any φ tuning. To reduce overlap below the floor, β/α/γ "
+    "adjustment or a richer encoding is needed (deferred — see "
+    "`docs/research/cancellation-phase-floor.md`).\n"
+    "\n"
+    "**Sensitivity ranking.** No `suggest_safe_knobs` helper is "
+    "provided; sorting features by `feature_sensitivity` is two "
+    "lines at the call site:\n"
+    "\n"
+    "    top = sorted(prediction.feature_sensitivity.items(),\n"
+    "                 key=lambda kv: kv[1], reverse=True)[:n]"
+)
+
 
 @dataclass(frozen=True)
 class PairPrediction:
@@ -289,6 +335,11 @@ def render_report(
         reverse=True,
     ):
         lines.append(f"| {name} | {cluster_of[name]} | {sens:.4f} |")
+    lines.append("")
+
+    lines.append("## Choosing knobs")
+    lines.append("")
+    lines.append(KNOB_SELECTION_GUIDANCE)
     lines.append("")
 
     lines.append("## Encoding suitability")

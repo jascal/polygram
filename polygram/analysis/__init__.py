@@ -8,6 +8,7 @@ experiment without simulating every subset.
 """
 
 from polygram.analysis.triage import (
+    KNOB_SELECTION_GUIDANCE,
     PairPrediction,
     SUITABILITY_FORMULA,
     TriagePrediction,
@@ -18,6 +19,7 @@ from polygram.analysis.triage import (
 )
 
 __all__ = [
+    "KNOB_SELECTION_GUIDANCE",
     "PairPrediction",
     "SUITABILITY_FORMULA",
     "TriagePrediction",
