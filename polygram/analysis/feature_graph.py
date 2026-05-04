@@ -126,6 +126,52 @@ class FeatureGraph:
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
+    @classmethod
+    def from_json(cls, source: str | dict[str, Any]) -> FeatureGraph:
+        """Reconstruct a `FeatureGraph` from a JSON string or a parsed
+        dict (the latter is convenient when this graph appears nested
+        inside another JSON document).
+
+        Tuples are restored from their JSON list representation so
+        equality with a freshly-built `FeatureGraph` holds.
+        """
+        if isinstance(source, str):
+            payload = json.loads(source)
+        else:
+            payload = source
+        if not isinstance(payload, dict):
+            raise ValueError(
+                "FeatureGraph.from_json: expected a JSON object, got "
+                f"{type(payload).__name__}"
+            )
+        for key in ("kind", "nodes", "edges", "clusters", "metadata"):
+            if key not in payload:
+                raise ValueError(
+                    f"FeatureGraph.from_json: missing required key {key!r}"
+                )
+        edges = tuple(
+            FeatureEdge(
+                source=str(e["source"]),
+                target=str(e["target"]),
+                weight=float(e["weight"]),
+                floor=float(e["floor"]),
+                gap=float(e["gap"]),
+                is_cross_cluster=bool(e["is_cross_cluster"]),
+                reason=str(e["reason"]),
+            )
+            for e in payload["edges"]
+        )
+        clusters = tuple(
+            tuple(str(n) for n in c) for c in payload["clusters"]
+        )
+        return cls(
+            kind=str(payload["kind"]),
+            nodes=tuple(str(n) for n in payload["nodes"]),
+            edges=edges,
+            clusters=clusters,
+            metadata=dict(payload["metadata"]),
+        )
+
 
 def _sharing_weight(
     p: PairPrediction, allow_cross_cluster: bool

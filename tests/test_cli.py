@@ -162,3 +162,162 @@ def test_analyze_threshold_malformed(tmp_path: Path):
                 "not-a-float",
             ]
         )
+
+
+# ---------------------------------------------------------------------------
+# `polygram batch` subcommand
+# ---------------------------------------------------------------------------
+
+
+def _build_separation_graph_for_animals_hea(tmp_path: Path) -> Path:
+    from polygram.analysis import build_separation_graph, triage_dictionary
+
+    from examples.animals_hea import build_dictionary
+
+    d = build_dictionary()
+    graph = build_separation_graph(
+        triage_dictionary(d), threshold=0.0, include_within_cluster=True
+    )
+    p = tmp_path / "sep.json"
+    p.write_text(graph.to_json())
+    return p
+
+
+class TestBatchSubcommand:
+    def test_end_to_end(self, tmp_path: Path, capsys):
+        graph_path = _build_separation_graph_for_animals_hea(tmp_path)
+        out = tmp_path / "out"
+        rc = main(
+            [
+                "batch",
+                "--feature-graph",
+                str(graph_path),
+                "--dictionary",
+                "examples.animals_hea:build_dictionary",
+                "--top-k",
+                "2",
+                "--knobs",
+                "cluster_shared",
+                "--output-dir",
+                str(out),
+            ]
+        )
+        assert rc == 0
+        results_path = out / "batch_results.json"
+        assert results_path.is_file()
+        data = json.loads(results_path.read_text())
+        assert len(data["runs"]) == 2
+        assert data["source_graph"]["kind"] == "separation"
+        # Stdout names the resolved path.
+        captured = capsys.readouterr()
+        assert str(results_path) in captured.out
+
+    def test_top_k_above_cap_rejected(self, tmp_path: Path):
+        graph_path = _build_separation_graph_for_animals_hea(tmp_path)
+        with pytest.raises(SystemExit):
+            main(
+                [
+                    "batch",
+                    "--feature-graph",
+                    str(graph_path),
+                    "--dictionary",
+                    "examples.animals_hea:build_dictionary",
+                    "--top-k",
+                    "17",
+                ]
+            )
+
+    def test_top_k_below_one_rejected(self, tmp_path: Path):
+        graph_path = _build_separation_graph_for_animals_hea(tmp_path)
+        with pytest.raises(SystemExit):
+            main(
+                [
+                    "batch",
+                    "--feature-graph",
+                    str(graph_path),
+                    "--dictionary",
+                    "examples.animals_hea:build_dictionary",
+                    "--top-k",
+                    "0",
+                ]
+            )
+
+    def test_unknown_knobs_rejected(self, tmp_path: Path):
+        graph_path = _build_separation_graph_for_animals_hea(tmp_path)
+        with pytest.raises(SystemExit):
+            main(
+                [
+                    "batch",
+                    "--feature-graph",
+                    str(graph_path),
+                    "--dictionary",
+                    "examples.animals_hea:build_dictionary",
+                    "--knobs",
+                    "bogus",
+                ]
+            )
+
+    def test_malformed_feature_graph_rejected(self, tmp_path: Path):
+        bad = tmp_path / "bad.json"
+        bad.write_text("{not valid json")
+        with pytest.raises(SystemExit, match="parse"):
+            main(
+                [
+                    "batch",
+                    "--feature-graph",
+                    str(bad),
+                    "--dictionary",
+                    "examples.animals_hea:build_dictionary",
+                ]
+            )
+
+    def test_dictionary_missing_graph_node_rejected(self, tmp_path: Path):
+        # Hand-craft a graph that names a feature the dictionary
+        # doesn't declare.
+        from polygram.analysis.feature_graph import FeatureEdge, FeatureGraph
+
+        graph = FeatureGraph(
+            kind="separation",
+            nodes=("dog_poodle", "ghost"),
+            edges=(
+                FeatureEdge(
+                    source="dog_poodle",
+                    target="ghost",
+                    weight=0.6,
+                    floor=0.5,
+                    gap=0.1,
+                    is_cross_cluster=True,
+                    reason="irreducible_cross_cluster",
+                ),
+            ),
+            clusters=(("dog_poodle", "ghost"),),
+        )
+        graph_path = tmp_path / "g.json"
+        graph_path.write_text(graph.to_json())
+        with pytest.raises(SystemExit, match="ghost"):
+            main(
+                [
+                    "batch",
+                    "--feature-graph",
+                    str(graph_path),
+                    "--dictionary",
+                    "examples.animals_hea:build_dictionary",
+                ]
+            )
+
+    def test_qorca_md_dictionary_path_rejected(self, tmp_path: Path):
+        graph_path = _build_separation_graph_for_animals_hea(tmp_path)
+        # An empty .q.orca.md file is enough to trigger the rejection
+        # — the CLI catches the suffix before trying to parse.
+        qpath = tmp_path / "fake.q.orca.md"
+        qpath.write_text("# machine X\n")
+        with pytest.raises(SystemExit, match="module:callable"):
+            main(
+                [
+                    "batch",
+                    "--feature-graph",
+                    str(graph_path),
+                    "--dictionary",
+                    str(qpath),
+                ]
+            )

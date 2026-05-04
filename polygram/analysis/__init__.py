@@ -26,6 +26,7 @@ from polygram.analysis.triage import (
     feature_sensitivity,
     predict_cancellation_depth,
     render_report,
+    triage_dictionary,
 )
 
 __all__ = [
@@ -45,4 +46,5 @@ __all__ = [
     "predict_cancellation_depth",
     "render_feature_graph_section",
     "render_report",
+    "triage_dictionary",
 ]

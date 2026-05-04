@@ -1,5 +1,6 @@
 """Polygram — quantum interference laboratory for polysemantic feature dictionaries."""
 
+from polygram.batch import BatchExperiment, BatchResults, BatchRun
 from polygram.cancellation import Cancellation, CancellationResult
 from polygram.dictionary import Dictionary, Feature
 from polygram.emit import write_qorca
@@ -15,6 +16,9 @@ from polygram.sae_import import (
 __version__ = "0.0.1"
 
 __all__ = [
+    "BatchExperiment",
+    "BatchResults",
+    "BatchRun",
     "Cancellation",
     "CancellationResult",
     "Dictionary",
