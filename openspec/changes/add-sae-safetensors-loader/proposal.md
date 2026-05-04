@@ -8,7 +8,7 @@ This change closes the gap for the simplest case (a local `.safetensors` file) w
 
 ### `polygram.load_sae_safetensors(...)` — new public loader
 
-- New function `polygram.load_sae_safetensors(path, *, names=None) -> dict[int, SAEFeatureRecord]` reading a single `.safetensors` file off disk and returning the dict shape that `from_sae_lens` already consumes.
+- New function `polygram.load_sae_safetensors(path, *, names=None, feature_ids=None) -> dict[int, SAEFeatureRecord]` reading a single `.safetensors` file off disk and returning the dict shape that `from_sae_lens` already consumes. When `feature_ids` is set, the loader switches to a lazy-slice mode that reads only the named rows via `safetensors.safe_open(...).get_slice(...)`, never materializing the full decoder tensor in memory — the difference between a multi-GB working set and a few-MB one for GB-class SAEs.
 - Decoder weight tensor key is auto-detected via a fixed precedence list: `W_dec` (SAE-Lens canonical), `decoder.weight` (PyTorch convention), `dec` (terse fallback). First match wins; missing-tensor errors list every key actually present.
 - Decoder rows are the projection vectors (one row per feature). The loader does NOT transpose — the file's rows ARE features. Two-dimensionality is enforced; non-2D tensors are rejected with a clear error.
 - `names` is an optional `dict[int, str]` override; absent keys fall back to `f"feat_{i}"`. Out-of-range keys raise `ValueError`.

@@ -265,6 +265,22 @@ polygram analyze picked.json --features 0,12,1042 --assign-gamma --sharing-graph
 > γ. The companion `--n-clusters N` flag (default `2`) tunes the
 > k-means cluster count when label-based clustering isn't available.
 
+For GB-class SAEs (Gemma-2-2B, Llama-3-8B, etc.) where the full
+decoder tensor would blow past available RAM under `np.float64`
+coercion, pass `feature_ids=[...]` to `load_sae_safetensors` to
+slice only the rows you need — the loader switches to a
+`safetensors.safe_open(...).get_slice(...)` path that never
+materializes the full tensor. Empirically: ~5000× less peak Python
+memory and ~100× faster than the eager path on a 600 MB SAE when
+sampling 8 features.
+
+```python
+records = load_sae_safetensors(
+    "path/to/large-sae.safetensors",
+    feature_ids=[0, 12, 1042, 5012],
+)
+```
+
 A first-class HuggingFace / SAE-Lens reader (with auto-download +
 metadata round-trip) is a separate follow-up — both would pull in
 `huggingface_hub` and / or `sae_lens` + torch, which v0 deliberately

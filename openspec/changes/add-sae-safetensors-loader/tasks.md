@@ -50,6 +50,15 @@
       `label`, `activation_mean`, `activation_std` to `None`.
 - [x] 2.8 Re-export `load_sae_safetensors` from
       `polygram/__init__.py`. Keep the `__all__` list alphabetized.
+- [x] 2.9 `feature_ids: list[int] | None = None` parameter on
+      `load_sae_safetensors`. When set, switches to a
+      `safe_open(...).get_slice(...)` lazy path that reads only the
+      named rows; full decoder tensor is never materialized. New
+      `_load_subset(path, feature_ids, *, names)` helper handles the
+      lazy path; same orientation rule as the eager path. Out-of-range
+      ids raise `ValueError` with the same `[0, n_features)` message
+      format as `names` validation. The lazy path is observably
+      equivalent to the eager path for any path/ids pair.
 
 ## 3. `polygram sae-import` CLI subcommand
 
@@ -71,6 +80,11 @@
       `load_toy_sae` semantics).
 - [x] 3.6 `--output` omitted → write JSON to stdout. `--output`
       supplied → write to file; print resolved path to stderr.
+- [x] 3.8 `_cmd_sae_import` propagates `--features` directly to
+      `load_sae_safetensors(feature_ids=...)` rather than loading the
+      full decoder tensor and filtering after. For GB-class SAEs this
+      is the difference between OOM and a sub-MB read; for the toy
+      fixture the behavior is identical.
 - [x] 3.7 `polygram/cli.py` — `_cmd_analyze` gains
       `--assign-gamma` (store-true) and `--n-clusters N` flags;
       forwarded to `predict_cancellation_depth` as
@@ -117,6 +131,12 @@
       with diverse-projection siblings, and assert the
       no-flag baseline collapses to 1.0 on the same fixture.
       Plus `--n-clusters 3` and `--n-clusters 0` rejection.
+- [x] 4.9 `tests/test_sae_safetensors.py::TestLazySlice` — for
+      every key-precedence branch (`W_dec`, `decoder.weight`
+      square, `decoder.weight` non-square, `dec`), assert that
+      `load_sae_safetensors(path, feature_ids=[i, j, k])` returns
+      projections equal to the eager path's corresponding entries.
+      Plus out-of-range rejection and dict-iteration-order check.
 
 ## 5. Example
 

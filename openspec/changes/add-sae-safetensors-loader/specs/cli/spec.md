@@ -15,8 +15,8 @@ The handler SHALL:
 
 1. Resolve `<path>`. Missing or unreadable files SHALL exit non-zero with stderr naming the path.
 2. Parse `--names` if supplied; surface JSON parse errors and ambiguous-shape errors to stderr.
-3. Call `load_sae_safetensors(path, names=resolved_names_or_None)`.
-4. If `--features` is supplied, validate every requested id exists in the loaded record set and otherwise exit non-zero with stderr naming missing ids.
+3. Call `load_sae_safetensors(path, names=resolved_names_or_None, feature_ids=parsed_features_or_None)`. When `--features` is supplied, the parsed id list SHALL be passed through to the loader's lazy-slice mode rather than loading the full decoder tensor and filtering after — for GB-class SAEs this is the difference between OOM and a sub-MB read.
+4. If `--features` is supplied and any requested id is outside the loader's valid range, the loader's `ValueError` SHALL surface as a non-zero exit with a stderr message naming the offending id and the valid range.
 5. Emit a JSON document with shape `{"schema_version": 1, "description": "<short auto-generated note>", "features": [...]}` where each feature object carries the same fields as `tests/fixtures/toy_sae.json` entries (`feature_id`, `name`, `projection`, optional `label`, optional `activation_mean`, optional `activation_std`). Records whose optional fields are `None` SHALL be omitted from the JSON object (matching `load_toy_sae` semantics).
 6. Print nothing to stdout when `--output` is supplied; print the resolved output path on stderr regardless. When `--output` is omitted, print the JSON document on stdout.
 

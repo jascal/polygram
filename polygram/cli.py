@@ -375,20 +375,20 @@ def _cmd_sae_import(args: argparse.Namespace) -> int:
 
     names = _resolve_names_file(args.names) if args.names is not None else None
 
+    feature_ids = (
+        _parse_feature_ids(args.features) if args.features is not None else None
+    )
+
     try:
-        records = load_sae_safetensors(src, names=names)
+        # When --features is supplied, propagate to the lazy-slice path
+        # so we don't read the full decoder tensor just to filter it
+        # down. For GB-class SAEs this is the difference between
+        # OOM and a sub-MB read.
+        records = load_sae_safetensors(
+            src, names=names, feature_ids=feature_ids
+        )
     except (ValueError, ImportError) as exc:
         raise SystemExit(f"polygram: sae-import failed: {exc}") from None
-
-    if args.features is not None:
-        feature_ids = _parse_feature_ids(args.features)
-        missing = [fid for fid in feature_ids if fid not in records]
-        if missing:
-            raise SystemExit(
-                f"polygram: --features id(s) not in source SAE: "
-                f"{missing} (valid range: [0, {len(records)}))"
-            )
-        records = {fid: records[fid] for fid in feature_ids}
 
     payload = {
         "schema_version": 1,

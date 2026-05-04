@@ -262,3 +262,96 @@ def test_returned_records_are_sae_feature_records(tmp_path: Path):
         assert rec.activation_std is None
         assert rec.projection.dtype == np.float64
         assert rec.projection.ndim == 1
+
+
+# ---------------------------------------------------------------------------
+# Lazy-slice mode (`feature_ids=...`)
+# ---------------------------------------------------------------------------
+
+
+class TestLazySlice:
+    def test_w_dec_lazy_matches_eager(self, tmp_path: Path):
+        path = tmp_path / "sae.safetensors"
+        _synth_safetensors(path, key="W_dec", shape=(8, 32))
+        eager = load_sae_safetensors(path)
+        lazy = load_sae_safetensors(path, feature_ids=[0, 3, 7])
+        # Only the requested ids appear in the lazy result.
+        assert list(lazy.keys()) == [0, 3, 7]
+        for fid in (0, 3, 7):
+            np.testing.assert_array_almost_equal(
+                lazy[fid].projection, eager[fid].projection
+            )
+            assert lazy[fid].name == eager[fid].name
+
+    def test_decoder_weight_square_lazy_matches_eager(self, tmp_path: Path):
+        path = tmp_path / "sae.safetensors"
+        _synth_safetensors(path, key="decoder.weight", shape=(4, 4))
+        eager = load_sae_safetensors(path)
+        lazy = load_sae_safetensors(path, feature_ids=[0, 2])
+        for fid in (0, 2):
+            np.testing.assert_array_almost_equal(
+                lazy[fid].projection, eager[fid].projection
+            )
+
+    def test_decoder_weight_non_square_lazy_orientation(self, tmp_path: Path):
+        # Non-square decoder.weight stores (d_model, n_features); lazy
+        # path must take *columns* not rows.
+        path = tmp_path / "sae.safetensors"
+        from safetensors.numpy import save_file
+
+        rng = np.random.default_rng(11)
+        weight = rng.standard_normal((8, 4)).astype(np.float32)
+        save_file({"decoder.weight": weight}, str(path))
+        lazy = load_sae_safetensors(path, feature_ids=[0, 1, 2, 3])
+        for fid in range(4):
+            assert lazy[fid].projection.shape == (8,)
+            np.testing.assert_array_almost_equal(
+                lazy[fid].projection, weight[:, fid]
+            )
+
+    def test_dec_lazy_matches_eager(self, tmp_path: Path):
+        path = tmp_path / "sae.safetensors"
+        _synth_safetensors(path, key="dec", shape=(6, 5))
+        eager = load_sae_safetensors(path)
+        lazy = load_sae_safetensors(path, feature_ids=[1, 4])
+        for fid in (1, 4):
+            np.testing.assert_array_almost_equal(
+                lazy[fid].projection, eager[fid].projection
+            )
+
+    def test_iteration_order_matches_input(self, tmp_path: Path):
+        path = tmp_path / "sae.safetensors"
+        _synth_safetensors(path, key="W_dec", shape=(8, 4))
+        lazy = load_sae_safetensors(path, feature_ids=[7, 2, 5, 0])
+        assert list(lazy.keys()) == [7, 2, 5, 0]
+
+    def test_out_of_range_feature_id_rejected(self, tmp_path: Path):
+        path = tmp_path / "sae.safetensors"
+        _synth_safetensors(path, key="W_dec", shape=(4, 8))
+        with pytest.raises(ValueError, match=r"\[0, 4\)"):
+            load_sae_safetensors(path, feature_ids=[0, 9])
+
+    def test_lazy_mode_honors_names_override(self, tmp_path: Path):
+        path = tmp_path / "sae.safetensors"
+        _synth_safetensors(path, key="W_dec", shape=(8, 4))
+        lazy = load_sae_safetensors(
+            path,
+            feature_ids=[3, 5],
+            names={3: "thing_a", 5: "thing_b"},
+        )
+        assert lazy[3].name == "thing_a"
+        assert lazy[5].name == "thing_b"
+
+    def test_lazy_mode_no_decoder_key_lists_present_keys(
+        self, tmp_path: Path
+    ):
+        from safetensors.numpy import save_file
+
+        save_file(
+            {"enc": np.zeros((2, 2), dtype=np.float32)},
+            str(tmp_path / "sae.safetensors"),
+        )
+        with pytest.raises(ValueError, match="W_dec"):
+            load_sae_safetensors(
+                tmp_path / "sae.safetensors", feature_ids=[0]
+            )
