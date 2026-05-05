@@ -99,7 +99,7 @@ reference.
 
 ## 4. Encoding validity vs ground truth — research-track follow-up
 
-- [ ] 4.1 Decoder-Gram validity spike. PR #16
+- [x] 4.1 Decoder-Gram validity spike. PR #16
       (`cross-encoding-stability`) closed the *internal* consistency
       question: MPS and HEA agree on which pairs cross the kept-edge
       gates. It explicitly leaves open the *external* validity
@@ -163,3 +163,31 @@ reference.
       interference reflects real decoder geometry — has never been
       tested directly. PR #16 confirmed encoding-invariance but
       explicitly left external validity open.)
+
+      *Closed 2026-05-04*. Empirical findings landed in
+      `docs/research/decoder-gram-validity.md` and the reproducible
+      script `examples/decoder_gram_validity.py`. TL;DR across two
+      fixtures (Toy SAE, Real GPT-2 SAE): on the Real SAE both
+      encodings hit Spearman 0.94 vs the real decoder squared-cosine
+      Gram (top outcome bucket — encoding tracks real ranking); on
+      Toy SAE the same encodings land in the middle bucket
+      (Spearman 0.54 MPS, 0.66 HEA). Per-pair magnitudes diverge by
+      up to 0.44 squared-overlap units even on the Real SAE
+      (Pearson +0.74–+0.90). Structural reason: Polygram's
+      `(β, α, γ, φ)` parameterization with `β ∈ [-0.5, 0.5]` puts a
+      floor on cross-cluster squared overlap (≈ 0.4 MPS, ≈ 0.73
+      HEA depth=2); real decoders aren't bound by that floor, so
+      whenever an SAE has cleanly orthogonal cross-cluster geometry
+      Polygram over-predicts. Practical recommendation: treat
+      Polygram as a *ranker* not a magnitude predictor. The first
+      blocker in `spec-disentanglement-loop.md` ("gradient signal
+      exists") gets partial evidence — ranking signal is real, so
+      a primitive that uses Polygram to *order* candidate pairs
+      operates on real information; one that uses Polygram
+      magnitudes as a quantitative loss surface would be optimizing
+      encoding-internal artefacts. Downstream work that rides on
+      ranking (BatchExperiment top-K selection, sharing/separation
+      kept-edge sets) is unblocked; work that depends on magnitudes
+      (the disentanglement-loop loss surface; the user-supplied
+      Gemma `compression_score` formula) needs a different signal
+      source for the magnitude inputs.

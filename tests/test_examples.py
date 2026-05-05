@@ -185,6 +185,22 @@ def test_sae_safetensors_runs(tmp_path: Path):
     assert machine.is_file()
 
 
+def test_decoder_gram_validity_smoke(capsys):
+    """Smoke test: the decoder-gram validity spike script runs end-to-end
+    on the toy fixture. Skips the real-SAE branch (which needs a 144MB
+    download) but exercises the toy-SAE path, both encodings, the
+    correlation/contingency reporting, and confirms the script prints a
+    Spearman block for both MPS and HEA."""
+    from examples.decoder_gram_validity import main
+
+    main(["--skip-real-sae"])
+    out = capsys.readouterr().out
+    assert "FIXTURE: Toy SAE" in out
+    assert "Spearman(G_real, G_mps)" in out
+    assert "Spearman(G_real, G_hea)" in out
+    assert "classification agreement" in out
+
+
 def test_batch_animals_hea_runs(tmp_path: Path):
     """Batch-experiment walk-through: triage_dictionary →
     build_separation_graph → BatchExperiment(top_k=4) on the Animals
