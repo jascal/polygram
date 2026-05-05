@@ -2,7 +2,6 @@
 knob perturbation, and torch-free import surface."""
 
 import math
-import sys
 
 import numpy as np
 import pytest

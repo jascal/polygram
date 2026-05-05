@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from safetensors.numpy import load_file, save_file
+from safetensors.numpy import save_file
 
 from polygram import EpochCompressor
 

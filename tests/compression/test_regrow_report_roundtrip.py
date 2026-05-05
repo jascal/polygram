@@ -81,9 +81,9 @@ class TestRoundTrip:
 
     def test_empty_provenance_round_trip(self):
         r = _hand_built_report()
-        # Build a new instance with empty provenance
-        from dataclasses import replace
-        # Frozen dataclass — replace works
+        # Build a new instance with empty provenance — frozen dataclass
+        # replace would also work, but constructing directly avoids the
+        # unused-import lint and reads more clearly.
         r_empty = RegrowReport(
             schema_version=r.schema_version,
             source_checkpoint=r.source_checkpoint,

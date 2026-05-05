@@ -38,7 +38,6 @@ from typing import Sequence
 import numpy as np
 
 from polygram.behavioural.report import (
-    BucketStats,
     CandidatePair,
     ValidationReport,
     ValidationSummary,
@@ -812,7 +811,6 @@ def _validate_panel_inline(
     Polygram overlap, Jaccard, and n_both_fire.
     """
     from polygram.behavioural.report import (
-        BucketStats,
         CandidatePair,
         ValidationReport,
         ValidationSummary,

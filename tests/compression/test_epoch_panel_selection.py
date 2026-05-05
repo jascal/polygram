@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import numpy as np
-import pytest
 
 from polygram.compression.epoch import (
-    Panel,
     _compute_cosine_graph,
     _select_panels,
 )
