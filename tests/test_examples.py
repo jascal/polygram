@@ -185,6 +185,30 @@ def test_sae_safetensors_runs(tmp_path: Path):
     assert machine.is_file()
 
 
+def test_behavioural_gram_probe_smoke(capsys):
+    """Smoke test: the behavioural-Gram probe script imports cleanly,
+    parses CLI args, and either runs end-to-end on a single short
+    prompt or skips with a clear message. Skip cases:
+    - SAE checkpoint absent (~144MB; matches existing decoder-Gram
+      and cross-encoding-stability skip pattern)
+    - `transformers` / `torch` not installed (the probe itself
+      handles this gracefully and the script exits without raising).
+    The smoke test asserts only that `main()` returns without
+    raising in either branch.
+    """
+    from examples.behavioural_gram_probe import main
+
+    main(["--n-prompts", "1", "--quiet"])
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    # Either we printed BEHAVIOURAL-GRAM PROBE banner (success path)
+    # or we printed a skip message — both are acceptable smoke pass.
+    assert (
+        "BEHAVIOURAL-GRAM PROBE" in out
+        or "behavioural_gram_probe:" in out
+    )
+
+
 def test_decoder_gram_validity_smoke(capsys):
     """Smoke test: the decoder-gram validity spike script runs end-to-end
     on the toy fixture. Skips the real-SAE branch (which needs a 144MB
