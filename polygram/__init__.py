@@ -9,6 +9,13 @@ from polygram.behavioural import (
     ValidationSummary,
 )
 from polygram.cancellation import Cancellation, CancellationResult
+from polygram.compression import (
+    ClusterPlan,
+    CompressionPlan,
+    CompressionReport,
+    CompressionResult,
+    Compressor,
+)
 from polygram.dictionary import Dictionary, Feature
 from polygram.emit import write_qorca
 from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung3State
@@ -32,6 +39,11 @@ __all__ = [
     "CandidatePair",
     "Cancellation",
     "CancellationResult",
+    "ClusterPlan",
+    "CompressionPlan",
+    "CompressionReport",
+    "CompressionResult",
+    "Compressor",
     "Dictionary",
     "Experiment",
     "ExperimentResult",

@@ -259,6 +259,27 @@ def test_behavioural_validator_smoke(capsys, tmp_path):
     )
 
 
+def test_compress_validated_smoke(capsys, tmp_path):
+    """Smoke test: `examples/compress_validated.py` exits 0 on the
+    skip path (SAE-or-report-absent). The full action requires both
+    the real SAE checkpoint and a populated validation report; CI
+    only exercises the absent-input branch."""
+    from examples.compress_validated import main
+
+    rc = main([
+        "--sae-checkpoint", str(tmp_path / "nonexistent.safetensors"),
+        "--validation-report", str(tmp_path / "nonexistent.json"),
+        "--output-dir", str(tmp_path / "compress_out"),
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert (
+        "COMPRESS-VALIDATED" in out
+        or "compress_validated:" in out
+    )
+
+
 def test_rung3_viability_spike_smoke(capsys, tmp_path):
     """Smoke test: `examples/rung3_viability_spike.py` exits 0 on the
     SAE-or-torch-absent branch. The full spike runs all 28 pairs of the

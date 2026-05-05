@@ -516,6 +516,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             min_firing_rate=args.min_firing_rate,
             min_both_fire=args.min_both_fire,
             allow_layer_zero=args.allow_layer_zero,
+            device=args.device,
         )
     except ValueError as exc:
         sys.stderr.write(f"polygram validate: {exc}\n")
@@ -550,6 +551,123 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         report.to_csv(out_csv)
         sys.stderr.write(f"polygram validate: wrote CSV  → {out_csv}\n")
 
+    return 0
+
+
+def _parse_representatives(raw: str | None) -> dict[int, int] | None:
+    """Parse `--representatives 0=12999,1=4192` into {0: 12999, 1: 4192}.
+
+    Returns None on None input. Raises SystemExit(2) on malformed input.
+    """
+    if raw is None:
+        return None
+    out: dict[int, int] = {}
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" not in part:
+            sys.stderr.write(
+                f"polygram compress: --representatives entries must be "
+                f"`cluster_id=fid`; got {part!r}\n"
+            )
+            raise SystemExit(2)
+        cid_str, fid_str = part.split("=", 1)
+        try:
+            cid = int(cid_str)
+            fid = int(fid_str)
+        except ValueError:
+            sys.stderr.write(
+                f"polygram compress: --representatives entry {part!r} "
+                f"has non-integer cluster_id or fid\n"
+            )
+            raise SystemExit(2) from None
+        if cid in out:
+            sys.stderr.write(
+                f"polygram compress: --representatives cluster_id {cid} "
+                f"specified more than once\n"
+            )
+            raise SystemExit(2)
+        out[cid] = fid
+    return out
+
+
+def _cmd_compress(args: argparse.Namespace) -> int:
+    from polygram.behavioural import ValidationReport
+    from polygram.compression import Compressor
+
+    vreport_path = Path(args.validation_report)
+    if not vreport_path.is_file():
+        sys.stderr.write(
+            f"polygram compress: --validation-report file not found: "
+            f"{vreport_path}\n"
+        )
+        return 2
+
+    sae_path = Path(args.sae_checkpoint)
+    if not sae_path.is_file():
+        sys.stderr.write(
+            f"polygram compress: --sae-checkpoint file not found: "
+            f"{sae_path}\n"
+        )
+        return 2
+
+    out_ckpt = Path(args.output_checkpoint).resolve()
+    if out_ckpt == sae_path.resolve():
+        sys.stderr.write(
+            f"polygram compress: --output-checkpoint must differ from "
+            f"--sae-checkpoint (both resolved to {out_ckpt})\n"
+        )
+        return 2
+
+    try:
+        representatives = _parse_representatives(args.representatives)
+    except SystemExit as exc:
+        return int(exc.code) if exc.code is not None else 2
+
+    sys.stderr.write("polygram compress: load validation report ...\n")
+    try:
+        vreport = ValidationReport.from_json(vreport_path)
+    except (ValueError, json.JSONDecodeError) as exc:
+        sys.stderr.write(
+            f"polygram compress: failed to parse --validation-report: "
+            f"{exc}\n"
+        )
+        return 2
+
+    sys.stderr.write("polygram compress: build plan ...\n")
+    try:
+        compressor = Compressor(
+            validation_report=vreport,
+            sae_checkpoint=sae_path,
+            strategy=args.strategy,
+            representatives=representatives,
+        )
+    except ValueError as exc:
+        sys.stderr.write(f"polygram compress: {exc}\n")
+        return 2
+
+    sys.stderr.write(
+        f"polygram compress: rewrite weights → {out_ckpt} ...\n"
+    )
+    try:
+        result = compressor.run(out_ckpt)
+    except (ValueError, KeyError, IndexError) as exc:
+        sys.stderr.write(f"polygram compress: {exc}\n")
+        return 2
+
+    out_json = Path(args.output).resolve()
+    result.report.to_json(out_json)
+    sys.stderr.write(
+        f"polygram compress: wrote report → {out_json}\n"
+    )
+    sys.stderr.write(
+        f"polygram compress: source sha256={result.report.source_checkpoint_sha256[:12]}… "
+        f"output sha256={result.report.output_checkpoint_sha256[:12]}… "
+        f"clusters={result.report.n_clusters} "
+        f"zeroed={result.report.n_features_zeroed} "
+        f"kept={result.report.n_features_kept}\n"
+    )
     return 0
 
 
@@ -745,6 +863,14 @@ def main(argv: list[str] | None = None) -> int:
              "ablation-probe.md)",
     )
     p_val.add_argument(
+        "--device", default="auto",
+        choices=("auto", "cuda", "mps", "cpu"),
+        help="torch device for the model + activations "
+             "(default: auto = cuda → mps → cpu, with a CPU-fallback "
+             "warning); explicit cuda/mps raises if the backend isn't "
+             "available",
+    )
+    p_val.add_argument(
         "--output", required=True,
         help="JSON output path; ValidationReport.to_json(...)",
     )
@@ -753,6 +879,44 @@ def main(argv: list[str] | None = None) -> int:
         help="optional CSV output path; ValidationReport.to_csv(...)",
     )
     p_val.set_defaults(func=_cmd_validate)
+
+    p_compress = sub.add_parser(
+        "compress",
+        help="apply the compression action to an SAE checkpoint, "
+             "consuming a ValidationReport and emitting a "
+             "CompressionReport plus a rewritten safetensors file",
+    )
+    p_compress.add_argument(
+        "--validation-report", required=True,
+        help="path to a ValidationReport JSON (the loop's upstream "
+             "half emits one)",
+    )
+    p_compress.add_argument(
+        "--sae-checkpoint", required=True,
+        help="path to the source .safetensors with W_enc / b_enc / "
+             "W_dec / b_dec",
+    )
+    p_compress.add_argument(
+        "--output-checkpoint", required=True,
+        help="path for the rewritten .safetensors; must differ from "
+             "--sae-checkpoint",
+    )
+    p_compress.add_argument(
+        "--strategy", required=True, choices=("zero",),
+        help="compression strategy (initial release: zero only; "
+             "merge is deferred to a follow-up change)",
+    )
+    p_compress.add_argument(
+        "--output", required=True,
+        help="JSON output path for the CompressionReport",
+    )
+    p_compress.add_argument(
+        "--representatives", default=None,
+        help="optional comma-separated `cluster_id=fid` pairs that "
+             "override the default representative pick "
+             "(e.g. --representatives 0=12999,1=4192)",
+    )
+    p_compress.set_defaults(func=_cmd_compress)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

@@ -40,6 +40,7 @@ from polygram.behavioural.runtime import (
     _import_torch_and_transformers,
     _kl_softmax_row,
     _pearson,
+    _resolve_device,
     _safe_log_abs,
     _spearman,
 )
@@ -86,6 +87,7 @@ class BehaviouralValidator:
     min_firing_rate: float = 0.01
     min_both_fire: int = 5
     allow_layer_zero: bool = False
+    device: str | None = None
 
     # Internal cache of decoder rows after a successful predict() call.
     _decoder_rows_cache: np.ndarray | None = field(
@@ -239,11 +241,14 @@ class BehaviouralValidator:
 
         sae = _load_sae_full(self.sae_checkpoint)
 
+        device = _resolve_device(torch, self.device)
+
         tokenizer = GPT2Tokenizer.from_pretrained(self.model_name)
         model = GPT2LMHeadModel.from_pretrained(self.model_name)
         model.eval()
         for p in model.parameters():
             p.requires_grad = False
+        model.to(device)
 
         layer = int(self.layer)
         captured: list[np.ndarray] = []
@@ -260,6 +265,7 @@ class BehaviouralValidator:
             for prompt in self.prompts:
                 captured.clear()
                 toks = tokenizer(prompt, return_tensors="pt")
+                toks = {k: v.to(device) for k, v in toks.items()}
                 with torch.no_grad():
                     out = model(**toks)
                 all_residuals.append(captured[0][0].astype(np.float32))
@@ -315,6 +321,7 @@ class BehaviouralValidator:
                 baseline_logits=baseline_logits,
                 prompts=self.prompts,
                 prompt_seq_lens=prompt_seq_lens,
+                device=device,
             )
 
         # Aggregate per pair from cached arrays.
@@ -568,6 +575,7 @@ def _ablation_kl_for_feature(
     baseline_logits: np.ndarray,
     prompts: Sequence[str],
     prompt_seq_lens: Sequence[int],
+    device: str = "cpu",
 ) -> np.ndarray:
     """Run a single ablation forward-pass-batch for one feature.
 
@@ -590,6 +598,7 @@ def _ablation_kl_for_feature(
             continue
 
         toks = tokenizer(prompt, return_tensors="pt")
+        toks = {k: v.to(device) for k, v in toks.items()}
         # Re-tokenize and confirm length agreement; we already did this
         # to build f_activations via the capture pass.
         # (Tokenizer is deterministic; lengths align by construction.)

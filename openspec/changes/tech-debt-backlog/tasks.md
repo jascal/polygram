@@ -629,3 +629,34 @@ reference.
       The compression spec itself (`add-compression-action`, PR #28)
       is encoding-agnostic and lands independently — only the
       compression-impl PR needs to wait for the verdict.
+
+      *Resolved 2026-05-05*. The §4.5 spike returned `partial_pass`
+      under the non-degenerate-amp constraint
+      (`docs/research/rung3-viability-spike.md` — the unconstrained
+      `strong_pass` was a trivial amp-zeroing degeneracy; the
+      constrained re-run binds at `floor × ε` on every pair).
+      `make-rung3-default` is dead. Compression-impl proceeds with
+      **MPSRung1 as the production default**; Rung3 ships as
+      opt-in via `Cancellation(encoding="rung3")`. The compression
+      action itself does not select an encoding — it operates on
+      raw decoder/encoder weights and is encoding-agnostic by
+      construction.
+
+- [x] 5.3 Compression-action implementation. Spec landed in
+      `add-compression-action` (PR #28); implementation ships the
+      `polygram.compression` subpackage with `Compressor`,
+      `CompressionPlan`, `CompressionReport`, `CompressionResult`,
+      and `ClusterPlan`; the `zero` strategy (encoder column +
+      bias + decoder row, leaving `b_dec` untouched); the
+      `polygram compress` CLI subcommand; round-trippable JSON
+      report carrying source/output sha256s + upstream
+      `ValidationReport` provenance; worked example
+      `examples/compress_validated.py`; full test ladder under
+      `tests/compression/` plus CLI tests under
+      `tests/cli/test_compress_cli.py` and a smoke test in
+      `tests/test_examples.py`. README "Compression action"
+      section + `docs/research/compression-action-design.md`
+      pointer note added. Component-first via union-find on
+      `validation_report.confirmed` makes the operation
+      order-independent; the spec's far-cluster clique observation
+      from the §5.1 live run forced this shape.

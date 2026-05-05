@@ -355,6 +355,39 @@ layer ≥ 5 (layer 0 is rejected by default per
 `polygram validate ...` (run `polygram validate --help`). See
 `examples/behavioural_validate.py` for the worked example.
 
+## Compression action
+
+`polygram.compression.Compressor` is the loop's downstream half. It
+consumes a `ValidationReport`'s `confirmed` candidate-pair list,
+collapses it to redundancy clusters via union-find, picks one
+representative per cluster, and rewrites an SAE checkpoint so the
+non-representatives are silenced. Two-stage API: `plan()` is cheap
+(in-memory union-find, no torch); `apply()` reads the source
+`.safetensors`, applies the `zero` strategy in-memory, and writes a
+new `.safetensors` atomically. `run()` is the convenience wrapper.
+
+```python
+from polygram import Compressor, ValidationReport
+
+report = ValidationReport.from_json("validation_report.json")
+compressor = Compressor(
+    validation_report=report,
+    sae_checkpoint="sae.safetensors",
+    strategy="zero",
+)
+result = compressor.run("sae.compressed.safetensors")
+result.report.to_json("compression_report.json")
+```
+
+The `zero` strategy zeroes the encoder column, encoder bias, and
+decoder row of every non-representative member. `b_dec` (global) is
+untouched. Component-first compression (not pair-by-pair) makes the
+operation order-independent — see
+`docs/research/compression-action-design.md` for the rationale. CLI
+wrapper: `polygram compress ...`. Worked example:
+`examples/compress_validated.py`. The `merge` strategy is deferred to
+a follow-up change.
+
 ## Development
 
 ```bash

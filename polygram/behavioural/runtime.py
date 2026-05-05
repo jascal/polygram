@@ -9,6 +9,7 @@ importable without those extras (matches the §4.4 spike pattern).
 from __future__ import annotations
 
 import math
+import warnings
 
 import numpy as np
 
@@ -18,6 +19,69 @@ _BEHAVIOURAL_INSTALL_HINT = (
     "BehaviouralValidator.validate(); "
     "install via `pip install polygram[behavioural]`."
 )
+
+
+def _resolve_device(torch_module, requested: str | None) -> str:
+    """Resolve a device preference to a concrete device string.
+
+    `requested` is one of None / "auto" / "cuda" / "mps" / "cpu". `None`
+    and `"auto"` pick the best available accelerator: cuda → mps → cpu.
+    Explicit `"cuda"` / `"mps"` requests raise `ValueError` if the
+    backend isn't usable on this machine. Falling back to CPU under
+    auto-resolution emits a `RuntimeWarning` so callers running on
+    larger-than-GPT-2 models get a heads-up that the run will be slow.
+
+    Returns the resolved device string.
+    """
+    norm = (requested or "auto").lower()
+    if norm not in ("auto", "cuda", "mps", "cpu"):
+        raise ValueError(
+            f"_resolve_device: unsupported device {requested!r}; "
+            f"expected one of auto / cuda / mps / cpu"
+        )
+
+    cuda_ok = bool(getattr(torch_module, "cuda", None)) and bool(
+        getattr(torch_module.cuda, "is_available", lambda: False)()
+    )
+    mps_backend = getattr(getattr(torch_module, "backends", None), "mps", None)
+    mps_ok = bool(mps_backend) and bool(
+        getattr(mps_backend, "is_available", lambda: False)()
+    )
+
+    if norm == "cuda":
+        if not cuda_ok:
+            raise ValueError(
+                "_resolve_device: device='cuda' requested but no CUDA "
+                "device is available on this machine"
+            )
+        return "cuda"
+    if norm == "mps":
+        if not mps_ok:
+            raise ValueError(
+                "_resolve_device: device='mps' requested but the MPS "
+                "backend is not available on this machine (requires "
+                "Apple Silicon + a torch build with MPS support)"
+            )
+        return "mps"
+    if norm == "cpu":
+        return "cpu"
+
+    # auto
+    if cuda_ok:
+        return "cuda"
+    if mps_ok:
+        return "mps"
+    warnings.warn(
+        "BehaviouralValidator: no GPU backend available — running on "
+        "CPU. Validator runs scale roughly with `n_features × n_prompts`; "
+        "GPT-2 small finishes in ~10–15 min on CPU but larger models "
+        "(Gemma, Llama, etc.) may take hours. Pass `device='cuda'`/"
+        "`'mps'` explicitly to surface backend availability errors "
+        "instead of silently falling back.",
+        RuntimeWarning,
+        stacklevel=2,
+    )
+    return "cpu"
 
 
 def _import_torch_and_transformers():
