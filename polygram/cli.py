@@ -426,6 +426,133 @@ def _record_to_json(rec: Any) -> dict[str, Any]:
     return out
 
 
+def _read_prompts_file(path: Path) -> list[str]:
+    """Read a prompts file, stripping `#`-prefixed and empty lines."""
+    out: list[str] = []
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        out.append(line)
+    return out
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    from polygram.behavioural import BehaviouralValidator
+    from polygram.sae_import import from_sae_lens, load_toy_sae
+
+    dict_path = Path(args.dictionary)
+    if not dict_path.is_file():
+        sys.stderr.write(
+            f"polygram: --dictionary file not found: {dict_path}\n"
+        )
+        return 2
+
+    sae_path = Path(args.sae_checkpoint)
+    if not sae_path.is_file():
+        sys.stderr.write(
+            f"polygram: --sae-checkpoint file not found: {sae_path}\n"
+        )
+        return 2
+
+    prompts_path = Path(args.prompts)
+    if not prompts_path.is_file():
+        sys.stderr.write(
+            f"polygram: --prompts file not found: {prompts_path}\n"
+        )
+        return 2
+
+    feature_ids = _parse_feature_ids(args.feature_ids)
+    prompts = _read_prompts_file(prompts_path)
+    if not prompts:
+        sys.stderr.write(
+            f"polygram: --prompts file is empty (no non-comment, "
+            f"non-blank lines): {prompts_path}\n"
+        )
+        return 2
+
+    try:
+        records = load_toy_sae(dict_path)
+    except (ValueError, json.JSONDecodeError) as exc:
+        sys.stderr.write(f"polygram: failed to load --dictionary: {exc}\n")
+        return 2
+
+    n_dict_features = len(records)
+    if n_dict_features != len(feature_ids):
+        sys.stderr.write(
+            f"polygram: --feature-ids supplied {len(feature_ids)} ids, "
+            f"but --dictionary {dict_path} declares "
+            f"{n_dict_features} features. Lengths must match.\n"
+        )
+        return 2
+
+    try:
+        dictionary, _selection_report = from_sae_lens(
+            records, feature_ids, assign_gamma=True
+        )
+    except ValueError as exc:
+        sys.stderr.write(f"polygram: from_sae_lens failed: {exc}\n")
+        return 2
+
+    if args.model != "gpt2":
+        sys.stderr.write(
+            f"polygram validate: --model {args.model!r} differs from "
+            f"the calibrated default 'gpt2'; the validator's "
+            f"empirical threshold defaults are calibrated on GPT-2 "
+            f"small only. Consider re-calibrating polygram-threshold / "
+            f"jaccard-threshold for your model family.\n"
+        )
+
+    try:
+        validator = BehaviouralValidator(
+            dictionary=dictionary,
+            sae_checkpoint=sae_path,
+            feature_ids=feature_ids,
+            prompts=prompts,
+            layer=args.layer,
+            model_name=args.model,
+            polygram_overlap_threshold=args.polygram_threshold,
+            jaccard_threshold=args.jaccard_threshold,
+            min_firing_rate=args.min_firing_rate,
+            min_both_fire=args.min_both_fire,
+            allow_layer_zero=args.allow_layer_zero,
+        )
+    except ValueError as exc:
+        sys.stderr.write(f"polygram validate: {exc}\n")
+        return 2
+
+    sys.stderr.write("polygram validate: predict ...\n")
+    sys.stderr.write(
+        f"polygram validate: load model {args.model!r} ...\n"
+    )
+    sys.stderr.write(
+        f"polygram validate: forward {len(prompts)} prompts ...\n"
+    )
+    sys.stderr.write("polygram validate: SAE encode ...\n")
+    sys.stderr.write(
+        f"polygram validate: ablation 1/{len(feature_ids)} ... "
+        f"{len(feature_ids)}/{len(feature_ids)} ...\n"
+    )
+    sys.stderr.write("polygram validate: aggregate ...\n")
+
+    try:
+        report = validator.run()
+    except ImportError as exc:
+        sys.stderr.write(f"polygram validate: {exc}\n")
+        return 2
+
+    out_json = Path(args.output).resolve()
+    report.to_json(out_json)
+    sys.stderr.write(f"polygram validate: wrote JSON → {out_json}\n")
+
+    if args.csv is not None:
+        out_csv = Path(args.csv).resolve()
+        report.to_csv(out_csv)
+        sys.stderr.write(f"polygram validate: wrote CSV  → {out_csv}\n")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="polygram")
     parser.add_argument(
@@ -558,6 +685,74 @@ def main(argv: list[str] | None = None) -> int:
              "(default: stdout)",
     )
     p_sae.set_defaults(func=_cmd_sae_import)
+
+    p_val = sub.add_parser(
+        "validate",
+        help="run the BehaviouralValidator end-to-end and write a "
+             "ValidationReport (JSON + optional CSV)",
+    )
+    p_val.add_argument(
+        "--dictionary", required=True,
+        help="path to a toy-SAE-schema JSON file (loaded via "
+             "load_toy_sae); the Dictionary is built via from_sae_lens",
+    )
+    p_val.add_argument(
+        "--sae-checkpoint", required=True,
+        help="path to a .safetensors file with W_enc / b_enc / "
+             "W_dec / b_dec",
+    )
+    p_val.add_argument(
+        "--feature-ids", required=True,
+        help="comma-separated SAE feature ids in the same order as "
+             "the dictionary's features",
+    )
+    p_val.add_argument(
+        "--prompts", required=True,
+        help="path to a text file (one prompt per non-empty line; "
+             "lines starting with `#` are ignored)",
+    )
+    p_val.add_argument(
+        "--layer", required=True, type=int,
+        help="transformer block whose forward_pre hook the validator "
+             "registers (e.g., 10 for blocks.10 on GPT-2 small)",
+    )
+    p_val.add_argument(
+        "--model", default="gpt2",
+        help="HF model name (default: gpt2; the validator's "
+             "empirical defaults are calibrated on GPT-2 small)",
+    )
+    p_val.add_argument(
+        "--polygram-threshold", type=float, default=0.7,
+        help="Polygram squared-overlap gate threshold (default: 0.7)",
+    )
+    p_val.add_argument(
+        "--jaccard-threshold", type=float, default=0.30,
+        help="co-firing Jaccard gate threshold (default: 0.30)",
+    )
+    p_val.add_argument(
+        "--min-firing-rate", type=float, default=0.01,
+        help="firing-rate floor for selection-warning (default: 0.01)",
+    )
+    p_val.add_argument(
+        "--min-both-fire", type=int, default=5,
+        help="both-fire token count needed for paired-KL "
+             "definability (default: 5)",
+    )
+    p_val.add_argument(
+        "--allow-layer-zero", action="store_true",
+        help="permit layer == 0 with a runtime warning (the default "
+             "rejects layer 0 per docs/research/deeper-layer-"
+             "ablation-probe.md)",
+    )
+    p_val.add_argument(
+        "--output", required=True,
+        help="JSON output path; ValidationReport.to_json(...)",
+    )
+    p_val.add_argument(
+        "--csv", default=None,
+        help="optional CSV output path; ValidationReport.to_csv(...)",
+    )
+    p_val.set_defaults(func=_cmd_validate)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

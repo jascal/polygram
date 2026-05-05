@@ -30,7 +30,9 @@ Optional extras: `[plot]` (matplotlib), `[notebook]` (jupyter +
 matplotlib), `[opt]` (scipy — enables the `Cancellation`
 `method="scipy"` backend), `[sae]` (reserved for a future SAE-Lens /
 safetensors loader; empty in v0 — JSON loader for the bundled toy
-fixture has no extra deps).
+fixture has no extra deps), `[behavioural]` (torch + transformers,
+required for `BehaviouralValidator.validate()` / `.run()`; the
+torch-free `predict()` stage stays on the no-extras install).
 
 ## Layout
 
@@ -295,6 +297,42 @@ and pass it to `from_sae_lens` directly.
 
 See `examples/import_from_sae.py` for the full flow (toy SAE →
 Dictionary → `InterferenceSweep` → verified `.q.orca.md` + plot).
+
+## Behavioural validator
+
+`polygram.behavioural.BehaviouralValidator` runs the four-constraint
+compression-loop pipeline against a `Dictionary` of SAE features and
+emits a structured `ValidationReport`. Two-stage API: `predict()` is
+torch-free and Polygram-only; `validate()` lazy-imports torch +
+transformers and runs one ablation forward-pass-batch per selected
+feature (the per-feature cost cap is a spec contract, not just an
+optimization). `run()` is the convenience wrapper.
+
+```python
+from polygram import BehaviouralValidator, from_sae_lens, load_sae_safetensors
+
+records = load_sae_safetensors("sae.safetensors", feature_ids=ids)
+dictionary, _ = from_sae_lens(records, ids, assign_gamma=True)
+
+validator = BehaviouralValidator(
+    dictionary=dictionary,
+    sae_checkpoint="sae.safetensors",
+    feature_ids=ids,
+    prompts=prompts,
+    layer=10,
+)
+report = validator.run()
+report.to_json("validation_report.json")
+report.to_csv("validation_pairs.csv")
+print("confirmed:", report.confirmed)
+```
+
+Defaults encode the §4.4 GPT-2-small calibration: Polygram squared-
+overlap threshold 0.7, Jaccard threshold 0.30, ablation-KL hook at
+layer ≥ 5 (layer 0 is rejected by default per
+`docs/research/deeper-layer-ablation-probe.md`). The CLI wrapper is
+`polygram validate ...` (run `polygram validate --help`). See
+`examples/behavioural_validate.py` for the worked example.
 
 ## Development
 

@@ -235,6 +235,30 @@ def test_behavioural_gram_scaleup_smoke(capsys, tmp_path):
     )
 
 
+def test_behavioural_validator_smoke(capsys, tmp_path):
+    """Smoke test: `examples/behavioural_validate.py` imports cleanly
+    and either runs end-to-end on a tiny configuration or skips with a
+    clear message. Same skip pattern as §4.2 / §4.3 / §4.4: SAE
+    checkpoint absent OR torch/transformers not installed both produce
+    a non-raising exit. The full validator is too expensive for CI
+    (8 ablation passes × 12 prompts), so this asserts only that
+    `main()` returns 0 in either branch.
+    """
+    from examples.behavioural_validate import main
+
+    rc = main([
+        "--n-prompts", "1",
+        "--output-dir", str(tmp_path),
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert (
+        "BEHAVIOURAL-VALIDATOR" in out
+        or "behavioural_validate:" in out
+    )
+
+
 def test_decoder_gram_validity_smoke(capsys):
     """Smoke test: the decoder-gram validity spike script runs end-to-end
     on the toy fixture. Skips the real-SAE branch (which needs a 144MB

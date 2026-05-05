@@ -1,6 +1,13 @@
 """Polygram — quantum interference laboratory for polysemantic feature dictionaries."""
 
 from polygram.batch import BatchExperiment, BatchResults, BatchRun
+from polygram.behavioural import (
+    BehaviouralValidator,
+    BucketStats,
+    CandidatePair,
+    ValidationReport,
+    ValidationSummary,
+)
 from polygram.cancellation import Cancellation, CancellationResult
 from polygram.dictionary import Dictionary, Feature
 from polygram.emit import write_qorca
@@ -20,6 +27,9 @@ __all__ = [
     "BatchExperiment",
     "BatchResults",
     "BatchRun",
+    "BehaviouralValidator",
+    "BucketStats",
+    "CandidatePair",
     "Cancellation",
     "CancellationResult",
     "Dictionary",
@@ -31,6 +41,8 @@ __all__ = [
     "MPSRung1",
     "SAEFeatureRecord",
     "SelectionReport",
+    "ValidationReport",
+    "ValidationSummary",
     "from_sae_lens",
     "load_sae_safetensors",
     "load_toy_sae",
