@@ -25,7 +25,12 @@ import numpy as np
 from polygram._assertions import hierarchical_ordering_preserved
 from polygram.dictionary import Dictionary, _parse_knob_path
 from polygram.emit import write_qorca
-from polygram.encoding import HEA_Rung2, MPSRung1, Rung3
+from polygram.encoding import (
+    HEA_Rung2,
+    MPSRung1,
+    Rung3,
+    rung3_amp_overlap_squared,
+)
 
 SUPPORTED_METHODS = ("grid", "scipy")
 SUPPORTED_PLOT_KINDS = ("grid", "scipy", "before_after")
@@ -199,6 +204,7 @@ class Cancellation:
     knobs: list[str] | None = None
     encoding: str | None = None
     grid_outer: tuple[int, int] = (5, 5)
+    min_amp_overlap: float = 0.0
 
     def __post_init__(self) -> None:
         if self.optimize_all:
@@ -275,6 +281,16 @@ class Cancellation:
             raise ValueError(
                 f"grid_outer must be a (M, N) pair with M >= 1 and N >= 1; "
                 f"got {self.grid_outer!r}"
+            )
+
+        if not (0.0 <= self.min_amp_overlap <= 1.0):
+            raise ValueError(
+                f"min_amp_overlap must be in [0, 1]; got {self.min_amp_overlap!r}"
+            )
+        if self.min_amp_overlap > 0.0 and self.encoding != "rung3":
+            raise ValueError(
+                f"min_amp_overlap > 0 is only meaningful for encoding='rung3'; "
+                f"got encoding={self.encoding!r}"
             )
 
     def _validate_knob(self, path: str) -> None:
@@ -552,10 +568,23 @@ class Cancellation:
         The reported `structural_floor` is the MPS-phase-only floor
         `M − |V|` of the same (α, β, γ) — the baseline this optimizer
         is trying to break, not a bound it is constrained by.
+
+        When ``min_amp_overlap > 0``, outer-grid cells and scipy-
+        refine candidates whose amp factor falls below the threshold
+        are marked infeasible. This prevents the optimizer from
+        winning trivially by driving ``|⟨amp_a|amp_b⟩|² → 0`` (the
+        degenerate amp-zeroing solution at θ_b=π/4, ψ_b=π against
+        the anchored A defaults) and forces it to find an amp
+        configuration that combines non-trivially with the MPS-side
+        phase knobs.
         """
         a_name, b_name = self.target_pair
         a_idx = self.dictionary.feature_index(a_name)
         b_idx = self.dictionary.feature_index(b_name)
+
+        a_feature = self.dictionary.features[a_idx]
+        theta_a = float(a_feature.theta_amp)
+        psi_a = float(a_feature.psi_aux)
 
         before_gram = self.dictionary.gram()
         before_overlap = float(np.abs(before_gram[a_idx, b_idx]) ** 2)
@@ -566,6 +595,9 @@ class Cancellation:
         theta_axis = np.linspace(0.0, float(np.pi / 2), M_outer)
         psi_axis = np.linspace(0.0, float(2 * np.pi), N_outer, endpoint=False)
         inner_res = int(self.optimize.get("max_steps", 50))
+
+        amp_threshold = float(self.min_amp_overlap)
+        amp_constrained = amp_threshold > 0.0
 
         outer_evals: list[tuple[float, float, float, float, float, bool]] = []
         best_cell: tuple[float, float, float, float] | None = None
@@ -587,6 +619,12 @@ class Cancellation:
                         inner_res,
                     )
                 )
+                if amp_constrained:
+                    amp_sq = rung3_amp_overlap_squared(
+                        theta_a, psi_a, float(theta_b), float(psi_b)
+                    )
+                    if amp_sq < amp_threshold:
+                        cell_feasible = False
                 outer_evals.append(
                     (phi_a, phi_b, float(theta_b), float(psi_b),
                      cell_overlap, cell_feasible)
@@ -622,6 +660,12 @@ class Cancellation:
                 hierarchical_ordering_preserved(g, d, self.target_pair)
                 if self.preserve_tiers else True
             )
+            if amp_constrained:
+                amp_sq = rung3_amp_overlap_squared(
+                    theta_a, psi_a, theta_b, psi_b
+                )
+                if amp_sq < amp_threshold:
+                    feasible = False
             return ov, feasible
 
         def objective(x: np.ndarray) -> float:

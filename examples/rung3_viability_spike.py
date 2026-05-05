@@ -28,6 +28,7 @@ JSON schema (rung3_viability_spike.json)
 {
   "selection": [int, ...],          # feature_ids
   "n_pairs": int,                   # 28
+  "min_amp_overlap": float,         # non-degenerate-amp threshold (0 = off)
   "pairs": [
     {
       "i": int, "j": int,
@@ -104,7 +105,8 @@ def _build_dictionary(
 
 
 def _cancel_pair(
-    dictionary: Dictionary, target_pair, *, encoding_str: str
+    dictionary: Dictionary, target_pair, *,
+    encoding_str: str, min_amp_overlap: float = 0.0,
 ) -> dict:
     canc = Cancellation(
         dictionary=dictionary,
@@ -113,6 +115,7 @@ def _cancel_pair(
         encoding=encoding_str,
         grid_outer=(5, 5) if encoding_str == "rung3" else (5, 5),
         optimize={"method": "grid", "max_steps": 25},
+        min_amp_overlap=min_amp_overlap if encoding_str == "rung3" else 0.0,
     )
     return canc.run()
 
@@ -208,6 +211,18 @@ def main(argv: list[str] | None = None) -> int:
         help="how many prompts to forward (default: 12)",
     )
     parser.add_argument(
+        "--min-amp-overlap", type=float, default=0.0,
+        help=(
+            "non-degenerate-amp constraint for the rung3 joint optimizer. "
+            "When > 0, outer-grid cells and scipy candidates whose amp "
+            "factor |⟨amp_a|amp_b⟩|² falls below this threshold are "
+            "marked infeasible. This blocks the trivial amp-zeroing "
+            "solution (θ_b≈π/4, ψ_b≈π) and forces the optimizer to find "
+            "an amp configuration that combines non-trivially with the "
+            "MPS-side phase knobs. Suggested ε for the spike: 0.5."
+        ),
+    )
+    parser.add_argument(
         "--quiet", action="store_true",
         help="suppress per-pair progress lines",
     )
@@ -274,7 +289,8 @@ def main(argv: list[str] | None = None) -> int:
             mps_dict, (a_name, b_name), encoding_str="mps"
         )
         rung3_result = _cancel_pair(
-            rung3_dict, (a_name, b_name), encoding_str="rung3"
+            rung3_dict, (a_name, b_name), encoding_str="rung3",
+            min_amp_overlap=float(args.min_amp_overlap),
         )
 
         floor = float(mps_result.structural_floor)
@@ -449,6 +465,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "selection": feature_ids,
         "n_pairs": len(pairs),
+        "min_amp_overlap": float(args.min_amp_overlap),
         "pairs": per_pair_records,
         "criteria": {
             "A_floor_breaking": {
