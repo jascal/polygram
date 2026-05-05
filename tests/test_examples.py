@@ -199,7 +199,8 @@ def test_behavioural_gram_probe_smoke(capsys):
     from examples.behavioural_gram_probe import main
 
     main(["--n-prompts", "1", "--quiet"])
-    out = capsys.readouterr().out + capsys.readouterr().err
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
     # Either we printed BEHAVIOURAL-GRAM PROBE banner (success path)
     # or we printed a skip message — both are acceptable smoke pass.
     assert (
