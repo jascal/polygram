@@ -758,3 +758,69 @@ class TestRung3Cancellation:
         ).run()
         if result.cancellation_efficiency is not None:
             assert 0.0 <= result.cancellation_efficiency <= 1.0
+
+    def test_min_amp_overlap_blocks_trivial_amp_zeroing(self):
+        """Without the constraint the rung-3 optimizer converges to the
+        trivial amp-zeroing solution (θ_b≈π/4, ψ_b≈π) and post-overlap
+        is essentially zero. With min_amp_overlap=0.5 the optimizer is
+        forbidden from landing on configurations whose amp factor falls
+        below 0.5, so post-overlap must be at least
+        ``min_amp_overlap × mps_floor``."""
+        pytest.importorskip("scipy")
+        d = self._rung3_pair(beta_a=0.05, beta_b=0.05, alpha_b=0.05)
+
+        unconstrained = Cancellation(
+            dictionary=d, target_pair=("a", "b"),
+            preserve_tiers=False,
+            grid_outer=(5, 5),
+            optimize={"method": "grid", "max_steps": 12},
+        ).run()
+        constrained = Cancellation(
+            dictionary=d, target_pair=("a", "b"),
+            preserve_tiers=False,
+            grid_outer=(5, 5),
+            optimize={"method": "grid", "max_steps": 12},
+            min_amp_overlap=0.5,
+        ).run()
+
+        floor = unconstrained.structural_floor
+        assert constrained.structural_floor == pytest.approx(floor, abs=1e-9)
+
+        # Unconstrained drops far below the lower bound the constraint
+        # would impose.
+        lower_bound = 0.5 * floor
+        assert unconstrained.after_overlap < lower_bound
+        # Constrained respects the bound (small tolerance for numerical
+        # slop in the gram).
+        assert constrained.after_overlap >= lower_bound - 1e-6
+
+    def test_min_amp_overlap_invalid_range_rejected(self):
+        d = self._rung3_pair()
+        with pytest.raises(ValueError, match="min_amp_overlap"):
+            Cancellation(
+                dictionary=d, target_pair=("a", "b"),
+                min_amp_overlap=1.5,
+            )
+        with pytest.raises(ValueError, match="min_amp_overlap"):
+            Cancellation(
+                dictionary=d, target_pair=("a", "b"),
+                min_amp_overlap=-0.1,
+            )
+
+    def test_min_amp_overlap_rejected_on_non_rung3(self):
+        from polygram import MPSRung1
+
+        d = Dictionary(
+            name="MpsTwo",
+            features=[
+                Feature("a", "ca", beta=-0.5, phi=0.3),
+                Feature("b", "cb", beta=0.5, phi=0.7),
+            ],
+            hierarchy={"ca": ["a"], "cb": ["b"]},
+            encoding=MPSRung1(),
+        )
+        with pytest.raises(ValueError, match="only meaningful for encoding='rung3'"):
+            Cancellation(
+                dictionary=d, target_pair=("a", "b"),
+                min_amp_overlap=0.5,
+            )
