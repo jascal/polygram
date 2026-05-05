@@ -318,7 +318,7 @@ reference.
       Polygram → behavioural-Jaccard correlation directly; replace
       next-token-KL with a logit-lens or attention-shift metric.
 
-- [ ] 4.3 Deeper-layer ablation-KL probe (research-track). PR #20
+- [x] 4.3 Deeper-layer ablation-KL probe (research-track). PR #20
       settled the §4.2 question for one within-cluster pair plus a
       cross-cluster contrast, and surfaced an unexpected blocker for
       any future loop that wants to use ablation-KL as a behavioural
@@ -405,3 +405,39 @@ reference.
       §4.2 substitutability metric trivially pass and forcing this
       explicit follow-up before that metric — or any descendant of
       it — is wired into a real loop.)
+
+      *Closed 2026-05-04*. Empirical findings landed in
+      `docs/research/deeper-layer-ablation-probe.md` and the extended
+      `examples/behavioural_gram_probe.py --layer {0,5,10}`. TL;DR
+      across the same 654-token batch and the same arbitrary anchor
+      features at three layers: per-feature ablation-KL on the
+      next-token distribution jumps from ~5e-5 nats at `blocks.0` to
+      ~1.04–1.93 nats at `blocks.5`, then plateaus at ~0.56–2.04 nats
+      at `blocks.10`. Outcome bucket: *monotonic with plateau* — the
+      0 → 5 transition spans roughly four orders of magnitude; the
+      5 → 10 transition is essentially flat. Layer 0 is the structural
+      dead zone (eleven downstream blocks compensate for any single
+      input-layer feature's removal); layers 5 and 10 are roughly
+      equivalent for ablation-impact purposes. Practical implications:
+      (a) any future compression / disentanglement loop that wants to
+      use ablation-KL (or any next-token-impact metric) should hook at
+      `blocks.5` or deeper on GPT-2 small; (b) the peer-agent
+      `compression_score` sketch is unblocked at depth, blocked at
+      layer 0; (c) `blocks.5` ≈ `blocks.10` for ablation magnitude,
+      so layer choice between the two is driven by other concerns
+      (compute cost vs proximity to unembedding). Caveats: feature
+      ids `[7836, 11978, 15796]` were chosen on the layer-0 SAE; at
+      layers 5 / 10 they index *different* SAE features. The
+      per-feature KL magnitudes (the load-bearing finding) survive
+      this caveat — the 4-OOM gap is the signal — but pair-level
+      co-occurrence / Pearson / substitutability metrics at depth
+      are not comparing the same semantic pair as layer 0 and should
+      not be read as cross-layer behavioural claims about specific
+      Polygram pairs. Pearson +1.000 at layers 5 and 10 with
+      near-total co-fire signals near-degenerate firing patterns for
+      these arbitrary indices, not a property of deep-layer SAE
+      features in general. Follow-ups: layer-local feature selection
+      (apply projection-similarity within each layer's own SAE
+      separately) plus the §4.4 scale-up (30+ pairs at varied
+      Polygram overlaps, picked per-layer) close the remaining
+      cheap probes before a full loop spec.
