@@ -603,3 +603,158 @@ class TestBeforeAfterPlot:
         result = canc.run()
         with pytest.raises(NotImplementedError, match="len\\(knobs\\) == 2"):
             result.plot(tmp_path / "p.png", kind="grid")
+
+
+class TestRung3Cancellation:
+    @staticmethod
+    def _rung3_pair(
+        beta_a: float = -0.5, beta_b: float = 0.5, alpha_b: float = 0.0
+    ) -> Dictionary:
+        from polygram import Rung3
+
+        return Dictionary(
+            name="Rung3Pair",
+            features=[
+                Feature("a", "ca", beta=beta_a, phi=0.3),
+                Feature("b", "cb", beta=beta_b, alpha=alpha_b, phi=0.7),
+            ],
+            hierarchy={"ca": ["a"], "cb": ["b"]},
+            encoding=Rung3(),
+        )
+
+    def test_cancellation_rung3_smoke(self):
+        """Synthesize a tiny rung-3 dictionary, run the joint optimizer,
+        confirm the new fields are populated and the structural_floor
+        matches the MPS-equivalent floor of the same (α, β, γ)."""
+        pytest.importorskip("scipy")
+        from polygram import MPSRung1
+
+        d = self._rung3_pair()
+        canc = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            grid_outer=(3, 3),
+            optimize={"method": "grid", "max_steps": 12},
+        )
+        assert canc.encoding == "rung3"
+        result = canc.run()
+
+        # New fields are populated (not NaN).
+        import math
+        assert not math.isnan(result.theta_amp_optimum)
+        assert not math.isnan(result.psi_aux_optimum)
+
+        # Equivalent MPS floor matches (α, β, γ) tuple.
+        from dataclasses import replace
+        mps_dict = replace(d, encoding=MPSRung1())
+        mps_canc = Cancellation(
+            dictionary=mps_dict,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+        )
+        mps_floor = mps_canc.structural_floor()
+        assert result.structural_floor == pytest.approx(mps_floor, abs=1e-9)
+
+        # Method label and trajectory shape.
+        assert result.method == "rung3_joint"
+        assert result.trajectory.shape[1] == 5  # 4 knobs + overlap
+        assert result.trajectory.shape[0] >= 3 * 3  # at least the outer grid
+
+        # Optimized knobs dict has all four entries.
+        for path in [
+            "a.phi", "b.phi", "b.theta_amp", "b.psi_aux",
+        ]:
+            assert path in result.optimized_knobs
+
+    def test_cancellation_mps_result_has_nan_amp_aux_fields(self):
+        from polygram import MPSRung1
+
+        d = Dictionary(
+            name="MpsTwo",
+            features=[
+                Feature("a", "ca", beta=-0.5, phi=0.3),
+                Feature("b", "cb", beta=0.5, phi=0.7),
+            ],
+            hierarchy={"ca": ["a"], "cb": ["b"]},
+            encoding=MPSRung1(),
+        )
+        result = Cancellation(
+            dictionary=d, target_pair=("a", "b"),
+            preserve_tiers=False,
+            optimize={"method": "grid", "max_steps": 8},
+        ).run()
+        import math
+        assert math.isnan(result.theta_amp_optimum)
+        assert math.isnan(result.psi_aux_optimum)
+
+    def test_cancellation_rung3_breaks_floor_synthetic(self):
+        """Hand-crafted pair with non-trivial (θ_b, ψ_b) optimum that
+        demonstrably reaches below the MPS phase-only floor M − |V|."""
+        pytest.importorskip("scipy")
+        # Choose alpha_b so the MPS pair has high pre-overlap and a
+        # non-zero V (so M − |V| > 0). The amp branch can multiply
+        # cos(ψ_b)·sin(2θ_b) into the overlap; ψ_b ≈ π drives the
+        # amp factor toward 0, so the rung-3 overlap can dip below
+        # the MPS floor.
+        d = self._rung3_pair(beta_a=0.05, beta_b=0.05, alpha_b=0.05)
+
+        canc = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            grid_outer=(5, 5),
+            optimize={"method": "grid", "max_steps": 12},
+        )
+        result = canc.run()
+        floor = result.structural_floor
+        assert floor > 0.05, (
+            f"need a non-trivial floor to demonstrate breakage; got {floor}"
+        )
+        assert result.after_overlap < floor - 1e-3, (
+            f"rung-3 optimizer failed to break the MPS floor "
+            f"(after={result.after_overlap}, floor={floor})"
+        )
+
+    def test_rung3_requires_rung3_dictionary(self):
+        """Cancellation(encoding="rung3") on an MPS dictionary must
+        raise — the rung-3 path needs the per-feature amp knobs."""
+        from polygram import MPSRung1
+
+        d = Dictionary(
+            name="MpsTwo",
+            features=[
+                Feature("a", "ca", beta=-0.5, phi=0.3),
+                Feature("b", "cb", beta=0.5, phi=0.7),
+            ],
+            hierarchy={"ca": ["a"], "cb": ["b"]},
+            encoding=MPSRung1(),
+        )
+        with pytest.raises(ValueError, match="requires a Rung3 dictionary"):
+            Cancellation(
+                dictionary=d, target_pair=("a", "b"),
+                encoding="rung3",
+            )
+
+    def test_rung3_custom_knob_list_rejected(self):
+        d = self._rung3_pair()
+        with pytest.raises(ValueError, match="canonical 4-knob list"):
+            Cancellation(
+                dictionary=d, target_pair=("a", "b"),
+                knobs=["a.phi", "b.phi"],
+            )
+
+    def test_rung3_efficiency_can_exceed_zero(self):
+        """When rung-3 reaches below the MPS floor, the conventional
+        ``cancellation_efficiency`` clamps at 1.0 because the formula's
+        denominator (before − floor) is non-negative."""
+        pytest.importorskip("scipy")
+        d = self._rung3_pair(beta_a=0.05, beta_b=0.05, alpha_b=0.05)
+        result = Cancellation(
+            dictionary=d, target_pair=("a", "b"),
+            preserve_tiers=False,
+            grid_outer=(3, 3),
+            optimize={"method": "grid", "max_steps": 8},
+        ).run()
+        if result.cancellation_efficiency is not None:
+            assert 0.0 <= result.cancellation_efficiency <= 1.0

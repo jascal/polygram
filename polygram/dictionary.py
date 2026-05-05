@@ -8,7 +8,14 @@ from typing import Iterable
 
 import numpy as np
 
-from polygram.encoding import HEA_Rung2, MPSRung1
+from polygram.encoding import (
+    HEA_Rung2,
+    MPSRung1,
+    RUNG3_DEFAULT_PSI_AUX,
+    RUNG3_DEFAULT_THETA_AMP,
+    Rung3,
+    rung3_amp_overlap,
+)
 
 
 @dataclass(frozen=True, eq=False)
@@ -34,6 +41,8 @@ class Feature:
     gamma: float = 0.0
     phi: float = 0.0
     theta: np.ndarray | None = None
+    theta_amp: float = RUNG3_DEFAULT_THETA_AMP
+    psi_aux: float = RUNG3_DEFAULT_PSI_AUX
 
 
 def _default_hea_theta(feature: Feature, encoding: HEA_Rung2) -> np.ndarray:
@@ -73,6 +82,8 @@ def _default_hea_theta(feature: Feature, encoding: HEA_Rung2) -> np.ndarray:
 
 _VALID_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _KNOB_PHI_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.phi$")
+_KNOB_THETA_AMP_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.theta_amp$")
+_KNOB_PSI_AUX_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.psi_aux$")
 _KNOB_THETA_RE = re.compile(
     r"^([A-Za-z_][A-Za-z0-9_]*)\.theta\[(\d+),(\d+),(\d+)\]$"
 )
@@ -82,6 +93,12 @@ def _parse_knob_path(path: str) -> tuple[str, str, tuple[int, int, int] | None]:
     m = _KNOB_PHI_RE.match(path)
     if m:
         return m.group(1), "phi", None
+    m = _KNOB_THETA_AMP_RE.match(path)
+    if m:
+        return m.group(1), "theta_amp", None
+    m = _KNOB_PSI_AUX_RE.match(path)
+    if m:
+        return m.group(1), "psi_aux", None
     m = _KNOB_THETA_RE.match(path)
     if m:
         name = m.group(1)
@@ -89,7 +106,8 @@ def _parse_knob_path(path: str) -> tuple[str, str, tuple[int, int, int] | None]:
         return name, "theta", slot
     raise ValueError(
         f"knob path {path!r} does not match expected grammar "
-        f"'<feature>.phi' or '<feature>.theta[r,d,q]'"
+        f"'<feature>.phi', '<feature>.theta_amp', '<feature>.psi_aux', "
+        f"or '<feature>.theta[r,d,q]'"
     )
 
 
@@ -108,7 +126,7 @@ class Dictionary:
     name: str
     features: list[Feature]
     hierarchy: dict[str, list[str]]
-    encoding: MPSRung1 | HEA_Rung2 = field(default_factory=MPSRung1)
+    encoding: MPSRung1 | HEA_Rung2 | Rung3 = field(default_factory=MPSRung1)
 
     def __post_init__(self) -> None:
         if not _VALID_NAME_RE.match(self.name):
@@ -245,6 +263,10 @@ class Dictionary:
             feature = new_features[idx]
             if kind == "phi":
                 new_features[idx] = replace(feature, phi=value)
+            elif kind == "theta_amp":
+                new_features[idx] = replace(feature, theta_amp=float(value))
+            elif kind == "psi_aux":
+                new_features[idx] = replace(feature, psi_aux=float(value))
             else:
                 base = (
                     feature.theta.copy()
@@ -264,8 +286,25 @@ class Dictionary:
         ``q_orca.compute_concept_gram_mps`` against an
         ``larql-animals-interference``-style preparation-form machine;
         ``HEA_Rung2`` calls ``q_orca.compute_concept_gram_hea`` against
-        the new ``## encoding`` + ``## theta`` machine layout.
+        the new ``## encoding`` + ``## theta`` machine layout. ``Rung3``
+        composes the MPSRung1-equivalent gram on (α, β, γ, φ) with the
+        per-pair amplitude-branch overlap factor (analytic, closed form
+        per ``polygram.encoding.rung3_amp_overlap_squared``).
         """
+        if isinstance(self.encoding, Rung3):
+            mps_dict = replace(self, encoding=MPSRung1())
+            mps_gram = mps_dict.gram()
+            n = len(self.features)
+            amp_factor = np.ones((n, n), dtype=complex)
+            for i in range(n):
+                fi = self.features[i]
+                for j in range(n):
+                    fj = self.features[j]
+                    amp_factor[i, j] = rung3_amp_overlap(
+                        fi.theta_amp, fi.psi_aux, fj.theta_amp, fj.psi_aux
+                    )
+            return mps_gram.astype(complex) * amp_factor
+
         from polygram._qorca_emit import build_machine
 
         machine = build_machine(self)
