@@ -1,0 +1,48 @@
+Loading GPT-2 small + tokenizer...
+Loading SAE weights (blocks.10)...
+Forwarding 12 baseline prompts...
+Total tokens forwarded: 654
+Encoding all features for firing-rate selection...
+  23736 features fire on ≥ 0.01 of 654 tokens
+Selecting 8 features stratified by decoder cosine...
+  seed feature = 12999 (firing rate 0.476, decoder norm 1.000)
+  selected features (id, firing_rate, cosine_to_seed):
+    feat_12999  rate=0.476  cos_to_seed=+1.000
+    feat_19398  rate=0.329  cos_to_seed=+0.603
+    feat_ 4192  rate=0.073  cos_to_seed=+0.515
+    feat_23625  rate=0.078  cos_to_seed=+0.514
+    feat_ 8371  rate=0.018  cos_to_seed=-0.014
+    feat_ 2287  rate=0.020  cos_to_seed=-0.031
+    feat_   68  rate=0.018  cos_to_seed=-0.054
+    feat_13737  rate=0.018  cos_to_seed=-0.089
+Building Polygram Dictionary via from_sae_lens...
+Running 8 ablation passes...
+  [1/8] ablation-KL for feat_12999
+  [2/8] ablation-KL for feat_19398
+  [3/8] ablation-KL for feat_4192
+  [4/8] ablation-KL for feat_23625
+  [5/8] ablation-KL for feat_8371
+  [6/8] ablation-KL for feat_2287
+  [7/8] ablation-KL for feat_68
+  [8/8] ablation-KL for feat_13737
+
+==============================================================================
+BEHAVIOURAL-GRAM SCALE-UP @ blocks.10.hook_resid_pre — 8 features, 28 pairs, 654 tokens
+==============================================================================
+Cluster method: kmeans (β var-explained 0.353)
+
+Correlations (Polygram + decoder vs behavioural metrics):
+  Spearman(Polygram, Jaccard):           +0.6371
+  Spearman(decoder,  Jaccard):           -0.0542
+  Spearman(Polygram, log|KL_i/KL_j|):    -0.3295  (n_pairs_with_kl=28)
+  Pearson(Polygram,  Jaccard):           +0.6943
+  Pearson(decoder,   Jaccard):           -0.0753
+
+Per-bucket Jaccard means (95% bootstrap CI):
+  low_overlap    (Polygram ≤ 0.4    , n= 0): Jaccard=nan  CI=[nan, nan]
+  mid_overlap    (Polygram (0.4, 0.7), n=16): Jaccard=0.1445  CI=[0.0963, 0.1924]
+  high_overlap   (Polygram ≥ 0.7    , n=12): Jaccard=0.6209  CI=[0.4267, 0.8228]
+
+OUTCOME: high_spearman_loop_unblocked
+
+Per-pair CSV written to docs/research/data/scaleup_pairs.csv
