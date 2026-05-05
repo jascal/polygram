@@ -20,7 +20,6 @@ atomically to a new file (sibling temp + `os.replace`), and rebuilds a
 
 from __future__ import annotations
 
-import hashlib
 import os
 import tempfile
 from collections import defaultdict
@@ -28,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from polygram.behavioural.report import CandidatePair, ValidationReport
+from polygram.compression._hash import sha256_file
 from polygram.compression.report import (
     SCHEMA_VERSION,
     ClusterPlan,
@@ -240,7 +240,7 @@ class Compressor:
         from polygram.sae_import import from_sae_lens, load_sae_safetensors
 
         source_state = load_file(str(self.sae_checkpoint))
-        source_sha = _sha256_file(self.sae_checkpoint)
+        source_sha = sha256_file(self.sae_checkpoint)
 
         rewritten = _dispatch_strategy(self.strategy, source_state, plan)
 
@@ -261,7 +261,7 @@ class Compressor:
             tmp_path.unlink(missing_ok=True)
             raise
 
-        output_sha = _sha256_file(out_path)
+        output_sha = sha256_file(out_path)
 
         n_zeroed = sum(len(c.zeroed) for c in plan.clusters)
         n_kept = sum(1 for _ in plan.clusters)
@@ -322,11 +322,3 @@ def _dispatch_strategy(name: str, state, plan: CompressionPlan):
         f"Compressor: unsupported strategy {name!r}; "
         f"supported: {sorted(_SUPPORTED_STRATEGIES)}"
     )
-
-
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 16), b""):
-            h.update(chunk)
-    return h.hexdigest()

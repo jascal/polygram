@@ -49,6 +49,11 @@ sae = ["safetensors>=0.4"]
 # for the model-bound behavioural stage. predict() is torch-free and
 # stays on the no-extras install.
 behavioural = ["torch>=2.0", "transformers>=4.40", "safetensors>=0.4"]
+# Regrower residual_kmeans strategy — pulls scikit-learn for KMeans
+# with the cross-version-deterministic algorithm='lloyd'. Lazy-imported
+# inside the strategy module; not needed by the rest of the compression
+# subpackage.
+regrow = ["scikit-learn>=1.3", "safetensors>=0.4"]
 all = [
     "pytest",
     "ruff",
@@ -56,6 +61,7 @@ all = [
     "jupyter",
     "scipy",
     "safetensors>=0.4",
+    "scikit-learn>=1.3",
     "torch>=2.0",
     "transformers>=4.40",
 ]

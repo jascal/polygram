@@ -671,6 +671,167 @@ def _cmd_compress(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_regrow(args: argparse.Namespace) -> int:
+    from polygram.compression import CompressionReport, Regrower
+
+    sae_path = Path(args.sae_checkpoint)
+    if not sae_path.is_file():
+        sys.stderr.write(
+            f"polygram regrow: --sae-checkpoint file not found: {sae_path}\n"
+        )
+        return 2
+
+    out_ckpt = Path(args.output_checkpoint).resolve()
+    if out_ckpt == sae_path.resolve():
+        sys.stderr.write(
+            f"polygram regrow: --output-checkpoint must differ from "
+            f"--sae-checkpoint (both resolved to {out_ckpt})\n"
+        )
+        return 2
+
+    # Mutually-exclusive groups: zeroed source
+    if (args.zeroed_list is not None) == (args.compression_report is not None):
+        sys.stderr.write(
+            "polygram regrow: exactly one of --zeroed-list or "
+            "--compression-report must be supplied\n"
+        )
+        return 2
+
+    # Mutually-exclusive groups: residual source
+    if (args.cached_residuals is not None) == (args.prompts is not None):
+        sys.stderr.write(
+            "polygram regrow: exactly one of --cached-residuals or "
+            "--prompts must be supplied\n"
+        )
+        return 2
+
+    # Resolve zeroed set
+    zeroed: set[int] = set()
+    upstream_report: CompressionReport | None = None
+    if args.zeroed_list is not None:
+        try:
+            zeroed = set(_parse_feature_ids(args.zeroed_list))
+        except SystemExit:
+            sys.stderr.write(
+                f"polygram regrow: malformed --zeroed-list: {args.zeroed_list!r}\n"
+            )
+            return 2
+    else:
+        report_path = Path(args.compression_report)
+        if not report_path.is_file():
+            sys.stderr.write(
+                f"polygram regrow: --compression-report file not found: "
+                f"{report_path}\n"
+            )
+            return 2
+        try:
+            upstream_report = CompressionReport.from_json(report_path)
+        except (ValueError, json.JSONDecodeError) as exc:
+            sys.stderr.write(
+                f"polygram regrow: failed to parse --compression-report: "
+                f"{exc}\n"
+            )
+            return 2
+
+    # Resolve residual stream source
+    cached_residuals = None
+    prompts = None
+    if args.cached_residuals is not None:
+        residuals_path = Path(args.cached_residuals)
+        if not residuals_path.is_file():
+            sys.stderr.write(
+                f"polygram regrow: --cached-residuals file not found: "
+                f"{residuals_path}\n"
+            )
+            return 2
+        try:
+            import numpy as np
+            cached_residuals = np.load(residuals_path)
+        except Exception as exc:
+            sys.stderr.write(
+                f"polygram regrow: failed to load --cached-residuals: {exc}\n"
+            )
+            return 2
+        if cached_residuals.ndim != 2:
+            sys.stderr.write(
+                f"polygram regrow: --cached-residuals must be 2D "
+                f"(n_tokens × d_model); got shape {cached_residuals.shape!r}\n"
+            )
+            return 2
+        if cached_residuals.dtype.kind != "f":
+            sys.stderr.write(
+                f"polygram regrow: --cached-residuals dtype must be "
+                f"float32 or float64; got {cached_residuals.dtype!r}\n"
+            )
+            return 2
+    else:
+        prompts_path = Path(args.prompts)
+        if not prompts_path.is_file():
+            sys.stderr.write(
+                f"polygram regrow: --prompts file not found: {prompts_path}\n"
+            )
+            return 2
+        prompts = _read_prompts_file(prompts_path)
+        if not prompts:
+            sys.stderr.write(
+                f"polygram regrow: --prompts file is empty: {prompts_path}\n"
+            )
+            return 2
+
+    sys.stderr.write("polygram regrow: building Regrower ...\n")
+    try:
+        if upstream_report is not None:
+            regrower = Regrower.from_compression_report(
+                upstream_report,
+                sae_checkpoint=sae_path,
+                strategy=args.strategy,
+                cached_residuals=cached_residuals,
+                prompts=prompts,
+                seed=args.seed,
+                n_init=args.n_init,
+                model_name=args.model,
+                layer=args.layer,
+                device=args.device,
+            )
+        else:
+            regrower = Regrower(
+                sae_checkpoint=sae_path,
+                strategy=args.strategy,
+                zeroed=zeroed,
+                cached_residuals=cached_residuals,
+                prompts=prompts,
+                seed=args.seed,
+                n_init=args.n_init,
+                model_name=args.model,
+                layer=args.layer,
+                device=args.device,
+            )
+    except ValueError as exc:
+        sys.stderr.write(f"polygram regrow: {exc}\n")
+        return 2
+
+    sys.stderr.write("polygram regrow: planning (k-means on residuals) ...\n")
+    sys.stderr.write(
+        f"polygram regrow: rewriting weights → {out_ckpt} ...\n"
+    )
+    try:
+        result = regrower.run(out_ckpt)
+    except (ValueError, KeyError, IndexError, RuntimeError, NotImplementedError) as exc:
+        sys.stderr.write(f"polygram regrow: {exc}\n")
+        return 2
+
+    out_json = Path(args.output).resolve()
+    result.report.to_json(out_json)
+    sys.stderr.write(f"polygram regrow: wrote report → {out_json}\n")
+    sys.stderr.write(
+        f"polygram regrow: source sha256={result.report.source_checkpoint_sha256[:12]}… "
+        f"output sha256={result.report.output_checkpoint_sha256[:12]}… "
+        f"n_slots_repopulated={result.report.n_slots_repopulated} "
+        f"n_slots_left_zero={result.report.n_slots_left_zero}\n"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="polygram")
     parser.add_argument(
@@ -917,6 +1078,82 @@ def main(argv: list[str] | None = None) -> int:
              "(e.g. --representatives 0=12999,1=4192)",
     )
     p_compress.set_defaults(func=_cmd_compress)
+
+    p_regrow = sub.add_parser(
+        "regrow",
+        help="repopulate zeroed slots in a compressed SAE checkpoint "
+             "with new directions extracted from the SAE's activation "
+             "residuals (residual_kmeans strategy)",
+    )
+    p_regrow.add_argument(
+        "--sae-checkpoint", required=True,
+        help="path to the source .safetensors (typically the output "
+             "of a prior `polygram compress` run)",
+    )
+    p_regrow.add_argument(
+        "--output-checkpoint", required=True,
+        help="path for the rewritten .safetensors with zeroed slots "
+             "populated; must differ from --sae-checkpoint",
+    )
+    p_regrow.add_argument(
+        "--output", required=True,
+        help="JSON output path for the RegrowReport",
+    )
+    p_regrow.add_argument(
+        "--strategy", required=True,
+        choices=("residual_kmeans", "high_decoder_norm_random",
+                 "orthogonal_noise_scaled"),
+        help="regrow strategy (initial release: residual_kmeans only; "
+             "the other two are reserved enum members raising "
+             "NotImplementedError)",
+    )
+    p_regrow.add_argument(
+        "--zeroed-list", default=None,
+        help="comma-separated zeroed feature ids (mutually exclusive "
+             "with --compression-report)",
+    )
+    p_regrow.add_argument(
+        "--compression-report", default=None,
+        help="path to a CompressionReport JSON; the union of every "
+             "cluster's `zeroed` list becomes the regrower's zeroed "
+             "set (mutually exclusive with --zeroed-list)",
+    )
+    p_regrow.add_argument(
+        "--cached-residuals", default=None,
+        help="path to a .npy file with pre-captured residuals "
+             "(2D, n_tokens × d_model; mutually exclusive with "
+             "--prompts)",
+    )
+    p_regrow.add_argument(
+        "--prompts", default=None,
+        help="path to a prompts text file; one prompt per non-empty, "
+             "non-`#`-prefixed line (mutually exclusive with "
+             "--cached-residuals)",
+    )
+    p_regrow.add_argument(
+        "--layer", type=int, default=10,
+        help="transformer block whose forward_pre hook captures the "
+             "residual stream (default: 10)",
+    )
+    p_regrow.add_argument(
+        "--model", default="gpt2",
+        help="HF model name for the residual capture path "
+             "(default: gpt2)",
+    )
+    p_regrow.add_argument(
+        "--device", default="auto",
+        choices=("auto", "cuda", "mps", "cpu"),
+        help="torch device for the residual capture (default: auto)",
+    )
+    p_regrow.add_argument(
+        "--seed", type=int, default=0,
+        help="RNG seed for k-means (default: 0)",
+    )
+    p_regrow.add_argument(
+        "--n-init", type=int, default=4,
+        help="sklearn KMeans n_init parameter (default: 4)",
+    )
+    p_regrow.set_defaults(func=_cmd_regrow)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

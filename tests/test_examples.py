@@ -259,6 +259,26 @@ def test_behavioural_validator_smoke(capsys, tmp_path):
     )
 
 
+def test_regrow_validated_smoke(capsys, tmp_path):
+    """Smoke test: `examples/regrow_validated.py` exits 0 on the
+    skip path (compression-report-absent). The full action requires
+    a populated compression report + the compressed SAE checkpoint;
+    CI only exercises the absent-input branch."""
+    from examples.regrow_validated import main
+
+    rc = main([
+        "--compression-report", str(tmp_path / "nonexistent.json"),
+        "--output-dir", str(tmp_path / "regrow_out"),
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert (
+        "REGROW-VALIDATED" in out
+        or "regrow_validated:" in out
+    )
+
+
 def test_compress_validated_smoke(capsys, tmp_path):
     """Smoke test: `examples/compress_validated.py` exits 0 on the
     skip path (SAE-or-report-absent). The full action requires both

@@ -660,3 +660,32 @@ reference.
       `validation_report.confirmed` makes the operation
       order-independent; the spec's far-cluster clique observation
       from the §5.1 live run forced this shape.
+
+- [x] 5.4 Compression-regrow implementation. Spec landed in
+      `add-compression-regrow` (commit `0e7a560`); implementation
+      ships `polygram.compression.Regrower` (torch-free
+      orchestrator), `RegrowPlan`, `RegrowReport`, `RegrowResult`,
+      `SlotPopulation`, and `RegrowStrategy` enum; the
+      `residual_kmeans` strategy (sklearn KMeans with
+      `algorithm='lloyd'` for cross-version determinism; centroids
+      → unit-norm decoder row + encoder column = decoder transpose
+      + encoder bias = 0; `b_dec` untouched; empty-cluster slots
+      left zero); two construction modes (direct +
+      `from_compression_report` chained for provenance);
+      `polygram regrow` CLI subcommand with mutually-exclusive
+      `--zeroed-list`/`--compression-report` and
+      `--cached-residuals`/`--prompts` flag groups; round-trippable
+      JSON report carrying source/output sha256s + optional
+      provenance back to a `CompressionReport`; worked example
+      `examples/regrow_validated.py` mirroring
+      `compress_validated.py`'s skip-path semantics; test ladder
+      under `tests/compression/test_regrow_*.py` (35 tests) plus
+      CLI tests under `tests/cli/test_regrow_cli.py` (10 tests)
+      and a smoke test in `tests/test_examples.py`. New
+      `[regrow]` optional extra for sklearn. README "Regrow
+      primitive" section + `docs/research/compression-regrow-
+      design.md` pointer note added. Loop is now: validator (PR
+      #27) → compressor (PR #28 / `7bdc7e7`) → regrower
+      (`add-compression-regrow`); the multi-panel orchestrator
+      (`add-compression-epoch`, spec at `c8fbb52`) is the next
+      implementation step.

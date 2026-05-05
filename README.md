@@ -388,6 +388,51 @@ wrapper: `polygram compress ...`. Worked example:
 `examples/compress_validated.py`. The `merge` strategy is deferred to
 a follow-up change.
 
+## Regrow primitive
+
+`polygram.compression.Regrower` is the post-compression complement:
+it takes a checkpoint with zeroed slots and repopulates them with
+new directions extracted from the SAE's activation residuals. The
+default `residual_kmeans` strategy runs k-means on `activation -
+SAE_reconstruct(activation)` (the directions the SAE failed to
+represent), unit-normalizes the cluster centroids, and writes them
+into the zeroed slots: `W_dec[fid, :] = centroid`, `W_enc[:, fid] =
+centroid`, `b_enc[fid] = 0`. `b_dec` stays untouched.
+
+```python
+from polygram import Regrower, CompressionReport
+
+# Chained from a prior compression run
+report = CompressionReport.from_json("compression_report.json")
+regrower = Regrower.from_compression_report(
+    report,
+    sae_checkpoint="sae.compressed.safetensors",
+    strategy="residual_kmeans",
+    prompts=prompts,  # captures residuals via one GPT-2 forward
+    layer=10,
+)
+result = regrower.run("sae.regrown.safetensors")
+
+# Or directly from a known zeroed set + cached residuals
+import numpy as np
+residuals = np.load("residuals.npy")  # (n_tokens, d_model)
+regrower = Regrower(
+    sae_checkpoint="sae.compressed.safetensors",
+    strategy="residual_kmeans",
+    zeroed={42, 100, 256},
+    cached_residuals=residuals,
+)
+result = regrower.run("sae.regrown.safetensors")
+```
+
+The output is a "primed but quiet" SAE — every slot has a unit-norm
+direction, no fine-tune happens here. Downstream consumers (an
+orca-lang workflow fine-tune node, an external trainer, a research
+notebook) take it from there. CLI wrapper: `polygram regrow ...`.
+Optional extra: `pip install ".[regrow]"` for sklearn. See
+`docs/research/compression-regrow-design.md` and
+`examples/regrow_validated.py`.
+
 ## Development
 
 ```bash

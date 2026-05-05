@@ -15,9 +15,21 @@ Two-stage API on `Compressor`:
 Initial release ships only the `zero` strategy; `merge` (decoder
 centroid) is deferred to its own change. See
 `openspec/changes/add-compression-action/` for the spec.
+
+The `Regrower` primitive (see
+`openspec/changes/add-compression-regrow/`) repopulates zeroed slots
+with new directions extracted from the SAE's activation residuals.
+Two-stage API mirrors `Compressor`'s.
 """
 
 from polygram.compression.compressor import Compressor
+from polygram.compression.regrow import Regrower, RegrowStrategy
+from polygram.compression.regrow_report import (
+    RegrowPlan,
+    RegrowReport,
+    RegrowResult,
+    SlotPopulation,
+)
 from polygram.compression.report import (
     ClusterPlan,
     CompressionPlan,
@@ -31,4 +43,10 @@ __all__ = [
     "CompressionPlan",
     "CompressionReport",
     "CompressionResult",
+    "RegrowPlan",
+    "RegrowReport",
+    "RegrowResult",
+    "RegrowStrategy",
+    "Regrower",
+    "SlotPopulation",
 ]
