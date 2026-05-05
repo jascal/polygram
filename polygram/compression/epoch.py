@@ -555,15 +555,16 @@ def _compute_firing_rates_and_residuals(
     from safetensors.numpy import load_file
 
     from polygram.behavioural.runtime import (
+        _get_layer_module,
         _import_torch_and_transformers,
         _resolve_device,
     )
 
-    torch, GPT2LMHeadModel, GPT2Tokenizer = _import_torch_and_transformers()
+    torch, AutoModelForCausalLM, AutoTokenizer = _import_torch_and_transformers()
     resolved = _resolve_device(torch, device)
 
-    tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-    model = GPT2LMHeadModel.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForCausalLM.from_pretrained(model_name)
     model.eval()
     for p in model.parameters():
         p.requires_grad = False
@@ -574,7 +575,7 @@ def _compute_firing_rates_and_residuals(
     def _hook(module, args):
         captured.append(args[0].detach().cpu().numpy())
 
-    handle = model.transformer.h[layer].register_forward_pre_hook(_hook)
+    handle = _get_layer_module(model, layer).register_forward_pre_hook(_hook)
     chunks: list[np.ndarray] = []
     try:
         for prompt in prompts:

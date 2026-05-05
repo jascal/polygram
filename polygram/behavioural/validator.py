@@ -37,6 +37,7 @@ from polygram.behavioural.report import (
 )
 from polygram.behavioural.runtime import (
     _bootstrap_ci_mean,
+    _get_layer_module,
     _import_torch_and_transformers,
     _kl_softmax_row,
     _pearson,
@@ -54,12 +55,12 @@ SCHEMA_VERSION = 1
 
 
 _LAYER_ZERO_MESSAGE = (
-    "BehaviouralValidator: layer 0 is the structural dead zone for "
-    "GPT-2 small (per docs/research/deeper-layer-ablation-probe.md "
-    "finding: ~5e-5 nats KL per single-feature ablation, four orders "
-    "of magnitude below blocks.5). Use layer >= 5 (recommended: 10), "
-    "or pass allow_layer_zero=True if your model family has been "
-    "empirically shown to be informative at layer 0."
+    "BehaviouralValidator: layer 0 is typically a structural dead zone "
+    "with negligible KL signal per ablation (documented for GPT-2 small "
+    "in docs/research/deeper-layer-ablation-probe.md; likely similar for "
+    "other decoder-only architectures). Use a deeper layer, or pass "
+    "allow_layer_zero=True if your model family has been empirically "
+    "shown to be informative at layer 0."
 )
 
 
@@ -235,7 +236,7 @@ class BehaviouralValidator:
         if candidates is None:
             candidates = self.predict()
 
-        torch, GPT2LMHeadModel, GPT2Tokenizer = (
+        torch, AutoModelForCausalLM, AutoTokenizer = (
             _import_torch_and_transformers()
         )
 
@@ -243,8 +244,8 @@ class BehaviouralValidator:
 
         device = _resolve_device(torch, self.device)
 
-        tokenizer = GPT2Tokenizer.from_pretrained(self.model_name)
-        model = GPT2LMHeadModel.from_pretrained(self.model_name)
+        tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        model = AutoModelForCausalLM.from_pretrained(self.model_name)
         model.eval()
         for p in model.parameters():
             p.requires_grad = False
@@ -256,7 +257,7 @@ class BehaviouralValidator:
         def _capture_hook(module, args):
             captured.append(args[0].detach().cpu().numpy())
 
-        handle = model.transformer.h[layer].register_forward_pre_hook(
+        handle = _get_layer_module(model, layer).register_forward_pre_hook(
             _capture_hook
         )
         all_residuals: list[np.ndarray] = []
@@ -614,7 +615,7 @@ def _ablation_kl_for_feature(
             ).to(h.dtype).to(h.device)
             return (new_h,) + args[1:]
 
-        handle = model.transformer.h[layer].register_forward_pre_hook(
+        handle = _get_layer_module(model, layer).register_forward_pre_hook(
             _ablate_hook
         )
         try:

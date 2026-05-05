@@ -494,15 +494,6 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         sys.stderr.write(f"polygram: from_sae_lens failed: {exc}\n")
         return 2
 
-    if args.model != "gpt2":
-        sys.stderr.write(
-            f"polygram validate: --model {args.model!r} differs from "
-            f"the calibrated default 'gpt2'; the validator's "
-            f"empirical threshold defaults are calibrated on GPT-2 "
-            f"small only. Consider re-calibrating polygram-threshold / "
-            f"jaccard-threshold for your model family.\n"
-        )
-
     try:
         validator = BehaviouralValidator(
             dictionary=dictionary,
@@ -1079,13 +1070,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_val.add_argument(
         "--layer", required=True, type=int,
-        help="transformer block whose forward_pre hook the validator "
-             "registers (e.g., 10 for blocks.10 on GPT-2 small)",
+        help="transformer block index whose forward_pre hook the "
+             "validator registers",
     )
     p_val.add_argument(
         "--model", default="gpt2",
-        help="HF model name (default: gpt2; the validator's "
-             "empirical defaults are calibrated on GPT-2 small)",
+        help="HF model name (default: gpt2; threshold defaults were "
+             "calibrated on GPT-2 small — consider re-calibrating for "
+             "other model families)",
     )
     p_val.add_argument(
         "--polygram-threshold", type=float, default=0.7,
@@ -1219,13 +1211,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_regrow.add_argument(
         "--layer", type=int, default=10,
-        help="transformer block whose forward_pre hook captures the "
-             "residual stream (default: 10)",
+        help="transformer block index whose forward_pre hook captures "
+             "the residual stream (default: 10)",
     )
     p_regrow.add_argument(
         "--model", default="gpt2",
         help="HF model name for the residual capture path "
-             "(default: gpt2)",
+             "(default: gpt2; supports GPT-2, Llama, Gemma, and any "
+             "AutoModelForCausalLM-compatible model)",
     )
     p_regrow.add_argument(
         "--device", default="auto",
@@ -1268,12 +1261,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_epoch.add_argument(
         "--layer", type=int, default=10,
-        help="transformer block whose forward_pre hook captures "
+        help="transformer block index whose forward_pre hook captures "
              "residuals (default: 10)",
     )
     p_epoch.add_argument(
         "--model", default="gpt2",
-        help="HF model name (default: gpt2)",
+        help="HF model name (default: gpt2; supports GPT-2, Llama, "
+             "Gemma, and any AutoModelForCausalLM-compatible model)",
     )
     p_epoch.add_argument(
         "--strategy", default="zero", choices=("zero",),

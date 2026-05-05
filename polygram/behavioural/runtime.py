@@ -88,19 +88,39 @@ def _import_torch_and_transformers():
     """Lazy-import torch + transformers; raise `ImportError` with a
     pip-install hint when either is missing.
 
-    Returns `(torch_module, GPT2LMHeadModel, GPT2Tokenizer)`.
+    Returns `(torch_module, AutoModelForCausalLM, AutoTokenizer)`.
     """
     try:
         import torch  # noqa: F401
-        from transformers import GPT2LMHeadModel  # noqa: F401
-        from transformers import GPT2Tokenizer  # noqa: F401
+        from transformers import AutoModelForCausalLM  # noqa: F401
+        from transformers import AutoTokenizer  # noqa: F401
     except ImportError as exc:
         raise ImportError(_BEHAVIOURAL_INSTALL_HINT) from exc
     import torch as _torch
-    from transformers import GPT2LMHeadModel as _GPT2LMHeadModel
-    from transformers import GPT2Tokenizer as _GPT2Tokenizer
+    from transformers import AutoModelForCausalLM as _AutoModelForCausalLM
+    from transformers import AutoTokenizer as _AutoTokenizer
 
-    return _torch, _GPT2LMHeadModel, _GPT2Tokenizer
+    return _torch, _AutoModelForCausalLM, _AutoTokenizer
+
+
+def _get_layer_module(model, layer: int):
+    """Return the transformer block at `layer` for the given model.
+
+    Handles GPT-2 family (`model.transformer.h`) and
+    Llama / Gemma / Mistral family (`model.model.layers`). Raises
+    `ValueError` for unrecognised architectures.
+    """
+    if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
+        return model.transformer.h[layer]
+    if hasattr(model, "model") and hasattr(model.model, "layers"):
+        return model.model.layers[layer]
+    arch = type(model).__name__
+    raise ValueError(
+        f"_get_layer_module: unsupported model architecture {arch!r}; "
+        f"expected a GPT-2-family model (model.transformer.h) or a "
+        f"Llama/Gemma-family model (model.model.layers). "
+        f"Override _get_layer_module or file a bug to add support."
+    )
 
 
 def _kl_softmax_row(logits_a: np.ndarray, logits_b: np.ndarray) -> float:

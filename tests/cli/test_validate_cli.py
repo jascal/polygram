@@ -167,7 +167,7 @@ class TestValidateArgs:
         captured = capsys.readouterr()
         assert "deeper-layer-ablation-probe.md" in captured.err
 
-    def test_non_default_model_emits_warning(
+    def test_non_default_model_accepted(
         self, tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch
     ):
         dict_path = tmp_path / "dict.json"
@@ -178,15 +178,14 @@ class TestValidateArgs:
         _write_prompts(prompts_path)
 
         # Monkeypatch the lazy import to fail so we don't actually load
-        # a model. We just want to confirm the warning fires before
-        # the run() ImportError surfaces.
+        # a model. We only want to confirm the CLI accepts a non-gpt2
+        # model name without rejecting it at the argument-parsing stage.
         from polygram.behavioural import runtime as bh_runtime
 
         def _fake_import():
             raise ImportError(bh_runtime._BEHAVIOURAL_INSTALL_HINT)
 
         monkeypatch.setattr(bh_runtime, "_import_torch_and_transformers", _fake_import)
-        # Also patch the validator module's local reference.
         from polygram.behavioural import validator as bh_validator
         monkeypatch.setattr(bh_validator, "_import_torch_and_transformers", _fake_import)
 
@@ -200,9 +199,8 @@ class TestValidateArgs:
             "--model", "EleutherAI/pythia-1b",
             "--output", str(tmp_path / "out.json"),
         ])
-        # Whatever happens after the warning, the warning must be in stderr.
+        # Non-gpt2 model names are accepted; the run fails only because
+        # torch is not installed, not because of a model-name rejection.
         captured = capsys.readouterr()
-        assert "calibrated on GPT-2 small only" in captured.err
-        # Without torch installed the validator should ImportError-out
-        # with the install hint.
+        assert "calibrated on GPT-2 small only" not in captured.err
         assert rc in (0, 2)
