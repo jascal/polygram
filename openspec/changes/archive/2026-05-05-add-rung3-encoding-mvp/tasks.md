@@ -136,22 +136,23 @@
 > example against the real GPT-2-small SAE and write up the
 > findings.
 
-- [ ] 7.1 Run `examples/rung3_viability_spike.py` against the
+- [x] 7.1 Run `examples/rung3_viability_spike.py` against the
       §4.4 selection on real data.
-- [ ] 7.2 Write `docs/research/rung3-viability-spike.md`
+- [x] 7.2 Write `docs/research/rung3-viability-spike.md`
       following the §4.2 / §4.3 / §4.4 research-note shape:
       TL;DR table, 5-qubit circuit diagram, per-pair before/
       after, decision bucket, next steps.
-- [ ] 7.3 Commit the spike's `rung3_viability_spike.json`
+- [x] 7.3 Commit the spike's `rung3_viability_spike.json`
       artifact under `docs/research/data/` for downstream
       reproducibility.
 - [ ] 7.4 Open the findings PR. Title: `tech-debt-backlog: §4.5
       — Rung3 viability spike findings`. Body summarizes the
       decision bucket and links the research note.
-- [ ] 7.5 If the verdict is **strong-pass**: open a follow-up
-      change (`make-rung3-default`) flipping the default
-      encoding to Rung3 across `Dictionary` / `Cancellation` /
-      `BehaviouralValidator` (validator stays unchanged in
-      surface; the dictionaries it consumes change). If
-      **partial** or **fail**: skip the follow-up; Rung3 stays
-      opt-in.
+- [ ] 7.5 Verdict was `strong_pass` per the calibrated rule, but
+      the optimum is the trivial amp-zeroing solution
+      `(θ_b = π/4, ψ_b = π)` against the anchored A defaults — see
+      `docs/research/rung3-viability-spike.md` "Caveats". Hold
+      `make-rung3-default` until either (a) a non-degenerate-amp
+      constraint is added to the joint optimizer and the spike re-
+      run, or (b) symmetric anchoring (6-knob search) is tested.
+      Rung3 stays opt-in until then.

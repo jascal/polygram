@@ -1,0 +1,622 @@
+{
+  "selection": [
+    12999,
+    19398,
+    4192,
+    23625,
+    8371,
+    2287,
+    68,
+    13737
+  ],
+  "n_pairs": 28,
+  "pairs": [
+    {
+      "i": 12999,
+      "j": 19398,
+      "mps_floor": 0.7654174374558483,
+      "mps_pre_overlap": 0.9938535241294034,
+      "mps_post_overlap": 0.7654174374558482,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.1531620716306025e-11,
+      "rung3_theta_amp_optimum": 0.7853976008794381,
+      "rung3_psi_aux_optimum": 3.1416031855365323,
+      "rung3_residual_ratio": 2.8130559434175468e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.5071633237822349,
+        "baseline_polygram_overlap": 0.7807197536924244,
+        "baseline_gate_pass": true,
+        "rung3_jaccard": 0.5071633237822349,
+        "rung3_polygram_overlap": 2.201239280432329e-11,
+        "rung3_gate_pass": false,
+        "n_both_fire": 177
+      }
+    },
+    {
+      "i": 12999,
+      "j": 4192,
+      "mps_floor": 0.7520920877522402,
+      "mps_pre_overlap": 0.9765512716393016,
+      "mps_post_overlap": 0.7520920877522396,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 1.9737563386962742e-11,
+      "rung3_theta_amp_optimum": 0.7853977881904792,
+      "rung3_psi_aux_optimum": 3.1415824578907716,
+      "rung3_residual_ratio": 2.6243546114082824e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.15434083601286175,
+        "baseline_polygram_overlap": 0.8352745238767003,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.15434083601286175,
+        "rung3_polygram_overlap": 2.3524651300820198e-11,
+        "rung3_gate_pass": false,
+        "n_both_fire": 48
+      }
+    },
+    {
+      "i": 12999,
+      "j": 23625,
+      "mps_floor": 0.75253112608373,
+      "mps_pre_overlap": 0.9771213393848567,
+      "mps_post_overlap": 0.7525311260837296,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.1169121568365356e-11,
+      "rung3_theta_amp_optimum": 0.7853976008794381,
+      "rung3_psi_aux_optimum": 3.1416031855365323,
+      "rung3_residual_ratio": 2.8130559434175465e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.1492063492063492,
+        "baseline_polygram_overlap": 0.7675758176542222,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.1492063492063492,
+        "rung3_polygram_overlap": 2.496964670796105e-11,
+        "rung3_gate_pass": false,
+        "n_both_fire": 47
+      }
+    },
+    {
+      "i": 12999,
+      "j": 8371,
+      "mps_floor": 0.5293284773041288,
+      "mps_pre_overlap": 0.5293284773041288,
+      "mps_post_overlap": 0.5293284773041286,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 7.372551577025954e-11,
+      "rung3_theta_amp_optimum": 0.7853999382378769,
+      "rung3_psi_aux_optimum": 3.1415693192626435,
+      "rung3_residual_ratio": 1.3928121937769865e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.03858520900321544,
+        "baseline_polygram_overlap": 0.6641695847723541,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.03858520900321544,
+        "rung3_polygram_overlap": 8.369104827836479e-13,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 12999,
+      "j": 2287,
+      "mps_floor": 0.6115576822630509,
+      "mps_pre_overlap": 0.6115576822630509,
+      "mps_post_overlap": 0.6115576822630505,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 8.518496208542677e-11,
+      "rung3_theta_amp_optimum": 0.7853999382378769,
+      "rung3_psi_aux_optimum": 3.1415693192626435,
+      "rung3_residual_ratio": 1.3929178645945936e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.04180064308681672,
+        "baseline_polygram_overlap": 0.7818485435395709,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.04180064308681672,
+        "rung3_polygram_overlap": 2.1886592850721444e-11,
+        "rung3_gate_pass": false,
+        "n_both_fire": 13
+      }
+    },
+    {
+      "i": 12999,
+      "j": 68,
+      "mps_floor": 0.5181996012124407,
+      "mps_pre_overlap": 0.5181996012124407,
+      "mps_post_overlap": 0.5181996012124404,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 6.946233519893309e-13,
+      "rung3_theta_amp_optimum": 0.7853970207894674,
+      "rung3_psi_aux_optimum": 3.141592303099217,
+      "rung3_residual_ratio": 1.3404552036784833e-12,
+      "behavioural": {
+        "baseline_jaccard": 0.03858520900321544,
+        "baseline_polygram_overlap": 0.615540811874515,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.03858520900321544,
+        "rung3_polygram_overlap": 1.9898081284350878e-11,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 12999,
+      "j": 13737,
+      "mps_floor": 0.4423684823088031,
+      "mps_pre_overlap": 0.4423684823088031,
+      "mps_post_overlap": 0.44236848230880277,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 5.929751340541879e-13,
+      "rung3_theta_amp_optimum": 0.7853970207894674,
+      "rung3_psi_aux_optimum": 3.141592303099217,
+      "rung3_residual_ratio": 1.3404552036784827e-12,
+      "behavioural": {
+        "baseline_jaccard": 0.03858520900321544,
+        "baseline_polygram_overlap": 0.4912950547623193,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.03858520900321544,
+        "rung3_polygram_overlap": 1.566101355791435e-11,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 19398,
+      "j": 4192,
+      "mps_floor": 0.7657978145121596,
+      "mps_pre_overlap": 0.9943474233527727,
+      "mps_post_overlap": 0.7657978145121593,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.1551722100575005e-11,
+      "rung3_theta_amp_optimum": 0.7853976008794381,
+      "rung3_psi_aux_optimum": 3.1416031855365323,
+      "rung3_residual_ratio": 2.814283573570162e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.18468468468468469,
+        "baseline_polygram_overlap": 0.8504961231731248,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.18468468468468469,
+        "rung3_polygram_overlap": 0.8395983487674104,
+        "rung3_gate_pass": false,
+        "n_both_fire": 41
+      }
+    },
+    {
+      "i": 19398,
+      "j": 23625,
+      "mps_floor": 0.7660139003826825,
+      "mps_pre_overlap": 0.9946279992756936,
+      "mps_post_overlap": 0.7660139003826821,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.1557803369733942e-11,
+      "rung3_theta_amp_optimum": 0.7853976008794381,
+      "rung3_psi_aux_optimum": 3.1416031855365323,
+      "rung3_residual_ratio": 2.8142835735701627e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.20909090909090908,
+        "baseline_polygram_overlap": 0.9374744745524402,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.20909090909090908,
+        "rung3_polygram_overlap": 0.9272992327556574,
+        "rung3_gate_pass": false,
+        "n_both_fire": 46
+      }
+    },
+    {
+      "i": 19398,
+      "j": 8371,
+      "mps_floor": 0.5833656425025502,
+      "mps_pre_overlap": 0.5833656425025502,
+      "mps_post_overlap": 0.5833656425025499,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 1.4841070433571645e-10,
+      "rung3_theta_amp_optimum": 0.7854039307955778,
+      "rung3_psi_aux_optimum": 3.1415629122028914,
+      "rung3_residual_ratio": 2.544042595636195e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.05581395348837209,
+        "baseline_polygram_overlap": 0.6478866979489661,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.05581395348837209,
+        "rung3_polygram_overlap": 0.7012496271492867,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 19398,
+      "j": 2287,
+      "mps_floor": 0.657455238152462,
+      "mps_pre_overlap": 0.657455238152462,
+      "mps_post_overlap": 0.6574552381524617,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 9.157811463938569e-11,
+      "rung3_theta_amp_optimum": 0.7853999382378769,
+      "rung3_psi_aux_optimum": 3.1415693192626435,
+      "rung3_residual_ratio": 1.3929178645945928e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.05555555555555555,
+        "baseline_polygram_overlap": 0.7065090271103469,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.05555555555555555,
+        "rung3_polygram_overlap": 0.7152390351016716,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 19398,
+      "j": 68,
+      "mps_floor": 0.5730452787362943,
+      "mps_pre_overlap": 0.5730452787362943,
+      "mps_post_overlap": 0.5730452787362943,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 1.4578295172095166e-10,
+      "rung3_theta_amp_optimum": 0.7854039307955778,
+      "rung3_psi_aux_optimum": 3.1415629122028914,
+      "rung3_residual_ratio": 2.5440040626883604e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.05581395348837209,
+        "baseline_polygram_overlap": 0.5980910620941022,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.05581395348837209,
+        "rung3_polygram_overlap": 0.6888437692241112,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 19398,
+      "j": 13737,
+      "mps_floor": 0.5011878067916116,
+      "mps_pre_overlap": 0.5011878067916116,
+      "mps_post_overlap": 0.5011878067916112,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 1.3105190988976019e-11,
+      "rung3_theta_amp_optimum": 0.7853977881904792,
+      "rung3_psi_aux_optimum": 3.1415824578907716,
+      "rung3_residual_ratio": 2.6148263807273775e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.05581395348837209,
+        "baseline_polygram_overlap": 0.6288603613867101,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.05581395348837209,
+        "rung3_polygram_overlap": 0.5618355476953333,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 4192,
+      "j": 23625,
+      "mps_floor": 0.7701483875531184,
+      "mps_pre_overlap": 0.99999640930103,
+      "mps_post_overlap": 0.7701483875531182,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.5048411879352665e-11,
+      "rung3_theta_amp_optimum": 0.7853997087488918,
+      "rung3_psi_aux_optimum": 3.1415816873284355,
+      "rung3_residual_ratio": 3.2524137275590975e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.47761194029850745,
+        "baseline_polygram_overlap": 0.9663359458372045,
+        "baseline_gate_pass": true,
+        "rung3_jaccard": 0.47761194029850745,
+        "rung3_polygram_overlap": 0.9663217071333688,
+        "rung3_gate_pass": true,
+        "n_both_fire": 32
+      }
+    },
+    {
+      "i": 4192,
+      "j": 8371,
+      "mps_floor": 0.6306192835548424,
+      "mps_pre_overlap": 0.6306192835548424,
+      "mps_post_overlap": 0.6306192835548422,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 8.784008658213837e-11,
+      "rung3_theta_amp_optimum": 0.7853999382378769,
+      "rung3_psi_aux_optimum": 3.1415693192626435,
+      "rung3_residual_ratio": 1.3929178645945939e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.25,
+        "baseline_polygram_overlap": 0.6432266991030362,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.25,
+        "rung3_polygram_overlap": 0.6306192835359599,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 4192,
+      "j": 2287,
+      "mps_floor": 0.6951899747133852,
+      "mps_pre_overlap": 0.6951899747133852,
+      "mps_post_overlap": 0.6951899747133851,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 2.256635661215764e-11,
+      "rung3_theta_amp_optimum": 0.7853997087488918,
+      "rung3_psi_aux_optimum": 3.1415816873284355,
+      "rung3_residual_ratio": 3.246070489071905e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.24489795918367346,
+        "baseline_polygram_overlap": 0.7255742709379144,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.24489795918367346,
+        "rung3_polygram_overlap": 0.7255897564622225,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 4192,
+      "j": 68,
+      "mps_floor": 0.6213128279290292,
+      "mps_pre_overlap": 0.6213128279290292,
+      "mps_post_overlap": 0.621312827929029,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 8.32842013309661e-13,
+      "rung3_theta_amp_optimum": 0.7853970207894674,
+      "rung3_psi_aux_optimum": 3.141592303099217,
+      "rung3_residual_ratio": 1.3404552036784829e-12,
+      "behavioural": {
+        "baseline_jaccard": 0.25,
+        "baseline_polygram_overlap": 0.7943200513828511,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.25,
+        "rung3_polygram_overlap": 0.6213128278544803,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 4192,
+      "j": 13737,
+      "mps_floor": 0.5549266330164561,
+      "mps_pre_overlap": 0.5549266330164561,
+      "mps_post_overlap": 0.5549266330164561,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 1.411735608887837e-10,
+      "rung3_theta_amp_optimum": 0.7854039307955778,
+      "rung3_psi_aux_optimum": 3.1415629122028914,
+      "rung3_residual_ratio": 2.5440040626883604e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.25,
+        "baseline_polygram_overlap": 0.5660207921131465,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.25,
+        "rung3_polygram_overlap": 0.7193232315834742,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 23625,
+      "j": 8371,
+      "mps_floor": 0.6294933319512716,
+      "mps_pre_overlap": 0.6294933319512716,
+      "mps_post_overlap": 0.6294933319512712,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 8.429606064911165e-13,
+      "rung3_theta_amp_optimum": 0.7853970207894674,
+      "rung3_psi_aux_optimum": 3.141592303099217,
+      "rung3_residual_ratio": 1.339109667576859e-12,
+      "behavioural": {
+        "baseline_jaccard": 0.23529411764705882,
+        "baseline_polygram_overlap": 0.6326940898898049,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.23529411764705882,
+        "rung3_polygram_overlap": 0.657017903081626,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 23625,
+      "j": 2287,
+      "mps_floor": 0.694322603127377,
+      "mps_pre_overlap": 0.694322603127377,
+      "mps_post_overlap": 0.6943226031273768,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 9.671343576879458e-11,
+      "rung3_theta_amp_optimum": 0.7853999382378769,
+      "rung3_psi_aux_optimum": 3.1415693192626435,
+      "rung3_residual_ratio": 1.392917864594594e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.23076923076923078,
+        "baseline_polygram_overlap": 0.6943226031273768,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.23076923076923078,
+        "rung3_polygram_overlap": 0.6943226031107756,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 23625,
+      "j": 68,
+      "mps_floor": 0.6201586570830622,
+      "mps_pre_overlap": 0.6201586570830622,
+      "mps_post_overlap": 0.6201586570830618,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 8.6383007233399e-11,
+      "rung3_theta_amp_optimum": 0.7853999382378769,
+      "rung3_psi_aux_optimum": 3.1415693192626435,
+      "rung3_residual_ratio": 1.3929178645945939e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.23529411764705882,
+        "baseline_polygram_overlap": 0.7366523678882997,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.23529411764705882,
+        "rung3_polygram_overlap": 0.6472750699456095,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 23625,
+      "j": 13737,
+      "mps_floor": 0.5536156814468857,
+      "mps_pre_overlap": 0.5536156814468857,
+      "mps_post_overlap": 0.5536156814468854,
+      "mps_efficiency": null,
+      "rung3_post_overlap": 7.711411728070769e-11,
+      "rung3_theta_amp_optimum": 0.7853999382378769,
+      "rung3_psi_aux_optimum": 3.1415693192626435,
+      "rung3_residual_ratio": 1.3929178645945939e-10,
+      "behavioural": {
+        "baseline_jaccard": 0.23529411764705882,
+        "baseline_polygram_overlap": 0.6148463496182357,
+        "baseline_gate_pass": false,
+        "rung3_jaccard": 0.23529411764705882,
+        "rung3_polygram_overlap": 0.7037626737732265,
+        "rung3_gate_pass": false,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 8371,
+      "j": 2287,
+      "mps_floor": 0.7586710201054939,
+      "mps_pre_overlap": 0.9850936627377108,
+      "mps_post_overlap": 0.7586710201054936,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.1351153896266106e-11,
+      "rung3_theta_amp_optimum": 0.7853976008794381,
+      "rung3_psi_aux_optimum": 3.1416031855365323,
+      "rung3_residual_ratio": 2.8142835735701633e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.9230769230769231,
+        "baseline_polygram_overlap": 0.9812360805091414,
+        "baseline_gate_pass": true,
+        "rung3_jaccard": 0.9230769230769231,
+        "rung3_polygram_overlap": 0.9519179290403066,
+        "rung3_gate_pass": true,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 8371,
+      "j": 68,
+      "mps_floor": 0.7699663620849649,
+      "mps_pre_overlap": 0.9997600589853032,
+      "mps_post_overlap": 0.7699663620849649,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.5042491658038797e-11,
+      "rung3_theta_amp_optimum": 0.7853997087488918,
+      "rung3_psi_aux_optimum": 3.1415816873284355,
+      "rung3_residual_ratio": 3.252413727559099e-11,
+      "behavioural": {
+        "baseline_jaccard": 1.0,
+        "baseline_polygram_overlap": 0.8274147863100495,
+        "baseline_gate_pass": true,
+        "rung3_jaccard": 1.0,
+        "rung3_polygram_overlap": 0.9997600589499129,
+        "rung3_gate_pass": true,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 8371,
+      "j": 13737,
+      "mps_floor": 0.7595995860700446,
+      "mps_pre_overlap": 0.9862993558812101,
+      "mps_post_overlap": 0.7595995860700444,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.470532121182422e-11,
+      "rung3_theta_amp_optimum": 0.7853997087488918,
+      "rung3_psi_aux_optimum": 3.1415816873284355,
+      "rung3_residual_ratio": 3.252413727559098e-11,
+      "behavioural": {
+        "baseline_jaccard": 1.0,
+        "baseline_polygram_overlap": 0.9296244134284188,
+        "baseline_gate_pass": true,
+        "rung3_jaccard": 1.0,
+        "rung3_polygram_overlap": 0.7612685498305458,
+        "rung3_gate_pass": true,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 2287,
+      "j": 68,
+      "mps_floor": 0.7556008565555653,
+      "mps_pre_overlap": 0.9811072198969361,
+      "mps_post_overlap": 0.7556008565555652,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.457526598416735e-11,
+      "rung3_theta_amp_optimum": 0.7853997087488918,
+      "rung3_psi_aux_optimum": 3.1415816873284355,
+      "rung3_residual_ratio": 3.2524137275591e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.9230769230769231,
+        "baseline_polygram_overlap": 0.8391713674139729,
+        "baseline_gate_pass": true,
+        "rung3_jaccard": 0.9230769230769231,
+        "rung3_polygram_overlap": 0.9480657405217291,
+        "rung3_gate_pass": true,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 2287,
+      "j": 13737,
+      "mps_floor": 0.7267367549775533,
+      "mps_pre_overlap": 0.9436287308132703,
+      "mps_post_overlap": 0.726736754977553,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.0452433118430117e-11,
+      "rung3_theta_amp_optimum": 0.7853976008794381,
+      "rung3_psi_aux_optimum": 3.1416031855365323,
+      "rung3_residual_ratio": 2.8142835735701617e-11,
+      "behavioural": {
+        "baseline_jaccard": 0.9230769230769231,
+        "baseline_polygram_overlap": 0.863250629933511,
+        "baseline_gate_pass": true,
+        "rung3_jaccard": 0.9230769230769231,
+        "rung3_polygram_overlap": 0.7465315371593236,
+        "rung3_gate_pass": true,
+        "n_both_fire": 12
+      }
+    },
+    {
+      "i": 68,
+      "j": 13737,
+      "mps_floor": 0.7621930573125877,
+      "mps_pre_overlap": 0.9896668393065908,
+      "mps_post_overlap": 0.7621930573125876,
+      "mps_efficiency": 1.0,
+      "rung3_post_overlap": 2.4789671626536998e-11,
+      "rung3_theta_amp_optimum": 0.7853997087488918,
+      "rung3_psi_aux_optimum": 3.1415816873284355,
+      "rung3_residual_ratio": 3.2524137275590994e-11,
+      "behavioural": {
+        "baseline_jaccard": 1.0,
+        "baseline_polygram_overlap": 0.7621930573125876,
+        "baseline_gate_pass": true,
+        "rung3_jaccard": 1.0,
+        "rung3_polygram_overlap": 0.7638677193780075,
+        "rung3_gate_pass": true,
+        "n_both_fire": 12
+      }
+    }
+  ],
+  "criteria": {
+    "A_floor_breaking": {
+      "median_residual_ratio": 3.2524137275590975e-11,
+      "bucket": "strong"
+    },
+    "B_gate_tpr": {
+      "value": 0.5,
+      "bucket": "fail"
+    },
+    "C_ranker_preservation": {
+      "spearman": 0.6677613574165299,
+      "bucket": "strong"
+    },
+    "D_coverage": {
+      "value": 0.875,
+      "bucket": "partial"
+    }
+  },
+  "decision_bucket": "strong_pass"
+}
