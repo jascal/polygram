@@ -23,7 +23,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install
-        run: pip install -e ".[dev,sae]"
+        run: pip install -e ".[dev,sae,regrow]"
 
       - name: Lint with ruff
         run: ruff check polygram tests examples
