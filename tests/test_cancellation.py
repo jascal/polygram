@@ -626,6 +626,7 @@ class TestRung3Cancellation:
         """Synthesize a tiny rung-3 dictionary, run the joint optimizer,
         confirm the new fields are populated and the structural_floor
         matches the MPS-equivalent floor of the same (α, β, γ)."""
+        pytest.importorskip("scipy")
         from polygram import MPSRung1
 
         d = self._rung3_pair()
@@ -690,6 +691,7 @@ class TestRung3Cancellation:
     def test_cancellation_rung3_breaks_floor_synthetic(self):
         """Hand-crafted pair with non-trivial (θ_b, ψ_b) optimum that
         demonstrably reaches below the MPS phase-only floor M − |V|."""
+        pytest.importorskip("scipy")
         # Choose alpha_b so the MPS pair has high pre-overlap and a
         # non-zero V (so M − |V| > 0). The amp branch can multiply
         # cos(ψ_b)·sin(2θ_b) into the overlap; ψ_b ≈ π drives the
@@ -746,6 +748,7 @@ class TestRung3Cancellation:
         """When rung-3 reaches below the MPS floor, the conventional
         ``cancellation_efficiency`` clamps at 1.0 because the formula's
         denominator (before − floor) is non-negative."""
+        pytest.importorskip("scipy")
         d = self._rung3_pair(beta_a=0.05, beta_b=0.05, alpha_b=0.05)
         result = Cancellation(
             dictionary=d, target_pair=("a", "b"),
