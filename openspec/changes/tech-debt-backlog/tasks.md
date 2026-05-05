@@ -191,3 +191,98 @@ reference.
       (the disentanglement-loop loss surface; the user-supplied
       Gemma `compression_score` formula) needs a different signal
       source for the magnitude inputs.
+
+- [ ] 4.2 Behavioural-Gram one-pair probe (research-track). PR #18
+      settled the *decoder-geometry* validity question
+      (`G_polygram` vs decoder squared-cosine Gram). Its closing
+      caveat names the next gap explicitly: "Two SAE features can
+      have orthogonal decoder columns but still co-fire on the same
+      inputs (and vice versa). The behavioural-Gram comparison
+      would need a forward-pass infrastructure Polygram doesn't
+      have." This task is the smallest probe that builds that
+      infrastructure for a single pair and tests whether Polygram's
+      ranking signal carries into real-model behaviour.
+      Scope is deliberately narrow:
+      - **One model.** GPT-2 small + the
+        `jbloom/GPT2-Small-SAEs-Reformatted` `blocks.0.hook_resid_pre`
+        SAE that PR #16 and PR #18 already use. No Gemma, no
+        multi-layer, no SAE-format generalization — that's its own
+        future task.
+      - **One pair.** One within-cluster pair from PR #18's
+        feature subset (`feat_7836, feat_13953, feat_15796,
+        feat_11978`); the within-cluster pair `feat_7836 ↔
+        feat_11978` (Polygram-predicted 0.987, real-decoder 0.992)
+        is the natural choice. Optionally include one cross-cluster
+        pair for contrast if the harness supports it with no extra
+        effort.
+      - **No φ optimization, no Dictionary baking, no Cancellation
+        runs.** Polygram φ doesn't map to `W_dec`; this probe
+        deliberately doesn't try to invert that. The probe is
+        purely observational: does Polygram's predicted overlap
+        line up with real-model co-firing and substitutability?
+      Concrete plan:
+      (a) Helper that loads GPT-2-small (via `transformers`) plus
+          the SAE encoder/decoder weights (via the existing
+          `load_sae_safetensors` path; the loader already reads
+          `W_dec` and can be extended to also surface `W_enc` /
+          `b_enc`).
+      (b) Forward a held-out text batch (~1000 tokens from a
+          fixed prompt set committed alongside the script) and
+          collect SAE feature activations at layer 0 resid_pre
+          for the chosen pair.
+      (c) Compute three real-model statistics for the pair:
+          - **Co-occurrence rate**: `P(B fires | A fires)` over
+            the token set, with "fires" defined as activation
+            above a fixed threshold (median or a fixed percentile
+            of the per-feature activation distribution).
+          - **Activation correlation**: Pearson correlation of
+            the two features' raw activation values across all
+            tokens.
+          - **Substitutability**: per-token KL divergence
+            between the model's next-token distribution under
+            (1) baseline forward pass, (2) ablate-A (zero out
+            feature A's activation post-encoder, before decoder),
+            and (3) ablate-B. The pair substitutes if
+            KL(ablate-A) ≈ KL(ablate-B) on the same tokens.
+      (d) Compare against Polygram's predicted Gram entry for the
+          pair (and against the decoder-cosine Gram already
+          computed in PR #18); report whether high Polygram
+          overlap coincides with high real co-occurrence and high
+          substitutability, vs whether either real signal can
+          differ sharply from Polygram's number.
+      Three outcomes shape the next move:
+      - All three real signals high (co-occurrence > 0.5,
+        Pearson > 0.5, KL substitutability ratio in [0.5, 2.0]):
+        Polygram's high-overlap classification predicts real
+        feature redundancy. The remaining blockers in
+        `spec-disentanglement-loop.md` (capability-preservation
+        metric, differentiable `from_sae_lens`) become the next
+        de-risking targets, not the basic premise.
+      - At least one real signal contradicts Polygram (e.g., high
+        Polygram overlap but low co-occurrence): decoder geometry
+        and behavioural geometry are genuinely different — the
+        peer-agent steering loop is investigating a misnamed
+        signal. Polygram triage on `from_sae_lens` outputs needs a
+        behavioural-data calibration step before any compression
+        loop can ride on it.
+      - Mixed (one of three signals low): write up which carries
+        and which doesn't; update the practical-implications
+        section of `decoder-gram-validity.md` accordingly.
+      Ship as `docs/research/behavioural-gram-probe.md` plus the
+      reproducible `examples/behavioural_gram_probe.py` script,
+      same shape as the cross-encoding (PR #16) and decoder-gram
+      (PR #18) spikes. Adds an optional `transformers` import path
+      (best-effort import + skip if absent, matching the
+      `safetensors` / `huggingface_hub` pattern). No new polygram
+      surface required — the script reads the SAE checkpoint,
+      loads GPT-2, runs forward passes, computes statistics.
+      Blocks: any compression-pipeline or full disentanglement-loop
+      work that wants to claim real-model grounding. The
+      Gemma-Scope steering loop a peer agent drafted assumes high
+      Polygram overlap → high real-model effect; this probe is the
+      smallest test of that assumption.
+      (Source: 2026-05-04 follow-up after PR #18 landed; the
+      peer-agent "Spec-DisEntanglement Loop v0.1" draft
+      pre-committed to numerical thresholds and assumed Gemma-Scope
+      steering infrastructure that doesn't exist in this repo.
+      Pushed back with a smaller scoped probe; user accepted.)
