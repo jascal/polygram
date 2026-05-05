@@ -441,3 +441,125 @@ reference.
       separately) plus the §4.4 scale-up (30+ pairs at varied
       Polygram overlaps, picked per-layer) close the remaining
       cheap probes before a full loop spec.
+
+- [ ] 4.4 Polygram → behavioural-Jaccard correlation at scale
+      (research-track). PRs #20 (§4.2) and #23 (§4.3) settled two
+      load-bearing questions on a single within-cluster pair plus a
+      cross-cluster contrast: Polygram's *ordering* (within > cross)
+      survives at the behavioural level, and ablation-KL becomes
+      informative at `blocks.5+` on GPT-2 small. What's still open
+      is the *shape* of the Polygram → behavioural correspondence
+      across many pairs. PR #20 had N = 2 pairs — too few to fit a
+      correlation slope. The §4.1 closure measured Spearman 0.94
+      between Polygram's predicted Gram and the *decoder* squared-
+      cosine Gram on the Real SAE; this task asks the same question
+      at the *behavioural* level. The natural metric is
+      `Spearman(Polygram_overlap, Jaccard_co_fire)` across 30+ pairs
+      drawn from a layer-local feature selection at a depth where
+      ablation-KL is also usable.
+      Scope:
+      - **Same model.** GPT-2 small + the same `jbloom/GPT2-Small-
+        SAEs-Reformatted` SAE family.
+      - **One layer.** `blocks.10.hook_resid_pre` (closer to the
+        unembedding than `blocks.5`, less downstream compensation;
+        §4.3 found the two layers' ablation magnitudes are
+        comparable so this picks the simpler-to-interpret one).
+        Single-layer scope keeps the cost bounded; cross-layer
+        slopes are a §4.5+ question if needed.
+      - **Layer-local feature selection.** Apply the §4.1
+        projection-similarity selection within `blocks.10`'s own
+        SAE (not the layer-0 selection that PRs #16/#18/#20/#23
+        reused). Pick a feature subset of size ~20–30 stratified
+        across the Polygram-predicted overlap distribution: roughly
+        equal counts in the low (≤ 0.4), medium (0.4 – 0.7), and
+        high (≥ 0.7) MPS-overlap buckets. The pair count from such
+        a subset is `n*(n-1)/2`, so 25 features → 300 pairs (well
+        above the 30+ floor).
+      - **Same prompt set, same statistics.** 12 paragraphs,
+        ~654 tokens (the §4.2 / §4.3 batch). Per pair: Polygram
+        predicted overlap, decoder squared cosine, Jaccard
+        co-fire, activation Pearson, paired ablation-KL ratio on
+        both-fire tokens (only computed for pairs with ≥ 5
+        both-fire tokens — pairs that never co-fire don't have
+        substitutability defined).
+      - **No new statistics.** The §4.2 battery is the right
+        shape. This task is purely about scale and per-layer
+        feature selection — building a scatter, not building a
+        new metric.
+      Concrete plan:
+      (a) New script `examples/behavioural_gram_scaleup.py` (kept
+          separate from the §4.2 / §4.3 single-pair probe to avoid
+          cluttering its arg surface). It loads the layer-10 SAE,
+          builds the layer-local feature subset via projection
+          similarity (reusing whatever path PR #16 / PR #18 used,
+          parameterized to a chosen layer), constructs the Polygram
+          dictionary via `from_sae_lens`, and computes pairwise
+          predicted overlaps. Stratified sampling picks ~25
+          features.
+      (b) Forward the prompt set once, capture the residual stream
+          at `blocks.10`, encode through the SAE → per-feature
+          activations across 654 tokens.
+      (c) For each of the ~25 selected features, run one ablation
+          forward pass (subtracting that feature's decoder
+          contribution at every token where it fires) → per-token
+          KL on next-token distribution. Total ~25 ablation passes,
+          ~10–15 minutes on CPU at 12 prompts.
+      (d) Build the per-pair scatter: for each of the ~300 pairs,
+          collect (Polygram_overlap, decoder_overlap, Jaccard,
+          Pearson, KL_ratio_distance_from_1, n_both_fire). Report:
+          - Spearman + Pearson correlations between Polygram and
+            each behavioural metric across the pair set.
+          - Same correlations between *decoder cosine* and each
+            behavioural metric — gives us the "ceiling" (how much
+            Polygram-vs-behaviour correlation is bounded by
+            decoder-vs-behaviour correlation, since Polygram only
+            sees decoder geometry).
+          - Per-bucket means: Jaccard mean for low / medium / high
+            Polygram-overlap pairs, with the 95% bootstrap CI on
+            the gap.
+      (e) Save the pair-level CSV alongside the research note for
+          inspection / re-analysis.
+      Three outcomes shape the next move:
+      - **High Spearman (≥ 0.6) Polygram ↔ Jaccard.** Polygram's
+        ranking transfers cleanly to behavioural co-firing at
+        scale. The loop spec proceeds with Polygram as the
+        primary candidate filter, `Jaccard ≥ τ` as a secondary
+        gate (τ chosen from the per-bucket means), ablation-KL at
+        `blocks.10` as the impact metric (from §4.3). Three
+        constraints are set; spec is ready to write.
+      - **Medium Spearman (0.3 – 0.6) Polygram ↔ Jaccard.**
+        Polygram still ranks pairs above-chance but the slope is
+        shallow enough that loops need an explicit calibration
+        step: the loop has to measure per-workload Jaccard before
+        committing to which pairs to compress. Loop spec proceeds,
+        with a calibration phase added before any candidate is
+        actioned.
+      - **Low Spearman (< 0.3) Polygram ↔ Jaccard.** Polygram's
+        decoder-geometry ranking does not transfer to behavioural
+        co-firing at this layer. Either the layer-10 SAE encodes
+        in a way decoupled from layer-0-style decoder cosines
+        (testable by also reporting decoder ↔ Jaccard correlation
+        — if that's also low, the gap is fundamental), or
+        Polygram's `from_sae_lens` projection compresses too
+        aggressively at this scale. Loop spec is blocked until
+        either a per-layer-aware Polygram parameterization or a
+        non-Polygram candidate-selection signal is built.
+      Ship as `docs/research/behavioural-scaleup-probe.md` plus
+      `examples/behavioural_gram_scaleup.py` plus a pair-level CSV
+      `docs/research/data/scaleup_pairs.csv`. Smoke test in
+      `tests/test_examples.py` parallels §4.2 / §4.3: invoke with
+      a tiny `--n-features 4 --n-prompts 1 --quiet` configuration
+      so the test stays cheap and exercises both the
+      checkpoint-present path and the checkpoint-missing skip.
+      Blocks: the full compression / disentanglement loop spec.
+      §4.3 settled the layer choice; §4.4 settles whether
+      Polygram's selection signal is usable at scale. After both,
+      the loop spec writes itself: known layer (`blocks.10`),
+      known calibration slope (from §4.4), Polygram-as-ranker
+      with the §4.4 Jaccard threshold as a co-firing gate,
+      ablation-KL at `blocks.10` as the impact term.
+      (Source: 2026-05-04 follow-up after §4.3 closed the
+      layer-choice question. The §4.2 / §4.3 single-pair contrast
+      established the directional signal but is statistically
+      anecdotal at N = 2; §4.4 is the smallest probe that turns
+      the directional claim into a calibrated slope.)
