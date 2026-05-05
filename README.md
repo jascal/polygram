@@ -433,6 +433,41 @@ Optional extra: `pip install ".[regrow]"` for sklearn. See
 `docs/research/compression-regrow-design.md` and
 `examples/regrow_validated.py`.
 
+## Compression epoch (multi-panel orchestrator)
+
+`polygram.compression.EpochCompressor` scales the per-panel
+validate→compress loop to the full SAE via greedy seeded coverage
+over the cosine-similar pair graph, with stable-cluster fixed-point
+iteration and a relative cross-entropy quality bound. The
+orchestrator runs panels sequentially in-process (single GPT-2
+instance amortized across panels); users wanting concurrency shard
+at the CLI invocation level.
+
+```python
+from polygram import EpochCompressor
+
+epoch = EpochCompressor(
+    sae_checkpoint="sae.safetensors",
+    prompts=prompts,
+    layer=10,
+    coverage_target=0.95,
+    cosine_threshold=0.30,
+    n_visits_per_feature=3,
+    max_iterations=5,
+    quality_delta_multiplier=2.0,
+)
+result = epoch.run("sae.epoch.safetensors")
+result.report.to_json("epoch_report.json")
+print(result.report.convergence_reason)  # 'stable_clusters' | 'max_iterations' | ...
+```
+
+Convergence: cluster-set fingerprint stable across two consecutive
+iterations. Hard cap on iterations and a relative quality bound
+(`delta_k ≤ multiplier × delta_1`) prevent runaway compression. CLI
+wrapper: `polygram compress-epoch ...`. Worked example:
+`examples/compress_epoch_validated.py`. See
+`docs/research/compression-epoch-design.md` for the rationale.
+
 ## Development
 
 ```bash

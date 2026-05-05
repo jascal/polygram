@@ -689,3 +689,35 @@ reference.
       (`add-compression-regrow`); the multi-panel orchestrator
       (`add-compression-epoch`, spec at `c8fbb52`) is the next
       implementation step.
+
+- [x] 5.5 Compression-epoch implementation. Spec landed in
+      `add-compression-epoch` (commit `c8fbb52`); implementation
+      ships `polygram.compression.EpochCompressor` (torch-free
+      orchestrator), `Panel`, `EpochIteration`, `EpochReport`,
+      `EpochResult`. Greedy seeded coverage panel selection with
+      `n_visits_per_feature` cap; cross-panel synthetic
+      `ValidationReport` with max-aggregation on
+      panel-composition-dependent fields; orchestrator-level global
+      `n_fires` aggregation for representative selection;
+      stable-cluster fingerprint fixed-point iteration with
+      `max_iterations` hard cap and relative quality bound
+      (`delta_k ≤ quality_delta_multiplier × delta_1`); skip-zeroed
+      bookkeeping required at panel selection layer.
+      Per-panel inline validator avoids the validator's per-feature
+      ablation pass in epoch context (we already have firing
+      patterns from the pre-pass; ablation-KL fields are NaN — the
+      orchestrator gates on Polygram overlap + Jaccard +
+      `n_both_fire` only). `polygram compress-epoch` CLI subcommand
+      with stage progress to stderr; round-trippable JSON
+      `EpochReport` with six-sigfig float discipline; worked example
+      `examples/compress_epoch_validated.py` mirroring the validator
+      / regrow skip-path semantics; test ladder under
+      `tests/compression/test_epoch_*.py` (33 tests covering panel
+      selection determinism, cross-panel aggregation, postinit
+      rejection paths, JSON round-trip, end-to-end convergence) plus
+      CLI tests (6 tests) and a smoke test in
+      `tests/test_examples.py`. README "Compression epoch" section
+      + `docs/research/compression-epoch-design.md` pointer note
+      added. Compression loop is now end-to-end: validator (PR #27)
+      → epoch orchestrator → compressor (PR #28 / `7bdc7e7`) →
+      regrower (`add-compression-regrow`).

@@ -23,6 +23,13 @@ Two-stage API mirrors `Compressor`'s.
 """
 
 from polygram.compression.compressor import Compressor
+from polygram.compression.epoch import EpochCompressor
+from polygram.compression.epoch_report import (
+    EpochIteration,
+    EpochReport,
+    EpochResult,
+    Panel,
+)
 from polygram.compression.regrow import Regrower, RegrowStrategy
 from polygram.compression.regrow_report import (
     RegrowPlan,
@@ -43,6 +50,11 @@ __all__ = [
     "CompressionPlan",
     "CompressionReport",
     "CompressionResult",
+    "EpochCompressor",
+    "EpochIteration",
+    "EpochReport",
+    "EpochResult",
+    "Panel",
     "RegrowPlan",
     "RegrowReport",
     "RegrowResult",

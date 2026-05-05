@@ -832,6 +832,93 @@ def _cmd_regrow(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_compress_epoch(args: argparse.Namespace) -> int:
+    from polygram.compression import EpochCompressor
+
+    sae_path = Path(args.sae_checkpoint)
+    if not sae_path.is_file():
+        sys.stderr.write(
+            f"polygram compress-epoch: --sae-checkpoint not found: {sae_path}\n"
+        )
+        return 2
+
+    out_ckpt = Path(args.output_checkpoint).resolve()
+    if out_ckpt == sae_path.resolve():
+        sys.stderr.write(
+            f"polygram compress-epoch: --output-checkpoint must differ "
+            f"from --sae-checkpoint (both resolved to {out_ckpt})\n"
+        )
+        return 2
+
+    prompts_path = Path(args.prompts)
+    if not prompts_path.is_file():
+        sys.stderr.write(
+            f"polygram compress-epoch: --prompts not found: {prompts_path}\n"
+        )
+        return 2
+    prompts = _read_prompts_file(prompts_path)
+    if not prompts:
+        sys.stderr.write(
+            f"polygram compress-epoch: --prompts file is empty: {prompts_path}\n"
+        )
+        return 2
+
+    sys.stderr.write("polygram compress-epoch: building EpochCompressor ...\n")
+    try:
+        epoch = EpochCompressor(
+            sae_checkpoint=sae_path,
+            prompts=prompts,
+            layer=args.layer,
+            model_name=args.model,
+            strategy=args.strategy,
+            device=args.device,
+            coverage_target=args.coverage_target,
+            cosine_threshold=args.cosine_threshold,
+            n_visits_per_feature=args.n_visits_per_feature,
+            n_panels_max=args.n_panels_max,
+            min_firing_rate=args.min_firing_rate,
+            max_iterations=args.max_iterations,
+            quality_delta_multiplier=args.quality_delta_multiplier,
+            polygram_overlap_threshold=args.polygram_threshold,
+            jaccard_threshold=args.jaccard_threshold,
+            min_both_fire=args.min_both_fire,
+            save_intermediate_reports=args.save_intermediate_reports,
+            allow_layer_zero=args.allow_layer_zero,
+        )
+    except ValueError as exc:
+        sys.stderr.write(f"polygram compress-epoch: {exc}\n")
+        return 2
+
+    sys.stderr.write(
+        f"polygram compress-epoch: pre-pass (firing rates + residuals) "
+        f"on {len(prompts)} prompts ...\n"
+    )
+    sys.stderr.write(
+        f"polygram compress-epoch: iterating up to {args.max_iterations} "
+        f"× ≤{args.n_panels_max} panels ...\n"
+    )
+    try:
+        result = epoch.run(out_ckpt)
+    except (ValueError, KeyError, IndexError, RuntimeError) as exc:
+        sys.stderr.write(f"polygram compress-epoch: {exc}\n")
+        return 2
+
+    out_json = Path(args.output).resolve()
+    result.report.to_json(out_json)
+    sys.stderr.write(
+        f"polygram compress-epoch: wrote report → {out_json}\n"
+    )
+    sys.stderr.write(
+        f"polygram compress-epoch: source sha256={result.report.source_checkpoint_sha256[:12]}… "
+        f"output sha256={result.report.output_checkpoint_sha256[:12]}… "
+        f"convergence_reason={result.report.convergence_reason} "
+        f"iterations={len(result.report.iterations)} "
+        f"n_features_zeroed_total={result.report.n_features_zeroed_total} "
+        f"coverage_achieved={result.report.coverage_achieved:.3f}\n"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="polygram")
     parser.add_argument(
@@ -1154,6 +1241,107 @@ def main(argv: list[str] | None = None) -> int:
         help="sklearn KMeans n_init parameter (default: 4)",
     )
     p_regrow.set_defaults(func=_cmd_regrow)
+
+    p_epoch = sub.add_parser(
+        "compress-epoch",
+        help="multi-panel compression orchestrator: scales the "
+             "validate→compress loop across many panels with stable-"
+             "cluster fixed-point iteration",
+    )
+    p_epoch.add_argument(
+        "--sae-checkpoint", required=True,
+        help="path to the source .safetensors",
+    )
+    p_epoch.add_argument(
+        "--prompts", required=True,
+        help="path to a prompts text file; one prompt per non-empty, "
+             "non-`#`-prefixed line",
+    )
+    p_epoch.add_argument(
+        "--output-checkpoint", required=True,
+        help="path for the rewritten .safetensors; must differ from "
+             "--sae-checkpoint",
+    )
+    p_epoch.add_argument(
+        "--output", required=True,
+        help="JSON output path for the EpochReport",
+    )
+    p_epoch.add_argument(
+        "--layer", type=int, default=10,
+        help="transformer block whose forward_pre hook captures "
+             "residuals (default: 10)",
+    )
+    p_epoch.add_argument(
+        "--model", default="gpt2",
+        help="HF model name (default: gpt2)",
+    )
+    p_epoch.add_argument(
+        "--strategy", default="zero", choices=("zero",),
+        help="compression strategy passed through to Compressor "
+             "(default: zero)",
+    )
+    p_epoch.add_argument(
+        "--device", default="auto",
+        choices=("auto", "cuda", "mps", "cpu"),
+        help="torch device (default: auto)",
+    )
+    p_epoch.add_argument(
+        "--coverage-target", type=float, default=0.95,
+        help="target fraction of cosine-similar pairs to cover "
+             "(default: 0.95)",
+    )
+    p_epoch.add_argument(
+        "--cosine-threshold", type=float, default=0.30,
+        help="decoder-cosine threshold for the pair-coverage graph "
+             "(default: 0.30)",
+    )
+    p_epoch.add_argument(
+        "--n-visits-per-feature", type=int, default=3,
+        help="cap on how many panels each feature can appear in "
+             "(default: 3)",
+    )
+    p_epoch.add_argument(
+        "--n-panels-max", type=int, default=1000,
+        help="hard cap on total panels (default: 1000)",
+    )
+    p_epoch.add_argument(
+        "--min-firing-rate", type=float, default=0.01,
+        help="firing-rate floor for eligible features (default: 0.01)",
+    )
+    p_epoch.add_argument(
+        "--max-iterations", type=int, default=5,
+        help="hard cap on iteration count (default: 5)",
+    )
+    p_epoch.add_argument(
+        "--quality-delta-multiplier", type=float, default=2.0,
+        help="iteration k aborts if its cross-entropy delta exceeds "
+             "this multiplier × the first iteration's delta "
+             "(default: 2.0)",
+    )
+    p_epoch.add_argument(
+        "--polygram-threshold", type=float, default=0.7,
+        help="Polygram squared-overlap gate threshold (default: 0.7)",
+    )
+    p_epoch.add_argument(
+        "--jaccard-threshold", type=float, default=0.30,
+        help="co-firing Jaccard gate threshold (default: 0.30)",
+    )
+    p_epoch.add_argument(
+        "--min-both-fire", type=int, default=5,
+        help="both-fire token count required for paired-KL "
+             "definability (default: 5)",
+    )
+    p_epoch.add_argument(
+        "--save-intermediate-reports", action="store_true",
+        help="persist per-panel ValidationReport JSONs alongside the "
+             "EpochReport (default: off)",
+    )
+    p_epoch.add_argument(
+        "--allow-layer-zero", action="store_true",
+        help="permit layer == 0 (default: rejects per "
+             "docs/research/deeper-layer-ablation-probe.md)",
+    )
+    p_epoch.set_defaults(func=_cmd_compress_epoch)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

@@ -259,6 +259,26 @@ def test_behavioural_validator_smoke(capsys, tmp_path):
     )
 
 
+def test_compress_epoch_validated_smoke(capsys, tmp_path):
+    """Smoke test: `examples/compress_epoch_validated.py` exits 0 on
+    the skip path (SAE-absent). The full action requires the §4.4 SAE
+    checkpoint plus torch + transformers; CI only exercises the
+    absent-input branch."""
+    from examples.compress_epoch_validated import main
+
+    rc = main([
+        "--sae-checkpoint", str(tmp_path / "nonexistent.safetensors"),
+        "--output-dir", str(tmp_path / "epoch_out"),
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert (
+        "COMPRESS-EPOCH-VALIDATED" in out
+        or "compress_epoch_validated:" in out
+    )
+
+
 def test_regrow_validated_smoke(capsys, tmp_path):
     """Smoke test: `examples/regrow_validated.py` exits 0 on the
     skip path (compression-report-absent). The full action requires

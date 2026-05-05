@@ -161,9 +161,29 @@ class TestRung3State:
 class TestTorchFreeImport:
     def test_encoding_module_does_not_pull_torch(self):
         # Importing polygram.encoding must not transitively load torch.
-        import polygram.encoding  # noqa: F401
-        assert "torch" not in sys.modules
-        assert "transformers" not in sys.modules
+        # Use a subprocess so we test against a fresh sys.modules — the
+        # current process may have torch loaded by an earlier test
+        # (epoch convergence, validator forward path) and the
+        # process-global sys.modules check would false-positive.
+        import subprocess
+        import sys as _sys
+
+        result = subprocess.run(
+            [
+                _sys.executable,
+                "-c",
+                "import sys, polygram.encoding; "
+                "assert 'torch' not in sys.modules, "
+                "'torch leaked through polygram.encoding import'; "
+                "assert 'transformers' not in sys.modules, "
+                "'transformers leaked through polygram.encoding import'",
+            ],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (
+            f"polygram.encoding pulled torch / transformers transitively. "
+            f"stdout: {result.stdout!r}  stderr: {result.stderr!r}"
+        )
 
 
 class TestRung3Validation:
