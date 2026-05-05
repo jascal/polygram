@@ -96,3 +96,70 @@ reference.
       target encoding before quantitative conclusions. Follow-up
       worth running: depth-vs-γ-leverage at HEA depth=4/8 to confirm
       depth=2 is the cause of cross-cluster magnitude collapse.
+
+## 4. Encoding validity vs ground truth — research-track follow-up
+
+- [ ] 4.1 Decoder-Gram validity spike. PR #16
+      (`cross-encoding-stability`) closed the *internal* consistency
+      question: MPS and HEA agree on which pairs cross the kept-edge
+      gates. It explicitly leaves open the *external* validity
+      question — does either encoding's predicted Gram track the
+      actual SAE decoder geometry it claims to encode? The note's
+      own closing caveat names this gap: "compares two encodings to
+      each other, not either encoding to actual SAE behaviour on
+      text." Until this is answered, every downstream prediction —
+      `BatchExperiment.cancellation_efficiency`, the
+      `build_separation_graph` "must-separate" flagging, the entire
+      disentanglement-loop sketch deferred in
+      `docs/research/spec-disentanglement-loop.md` — could be
+      pointing at a signal that lives only inside the encoded
+      representation, not the SAE.
+      The right test is the smallest one that can falsify the
+      assumption. Operationally:
+      (a) pick the same real GPT-2 SAE feature subset PR #16 used
+      (`feat_7836`, `feat_13953`, `feat_15796`, `feat_11978` from
+      `jbloom/GPT2-Small-SAEs-Reformatted`'s
+      `blocks.0.hook_resid_pre`);
+      (b) compute the *raw* decoder squared-cosine Gram
+      `G_real[i,j] = (W_dec[:,i] · W_dec[:,j])² /
+      (‖W_dec[:,i]‖² · ‖W_dec[:,j]‖²)` directly from the SAE
+      safetensors — no polygram involved;
+      (c) run `from_sae_lens` to build a `Dictionary` and compute
+      `G_polygram[i,j] = |⟨ψ_i|ψ_j⟩|²` via `Dictionary.gram()`
+      under both `MPSRung1` and `HEA_Rung2(depth=2)`;
+      (d) compare: per-pair scatter, Spearman rank correlation,
+      max absolute drift; report whether classifications (sharing /
+      separation / floor-block) computed from `G_real` agree with
+      those computed from `G_polygram`.
+      Three outcomes shape the next move:
+      - Spearman > 0.8 across both encodings: encoding tracks real
+        geometry. The first of the three blockers in
+        `spec-disentanglement-loop.md` (gradient signal exists)
+        gets meaningful evidence.
+      - Spearman 0.3–0.8: encoding tracks real geometry on average
+        but loses fine structure. Polygram is a useful *ranker*;
+        quantitative claims need per-workload calibration.
+      - Spearman < 0.3: encoding reads geometry the SAE doesn't
+        have. `from_sae_lens`'s lossy projection (PCA per cluster
+        + KMeans cluster assignment) discards the load-bearing
+        signal. Disentanglement loop blocked indefinitely;
+        `from_sae_lens` itself needs rethinking before any
+        compression-pipeline work proceeds.
+      Ship as `docs/research/decoder-gram-validity.md` plus the
+      reproducible `examples/decoder_gram_validity.py` script,
+      same shape as the cross-encoding spike. No new polygram
+      surface required — the script reads safetensors, calls
+      `from_sae_lens`, calls `Dictionary.gram()`, computes
+      correlations.
+      Blocks: any compression-pipeline or real-model-validation
+      work (including the user-supplied "Spec-DisEntanglement Loop
+      v0.1" sketch). The Gemma-Scope intervention pipeline that
+      sketch describes is several layers downstream of this
+      question; if the answer here is "no correlation," the entire
+      Gemma harness investigates a phantom.
+      (Source: 2026-05-04 sketch from a peer agent proposing a
+      full Gemma-Scope steering / reconstruction validation loop;
+      flagged that the load-bearing assumption — encoded
+      interference reflects real decoder geometry — has never been
+      tested directly. PR #16 confirmed encoding-invariance but
+      explicitly left external validity open.)
