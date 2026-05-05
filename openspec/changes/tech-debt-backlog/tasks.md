@@ -613,3 +613,19 @@ reference.
       JSON + CSV round-trip, `polygram validate` CLI subcommand,
       optional `[behavioural]` extra. The compression action is the
       next change after this one.
+- [ ] 5.2 Compression-action default encoding is **gated on the
+      Rung3 §4.5 viability spike** (`add-rung3-encoding-mvp`,
+      PR #29 → impl PR pending). Rung3 ships `Cancellation(
+      encoding="rung3")` and the joint
+      (φ, θ_amp, ψ_aux) optimizer that, in principle, breaks below
+      MPSRung1's phase-only floor. The follow-up findings PR
+      (`docs/research/rung3-viability-spike.md`) decides:
+      - **strong-pass** → open `make-rung3-default` change flipping
+        the production encoding for `Dictionary` / `Cancellation` /
+        `BehaviouralValidator` consumers, then implement compression
+        on Rung3.
+      - **partial / fail** → compression-impl proceeds with
+        MPSRung1 as default; Rung3 stays opt-in.
+      The compression spec itself (`add-compression-action`, PR #28)
+      is encoding-agnostic and lands independently — only the
+      compression-impl PR needs to wait for the verdict.

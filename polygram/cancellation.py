@@ -25,15 +25,18 @@ import numpy as np
 from polygram._assertions import hierarchical_ordering_preserved
 from polygram.dictionary import Dictionary, _parse_knob_path
 from polygram.emit import write_qorca
-from polygram.encoding import MPSRung1
+from polygram.encoding import HEA_Rung2, MPSRung1, Rung3
 
 SUPPORTED_METHODS = ("grid", "scipy")
 SUPPORTED_PLOT_KINDS = ("grid", "scipy", "before_after")
+SUPPORTED_ENCODINGS = ("mps", "hea", "rung3")
 INFEASIBLE_PENALTY = 1.0
 GRID_KNOB_LIMIT = 4
 
 _PHI_BOUNDS = (0.0, float(2 * np.pi))
 _THETA_BOUNDS = (-float(np.pi), float(np.pi))
+_THETA_AMP_BOUNDS = (0.0, float(np.pi / 2))
+_PSI_AUX_BOUNDS = (0.0, float(2 * np.pi))
 
 _PLOT_INSTALL_HINT = (
     "matplotlib is required for CancellationResult.plot(); "
@@ -69,11 +72,21 @@ class CancellationResult:
     - `knobs: list[str]` — declared knob paths in trajectory column
       order
     - `structural_floor: float` — analytic floor when defined per the
-      `structural_floor()` contract; `float("nan")` otherwise.
+      `structural_floor()` contract; `float("nan")` otherwise. For
+      `encoding="rung3"` results this carries the *MPS phase-only*
+      floor `M − |V|` of the same (α, β, γ) — the baseline the rung-3
+      optimizer is *trying to break*, NOT a bound the rung-3
+      optimizer is constrained by.
     - `cancellation_efficiency: float | None` —
       `(before − after) / (before − floor)`, clamped to `[0, 1]`.
       `None` when (a) the floor is `NaN` (undefined for the
       configuration) or (b) `before − floor < 1e-9` (no gap).
+    - `theta_amp_optimum: float` — final feature-B `θ_amp` value at
+      the rung-3 optimum (feature A is anchored at the default
+      `π/4`). `float("nan")` for `encoding ∈ {"mps", "hea"}`.
+    - `psi_aux_optimum: float` — final feature-B `ψ_aux` value at
+      the rung-3 optimum (feature A is anchored at the default
+      `0`). `float("nan")` for `encoding ∈ {"mps", "hea"}`.
     """
 
     optimized_knobs: dict[str, float]
@@ -93,6 +106,8 @@ class CancellationResult:
     )
     structural_floor: float = float("nan")
     cancellation_efficiency: float | None = None
+    theta_amp_optimum: float = float("nan")
+    psi_aux_optimum: float = float("nan")
 
     def plot(
         self, path: str | os.PathLike, kind: str | None = None
@@ -182,6 +197,8 @@ class Cancellation:
     )
     optimize_all: bool = False
     knobs: list[str] | None = None
+    encoding: str | None = None
+    grid_outer: tuple[int, int] = (5, 5)
 
     def __post_init__(self) -> None:
         if self.optimize_all:
@@ -197,24 +214,67 @@ class Cancellation:
                     f"target_pair feature {n!r} not declared in dictionary"
                 )
 
-        if self.knobs is None:
-            self.knobs = [f"{a}.phi", f"{b}.phi"]
+        if self.encoding is None:
+            self.encoding = _infer_encoding_string(self.dictionary.encoding)
+        if self.encoding not in SUPPORTED_ENCODINGS:
+            raise ValueError(
+                f"unknown encoding {self.encoding!r}; "
+                f"supported: {SUPPORTED_ENCODINGS}"
+            )
+        if self.encoding == "rung3" and not isinstance(
+            self.dictionary.encoding, Rung3
+        ):
+            raise ValueError(
+                f"Cancellation(encoding='rung3') requires a Rung3 "
+                f"dictionary; got encoding={self.dictionary.encoding!r}"
+            )
+
+        if self.encoding == "rung3":
+            default_knobs = [
+                f"{a}.phi", f"{b}.phi",
+                f"{b}.theta_amp", f"{b}.psi_aux",
+            ]
+            if self.knobs is None:
+                self.knobs = default_knobs
+            else:
+                self.knobs = list(self.knobs)
+                if self.knobs != default_knobs:
+                    raise ValueError(
+                        f"Cancellation(encoding='rung3') requires the "
+                        f"canonical 4-knob list {default_knobs!r}; got "
+                        f"{self.knobs!r}. Custom rung3 knob lists are not "
+                        f"supported in v0."
+                    )
         else:
-            self.knobs = list(self.knobs)
+            if self.knobs is None:
+                self.knobs = [f"{a}.phi", f"{b}.phi"]
+            else:
+                self.knobs = list(self.knobs)
 
         for path in self.knobs:
             self._validate_knob(path)
 
-        method = self.optimize.get("method", "grid")
-        if method not in SUPPORTED_METHODS:
+        if self.encoding != "rung3":
+            method = self.optimize.get("method", "grid")
+            if method not in SUPPORTED_METHODS:
+                raise ValueError(
+                    f"unknown method {method!r}; supported: {SUPPORTED_METHODS}"
+                )
+            if method == "grid" and len(self.knobs) > GRID_KNOB_LIMIT:
+                raise ValueError(
+                    f"grid backend supports at most {GRID_KNOB_LIMIT} knobs "
+                    f"(got {len(self.knobs)}); use method='scipy' for richer "
+                    "search spaces"
+                )
+
+        if not (
+            len(self.grid_outer) == 2
+            and self.grid_outer[0] >= 1
+            and self.grid_outer[1] >= 1
+        ):
             raise ValueError(
-                f"unknown method {method!r}; supported: {SUPPORTED_METHODS}"
-            )
-        if method == "grid" and len(self.knobs) > GRID_KNOB_LIMIT:
-            raise ValueError(
-                f"grid backend supports at most {GRID_KNOB_LIMIT} knobs "
-                f"(got {len(self.knobs)}); use method='scipy' for richer "
-                "search spaces"
+                f"grid_outer must be a (M, N) pair with M >= 1 and N >= 1; "
+                f"got {self.grid_outer!r}"
             )
 
     def _validate_knob(self, path: str) -> None:
@@ -227,7 +287,7 @@ class Cancellation:
                 f"(features={feature_names}, clusters={cluster_names})"
             )
         if kind == "theta":
-            if not _is_hea(self.dictionary):
+            if not isinstance(self.dictionary.encoding, HEA_Rung2):
                 raise ValueError(
                     f"knob path {path!r}: .theta[...] paths are HEA-only; "
                     f"this Dictionary uses encoding={self.dictionary.encoding!r}"
@@ -241,10 +301,22 @@ class Cancellation:
                     f"knob path {path!r}: slot {slot} is outside "
                     f"theta_shape={shape}"
                 )
+        if kind in ("theta_amp", "psi_aux"):
+            if not isinstance(self.dictionary.encoding, Rung3):
+                raise ValueError(
+                    f"knob path {path!r}: .{kind} paths are Rung3-only; "
+                    f"this Dictionary uses encoding={self.dictionary.encoding!r}"
+                )
 
     def _knob_bounds(self, path: str) -> tuple[float, float]:
         _, kind, _ = _parse_knob_path(path)
-        return _PHI_BOUNDS if kind == "phi" else _THETA_BOUNDS
+        if kind == "phi":
+            return _PHI_BOUNDS
+        if kind == "theta_amp":
+            return _THETA_AMP_BOUNDS
+        if kind == "psi_aux":
+            return _PSI_AUX_BOUNDS
+        return _THETA_BOUNDS
 
     def _is_canonical_2phi(self) -> bool:
         a, b = self.target_pair
@@ -256,17 +328,24 @@ class Cancellation:
 
         Defined exactly when:
 
-        1. `dictionary.encoding` is `MPSRung1`, AND
-        2. `self.knobs == [f"{target_pair[0]}.phi",
-           f"{target_pair[1]}.phi"]`.
+        1. `dictionary.encoding` is `MPSRung1` and
+           `self.knobs == [f"{target_pair[0]}.phi",
+           f"{target_pair[1]}.phi"]`, OR
+        2. `dictionary.encoding` is `Rung3` (the rung-3 floor is the
+           MPS-phase-only floor `M − |V|` of the same (α, β, γ); the
+           rung-3 cancellation reports this as the *baseline being
+           broken*, not as a bound).
 
-        Outside that shape — every multi-knob configuration, every
-        non-canonical knob list, and every HEA-encoded dictionary —
-        raises `NotImplementedError`. A defensible HEA bound (e.g. a
-        Lipschitz upper bound on `|∂overlap/∂θ|`) is deferred to a
-        follow-up research-track proposal.
+        Outside that shape — every multi-knob configuration on
+        `MPSRung1`, every non-canonical knob list, and every
+        HEA-encoded dictionary — raises `NotImplementedError`. A
+        defensible HEA bound (e.g. a Lipschitz upper bound on
+        `|∂overlap/∂θ|`) is deferred to a follow-up research-track
+        proposal.
         """
         encoding = self.dictionary.encoding
+        if isinstance(encoding, Rung3):
+            return _mps_equivalent_floor(self.dictionary, self.target_pair)
         if not isinstance(encoding, MPSRung1):
             raise NotImplementedError(
                 f"structural_floor() is defined only for MPSRung1 with the "
@@ -294,6 +373,8 @@ class Cancellation:
         return float(min(m_zero, m_pi))
 
     def run(self) -> CancellationResult:
+        if self.encoding == "rung3":
+            return self._run_rung3_joint()
         method = self.optimize.get("method", "grid")
         max_steps = int(self.optimize.get("max_steps", 50))
 
@@ -454,9 +535,252 @@ class Cancellation:
             d = d.with_knob(path, float(val))
         return replace(d, name=f"{self.dictionary.name}_at_optimum")
 
+    def _run_rung3_joint(self) -> CancellationResult:
+        """Joint (φ_a, φ_b, θ_amp, ψ_aux) optimizer for rung-3 dicts.
+
+        Pipeline per the spec:
+
+        1. Outer grid (default 5×5) over (theta_amp, psi_aux) on
+           feature B; feature A's amp knobs stay anchored at the
+           Rung3 default (π/4, 0).
+        2. Inner 2-φ MPS-equivalent phase grid at every outer cell —
+           reuses the canonical phase optimizer's logic via
+           ``_phi_only_grid_search``.
+        3. Scipy `Nelder-Mead` refine over (φ_a, φ_b, θ_b, ψ_b)
+           starting from the best outer cell.
+
+        The reported `structural_floor` is the MPS-phase-only floor
+        `M − |V|` of the same (α, β, γ) — the baseline this optimizer
+        is trying to break, not a bound it is constrained by.
+        """
+        a_name, b_name = self.target_pair
+        a_idx = self.dictionary.feature_index(a_name)
+        b_idx = self.dictionary.feature_index(b_name)
+
+        before_gram = self.dictionary.gram()
+        before_overlap = float(np.abs(before_gram[a_idx, b_idx]) ** 2)
+
+        floor = _mps_equivalent_floor(self.dictionary, self.target_pair)
+
+        M_outer, N_outer = self.grid_outer
+        theta_axis = np.linspace(0.0, float(np.pi / 2), M_outer)
+        psi_axis = np.linspace(0.0, float(2 * np.pi), N_outer, endpoint=False)
+        inner_res = int(self.optimize.get("max_steps", 50))
+
+        outer_evals: list[tuple[float, float, float, float, float, bool]] = []
+        best_cell: tuple[float, float, float, float] | None = None
+        best_overlap_outer = float("inf")
+
+        for theta_b in theta_axis:
+            for psi_b in psi_axis:
+                d_cell = self.dictionary.with_knob(
+                    f"{b_name}.theta_amp", float(theta_b)
+                )
+                d_cell = d_cell.with_knob(
+                    f"{b_name}.psi_aux", float(psi_b)
+                )
+                phi_a, phi_b, cell_overlap, cell_feasible = (
+                    _phi_only_grid_search(
+                        d_cell,
+                        self.target_pair,
+                        self.preserve_tiers,
+                        inner_res,
+                    )
+                )
+                outer_evals.append(
+                    (phi_a, phi_b, float(theta_b), float(psi_b),
+                     cell_overlap, cell_feasible)
+                )
+                if cell_feasible and cell_overlap < best_overlap_outer:
+                    best_overlap_outer = cell_overlap
+                    best_cell = (phi_a, phi_b, float(theta_b), float(psi_b))
+
+        if best_cell is None:
+            # No feasible cell — fall back to the unconstrained best.
+            unconstrained = min(outer_evals, key=lambda r: r[4])
+            best_cell = (
+                unconstrained[0], unconstrained[1],
+                unconstrained[2], unconstrained[3],
+            )
+            best_overlap_outer = unconstrained[4]
+
+        scipy_history: list[tuple[float, float, float, float, float, bool]] = []
+        try:
+            from scipy.optimize import minimize
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError(_SCIPY_INSTALL_HINT) from exc
+
+        def _evaluate(phi_a: float, phi_b: float,
+                      theta_b: float, psi_b: float) -> tuple[float, bool]:
+            d = self.dictionary.with_knob(f"{a_name}.phi", phi_a)
+            d = d.with_knob(f"{b_name}.phi", phi_b)
+            d = d.with_knob(f"{b_name}.theta_amp", theta_b)
+            d = d.with_knob(f"{b_name}.psi_aux", psi_b)
+            g = d.gram()
+            ov = float(np.abs(g[a_idx, b_idx]) ** 2)
+            feasible = (
+                hierarchical_ordering_preserved(g, d, self.target_pair)
+                if self.preserve_tiers else True
+            )
+            return ov, feasible
+
+        def objective(x: np.ndarray) -> float:
+            phi_a, phi_b, theta_b, psi_b = (float(v) for v in x)
+            ov, feasible = _evaluate(phi_a, phi_b, theta_b, psi_b)
+            scipy_history.append(
+                (phi_a, phi_b, theta_b, psi_b, ov, feasible)
+            )
+            return ov + (0.0 if feasible else INFEASIBLE_PENALTY)
+
+        x0 = np.array(best_cell, dtype=float)
+        minimize(
+            objective, x0=x0, method="Nelder-Mead",
+            options={"xatol": 1e-4, "fatol": 1e-6, "maxiter": 200},
+        )
+
+        candidates: list[tuple[float, float, float, float, float, bool]] = []
+        candidates.append(
+            (best_cell[0], best_cell[1], best_cell[2], best_cell[3],
+             best_overlap_outer,
+             # Re-evaluate feasibility at outer best for the candidate set.
+             _evaluate(*best_cell)[1])
+        )
+        if scipy_history:
+            feasible_scipy = [r for r in scipy_history if r[5]]
+            pool = feasible_scipy if feasible_scipy else scipy_history
+            best_scipy = min(pool, key=lambda r: r[4])
+            candidates.append(best_scipy)
+
+        feasible_candidates = [c for c in candidates if c[5]]
+        chosen_pool = feasible_candidates if feasible_candidates else candidates
+        chosen = min(chosen_pool, key=lambda r: r[4])
+        final_phi_a, final_phi_b, final_theta_b, final_psi_b, \
+            final_overlap, _ = chosen
+
+        optimized_dict = self._dictionary_at(
+            final_phi_a, final_phi_b, final_theta_b, final_psi_b
+        )
+        after_gram = optimized_dict.gram()
+        # Take the empirical post-overlap from the materialized dict so
+        # the result's overlap is exactly consistent with the dict.
+        after_overlap = float(np.abs(after_gram[a_idx, b_idx]) ** 2)
+        efficiency = _compute_efficiency(before_overlap, after_overlap, floor)
+
+        all_evals = list(outer_evals) + list(scipy_history)
+        traj = np.array(
+            [[r[0], r[1], r[2], r[3], r[4]] for r in all_evals],
+            dtype=float,
+        )
+        feasible_mask = np.array([r[5] for r in all_evals], dtype=bool)
+
+        return CancellationResult(
+            optimized_knobs={
+                f"{a_name}.phi": float(final_phi_a),
+                f"{b_name}.phi": float(final_phi_b),
+                f"{b_name}.theta_amp": float(final_theta_b),
+                f"{b_name}.psi_aux": float(final_psi_b),
+            },
+            before_gram=before_gram,
+            after_gram=after_gram,
+            before_overlap=before_overlap,
+            after_overlap=after_overlap,
+            tolerance_met=bool(after_overlap < self.tolerance),
+            method="rung3_joint",
+            trajectory=traj,
+            feasible_count=int(feasible_mask.sum()),
+            dictionary_at_optimum=optimized_dict,
+            target_pair=self.target_pair,
+            knobs=list(self.knobs),
+            feasible_mask=feasible_mask,
+            structural_floor=float(floor),
+            cancellation_efficiency=efficiency,
+            theta_amp_optimum=float(final_theta_b),
+            psi_aux_optimum=float(final_psi_b),
+        )
+
 
 def _is_hea(dictionary: Dictionary) -> bool:
-    return not isinstance(dictionary.encoding, MPSRung1)
+    return isinstance(dictionary.encoding, HEA_Rung2)
+
+
+def _infer_encoding_string(encoding: object) -> str:
+    if isinstance(encoding, Rung3):
+        return "rung3"
+    if isinstance(encoding, HEA_Rung2):
+        return "hea"
+    if isinstance(encoding, MPSRung1):
+        return "mps"
+    raise ValueError(
+        f"unsupported dictionary.encoding type: {type(encoding).__name__}"
+    )
+
+
+def _phi_only_grid_search(
+    dictionary: Dictionary,
+    target_pair: tuple[str, str],
+    preserve_tiers: bool,
+    res: int,
+) -> tuple[float, float, float, bool]:
+    """Run the canonical 2-φ MPSRung1-equivalent phase grid on
+    ``dictionary``, returning ``(phi_a, phi_b, overlap, feasible)``
+    for the best (feasible if any, else infeasible) cell."""
+    a_name, b_name = target_pair
+    a_idx = dictionary.feature_index(a_name)
+    b_idx = dictionary.feature_index(b_name)
+
+    axis = np.linspace(_PHI_BOUNDS[0], _PHI_BOUNDS[1], res)
+    grids = np.meshgrid(axis, axis, indexing="ij")
+    flat_a = grids[0].reshape(-1)
+    flat_b = grids[1].reshape(-1)
+    n_evals = res * res
+
+    best_feasible: tuple[float, float, float] | None = None
+    best_unfeasible: tuple[float, float, float] | None = None
+
+    for k in range(n_evals):
+        phi_a = float(flat_a[k])
+        phi_b = float(flat_b[k])
+        d = dictionary.with_knob(f"{a_name}.phi", phi_a)
+        d = d.with_knob(f"{b_name}.phi", phi_b)
+        g = d.gram()
+        ov = float(np.abs(g[a_idx, b_idx]) ** 2)
+        feasible = (
+            hierarchical_ordering_preserved(g, d, target_pair)
+            if preserve_tiers else True
+        )
+        if feasible:
+            if best_feasible is None or ov < best_feasible[2]:
+                best_feasible = (phi_a, phi_b, ov)
+        if best_unfeasible is None or ov < best_unfeasible[2]:
+            best_unfeasible = (phi_a, phi_b, ov)
+
+    if best_feasible is not None:
+        phi_a, phi_b, ov = best_feasible
+        return phi_a, phi_b, ov, True
+    assert best_unfeasible is not None
+    phi_a, phi_b, ov = best_unfeasible
+    return phi_a, phi_b, ov, False
+
+
+def _mps_equivalent_floor(
+    dictionary: Dictionary, target_pair: tuple[str, str]
+) -> float:
+    """Return the MPS-phase-only floor `M − |V|` of the (α, β, γ)
+    tuple carried by ``dictionary`` — the baseline a rung-3 cancel
+    is trying to break.
+
+    Constructs an MPSRung1-equivalent dictionary (same features, same
+    hierarchy, encoding swapped) and calls its existing 2-φ
+    structural_floor() helper.
+    """
+    mps_dict = replace(dictionary, encoding=MPSRung1())
+    mps_canc = Cancellation(
+        dictionary=mps_dict,
+        target_pair=target_pair,
+        preserve_tiers=False,
+        encoding="mps",
+    )
+    return float(mps_canc.structural_floor())
 
 
 def _compute_efficiency(

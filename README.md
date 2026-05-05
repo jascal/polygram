@@ -298,6 +298,27 @@ and pass it to `from_sae_lens` directly.
 See `examples/import_from_sae.py` for the full flow (toy SAE →
 Dictionary → `InterferenceSweep` → verified `.q.orca.md` + plot).
 
+## Rung3 encoding (experimental)
+
+`polygram.encoding.Rung3` adds a 5-qubit encoding parallel to
+`MPSRung1`: qubits 0–2 carry the same MPS state, qubits 3–4 carry an
+amplitude branch parameterized by per-feature `theta_amp` and
+`psi_aux` knobs (defaults `π/4` and `0.0`). At default knobs the
+Rung3 gram reduces to the MPSRung1-equivalent gram exactly, so a
+baseline Rung3 dictionary is behaviourally identical to its MPS
+counterpart. `Cancellation(encoding="rung3")` runs a joint
+`(φ_a, φ_b, theta_amp, psi_aux)` optimizer (5×5 outer grid + 2-φ
+inner + scipy Nelder-Mead refine) that, in principle, breaks below
+the MPSRung1 phase-only floor `M − |V|`.
+
+Rung3 is **experimental**; the default encoding remains `MPSRung1`
+pending the §4.5 viability spike's verdict (run
+`examples/rung3_viability_spike.py`). The spike measures four
+calibrated criteria (floor-breaking, gate true-positive rate,
+ranker preservation, coverage) on the §4.4 8-feature GPT-2-small
+panel; making Rung3 the production encoding is gated on a strong
+pass per the proposal's decision rule.
+
 ## Behavioural validator
 
 `polygram.behavioural.BehaviouralValidator` runs the four-constraint

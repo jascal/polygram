@@ -259,6 +259,24 @@ def test_behavioural_validator_smoke(capsys, tmp_path):
     )
 
 
+def test_rung3_viability_spike_smoke(capsys, tmp_path):
+    """Smoke test: `examples/rung3_viability_spike.py` exits 0 on the
+    SAE-or-torch-absent branch. The full spike runs all 28 pairs of the
+    §4.4 panel through both encodings (~30 min), so CI exercises only
+    the skip path."""
+    from examples.rung3_viability_spike import main
+
+    rc = main([
+        "--sae-checkpoint", str(tmp_path / "nonexistent.safetensors"),
+        "--output-dir", str(tmp_path / "spike_out"),
+        "--quiet",
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert "rung3_viability_spike:" in out
+
+
 def test_decoder_gram_validity_smoke(capsys):
     """Smoke test: the decoder-gram validity spike script runs end-to-end
     on the toy fixture. Skips the real-SAE branch (which needs a 144MB

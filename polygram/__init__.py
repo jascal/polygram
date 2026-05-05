@@ -11,7 +11,7 @@ from polygram.behavioural import (
 from polygram.cancellation import Cancellation, CancellationResult
 from polygram.dictionary import Dictionary, Feature
 from polygram.emit import write_qorca
-from polygram.encoding import HEA_Rung2, MPSRung1
+from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung3State
 from polygram.experiment import Experiment, ExperimentResult, InterferenceSweep
 from polygram.sae_import import (
     SAEFeatureRecord,
@@ -39,6 +39,8 @@ __all__ = [
     "HEA_Rung2",
     "InterferenceSweep",
     "MPSRung1",
+    "Rung3",
+    "Rung3State",
     "SAEFeatureRecord",
     "SelectionReport",
     "ValidationReport",
