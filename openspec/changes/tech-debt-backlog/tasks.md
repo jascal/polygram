@@ -317,3 +317,91 @@ reference.
       `jbloom/...` repo); scale to 30+ pairs to measure the
       Polygram → behavioural-Jaccard correlation directly; replace
       next-token-KL with a logit-lens or attention-shift metric.
+
+- [ ] 4.3 Deeper-layer ablation-KL probe (research-track). PR #20
+      settled the §4.2 question for one within-cluster pair plus a
+      cross-cluster contrast, and surfaced an unexpected blocker for
+      any future loop that wants to use ablation-KL as a behavioural
+      impact signal: at `blocks.0.hook_resid_pre` on GPT-2 small,
+      individual SAE feature ablations produce ~5e-5 nats of KL on
+      the next-token distribution — too small to discriminate one
+      feature from another, because eleven transformer blocks
+      downstream compensate for any single feature's removal. The
+      §4.2 substitutability metric trivially "passed" for both pairs
+      because the underlying signal was indistinguishable from float32
+      noise. This task is the smallest probe that tells us whether
+      ablation-KL becomes informative deeper in the residual stack,
+      or whether it is fundamentally weak for SAE features regardless
+      of layer.
+      Scope is deliberately narrow:
+      - **Same model.** GPT-2 small, same prompt set as §4.2 (12
+        multi-sentence paragraphs ≈ 654 tokens), same pair set
+        (`feat_7836 ↔ feat_11978` within-cluster + `feat_7836 ↔
+        feat_15796` cross-cluster contrast).
+      - **Two new SAE checkpoints.** Same `jbloom/...` Hugging Face
+        repo `jbloom/GPT2-Small-SAEs-Reformatted`, the
+        `blocks.5.hook_resid_pre` and `blocks.10.hook_resid_pre`
+        checkpoints. Same loader path that already worked for
+        layer 0; lazy-import + skip-if-missing pattern unchanged.
+      - **Same script, parameterized hook layer.** Add a
+        `--layer {0,5,10}` flag to `examples/behavioural_gram_probe.py`
+        (or equivalent) so the same harness moves the
+        `forward_pre_hook` from `model.transformer.h[0]` to
+        `model.transformer.h[5]` / `model.transformer.h[10]` and
+        reads the corresponding SAE checkpoint. No new statistics —
+        the existing co-occurrence / activation-Pearson / paired
+        ablation-KL battery is the right shape, this probe just
+        re-runs it at depth.
+      - **No φ optimization, no new feature subsets, no Gemma.**
+        Co-firing and Pearson are layer-specific properties (a
+        feature's encoder reads from that layer's residual stream),
+        so they will move; ablation-KL is the load-bearing
+        measurement here. Report all three for completeness.
+      Concrete plan:
+      (a) Extend the §4.2 script with a `--layer` flag and matching
+          checkpoint resolver.
+      (b) Run at `blocks.5` and `blocks.10`; record per-pair
+          co-occurrence Jaccard, activation Pearson, and the
+          paired-on-both-fire ablation-KL ratio plus absolute KL
+          magnitudes for both ablations.
+      (c) Plot/table KL magnitude vs layer (0, 5, 10) for each
+          feature in the pair, and the substitutability ratio at
+          each depth.
+      Three outcomes shape the next move:
+      - **KL grows monotonically with depth** (e.g., 5e-5 → 1e-3 →
+        1e-2 nats): ablation-KL becomes informative deeper in the
+        stack. Future loops that need a behavioural-impact signal
+        should target the deepest layer where the SAE is still
+        well-conditioned (likely `blocks.10`). The peer-agent
+        compression-loop sketch can use ablation-KL as drafted, but
+        only if the layer is moved.
+      - **KL stays flat across layers** (still ~10⁻⁵ nats at
+        `blocks.10`): ablation-KL is fundamentally weak for
+        single-SAE-feature interventions on GPT-2 small. Loops need
+        a different impact signal — logit-lens shift, attention
+        pattern divergence, or activation-norm change at a
+        downstream layer — before any compression objective can use
+        "behavioural impact" as a term.
+      - **Non-monotonic** (e.g., `blocks.5` larger than `blocks.10`,
+        or signal concentrated at one layer): write up which layer
+        carries signal and why; the answer constrains layer choice
+        for any future Polygram-driven steering work and rules out
+        naive "deeper is always better."
+      Ship as `docs/research/deeper-layer-ablation-probe.md` plus
+      the extended `examples/behavioural_gram_probe.py` (same
+      reproducible-script shape as §4.1 / §4.2). Smoke test in
+      `tests/test_examples.py` parallels the §4.2 smoke test —
+      `--layer 0 --n-prompts 1 --quiet` keeps the test cheap; full
+      runs are optional / opt-in via the existing skip path when the
+      checkpoint isn't downloaded.
+      Blocks: any compression-loop or disentanglement-loop spec that
+      wants to use ablation-KL (or any next-token-impact metric) as
+      part of its objective. Together with §4.4 (scale-up to 30+
+      pairs) this closes the cheapest open questions before a full
+      loop spec can be justified.
+      (Source: 2026-05-04 follow-up after PR #20 landed §4.2;
+      ablation-KL came in three orders of magnitude smaller than
+      anything that could discriminate between features, making the
+      §4.2 substitutability metric trivially pass and forcing this
+      explicit follow-up before that metric — or any descendant of
+      it — is wired into a real loop.)
