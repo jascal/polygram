@@ -5,28 +5,32 @@
 > [`add-rung3-encoding-mvp` §4.5](../../openspec/changes/archive/2026-05-05-add-rung3-encoding-mvp/proposal.md).
 > Reproducible via
 > `python examples/rung3_viability_spike.py --output-dir examples/output/rung3_viability_spike`.
-> Raw artifact: [`data/rung3_viability_spike.json`](data/rung3_viability_spike.json).
+> Raw artifacts: [`data/rung3_viability_spike.json`](data/rung3_viability_spike.json)
+> (unconstrained), [`data/rung3_viability_spike_constrained.json`](data/rung3_viability_spike_constrained.json)
+> (constrained re-run).
 
 ## TL;DR
 
-| Criterion | Value | Bucket |
-|-----------|-------|--------|
-| **A.** Floor-breaking — median residual `r3_post / mps_floor` | 3.3e-11 | strong |
-| **B.** Gate true-positive rate (`rung3_polygram ≥ 0.7` ∩ gate) | 0.500 | fail |
-| **C.** Ranker preservation — Spearman(rung3_polygram, jaccard) | +0.668 | strong |
-| **D.** Coverage — fraction of `jaccard ≥ 0.30` pairs caught by gate | 0.875 | partial |
-| **Decision bucket** | — | **strong_pass** |
+The unconstrained spike reports `strong_pass`, but a follow-up
+constrained re-run (`min_amp_overlap = 0.5`) downgrades the
+verdict to `partial_pass` and falsifies the §4.5 spec's intent.
+**Rung3 stays opt-in; `make-rung3-default` is dead.**
 
-The verdict is `strong_pass` per the calibrated rule (D ≠ fail, A ≠
-fail, A = strong **and** C = strong → strong-pass even with B failing).
-But the criterion-A success has an important subtlety, addressed
-below: **the joint optimizer converges to the trivial
-amp-zeroing solution on every pair**, not to a non-trivial amp-knob
-trade-off. The "floor was broken" claim is therefore correct as
-written, but the spec's intent — *demonstrating that the amp branch
-opens a richer cancellation surface than the phase-only floor*
-— is *not* what the spike measured. Section [Caveats](#caveats)
-unpacks why this matters for the §7.5 follow-up.
+| Criterion | Unconstrained | Constrained (ε = 0.5) |
+|-----------|---------------|-----------------------|
+| **A.** Floor-breaking — median residual `r3_post / mps_floor` | 3.3e-11 (strong) | **0.500 (partial)** |
+| **B.** Gate true-positive rate (`rung3_polygram ≥ 0.7` ∩ gate) | 0.500 (fail) | 0.583 (fail) |
+| **C.** Ranker preservation — Spearman(rung3_polygram, jaccard) | +0.668 (strong) | +0.670 (strong) |
+| **D.** Coverage — fraction of `jaccard ≥ 0.30` pairs caught by gate | 0.875 (partial) | 0.875 (partial) |
+| **Decision bucket** | `strong_pass` | **`partial_pass`** |
+
+The unconstrained `strong_pass` is real but unhelpful: **the joint
+optimizer converges to the trivial amp-zeroing solution on every
+pair**, not to a non-trivial amp-knob trade-off. The
+[Caveats](#caveats) section unpacks the unconstrained run; the
+[Constrained re-run](#constrained-re-run--the-falsifying-experiment)
+section reports the falsifying experiment that confirms the amp
+branch buys no additional geometric leverage.
 
 ## The 5-qubit circuit
 
@@ -251,6 +255,77 @@ Two pieces of follow-up evidence would change the recommendation:
 
 Either piece of follow-up evidence is the prerequisite for a
 defensible default-flip. Rung3 stays opt-in until that's settled.
+
+## Constrained re-run — the falsifying experiment
+
+Follow-up (a) was implemented as
+`Cancellation(min_amp_overlap=ε)`, which filters outer-grid
+cells and scipy refine candidates whose
+`|⟨amp_a|amp_b⟩|² < ε`. The same 28-pair spike was re-run with
+ε = 0.5 — i.e. the optimizer is forbidden from going more than
+half-orthogonal in the amp factor.
+
+| Criterion | Unconstrained | Constrained (ε = 0.5) |
+|-----------|---------------|-----------------------|
+| **A.** median residual `r3_post / mps_floor` | 3.3e-11 (strong) | **0.500 (partial)** |
+| **B.** Gate TPR | 0.500 (fail) | 0.583 (fail) |
+| **C.** Spearman(rung3_polygram, jaccard) | +0.668 (strong) | +0.670 (strong) |
+| **D.** Coverage | 0.875 (partial) | 0.875 (partial) |
+| **Decision bucket** | `strong_pass` | **`partial_pass`** |
+
+**Every one of the 28 pairs lands at `residual = 0.5000`
+exactly** — i.e. the constraint is binding everywhere. The
+optimizer cannot do better than `floor × ε`. Knob diagnostics
+confirm the mechanism:
+
+| Pair sample | `theta_amp_optimum` | `psi_aux_optimum` | residual |
+|-------------|---------------------|-------------------|----------|
+| 12999 × 19398 | 0.0 | 0.0 | 0.5000 |
+| 12999 × 4192 | 0.0 | 0.0 | 0.5000 |
+| 19398 × 4192 | ~0 (1e-17) | ~0 (6e-5) | 0.5000 |
+| 8371 × 13737 | ~0 (1e-16) | ~0 (1e-4) | 0.5000 |
+
+With θ_a anchored at π/4 and ψ_a = 0, the optimum is
+`θ_b ≈ 0` (so `|amp_b⟩ → |00⟩`), giving
+`|⟨amp_a|amp_b⟩|² = cos²(π/4) = 0.5` precisely — the constraint
+floor. The optimizer wants to drive the amp factor lower (toward
+0) but is stopped at the constraint boundary on every pair.
+
+**Interpretation.** The amp branch buys *no* additional
+geometric leverage beyond the multiplicative degeneracy factor
+controlled by `|⟨amp⟩|²`. Whatever value of ε we set, the
+post-overlap is `floor × ε`; whatever symmetric anchoring or
+6-knob expansion we'd try, it would just shift which feature's
+amp knobs find the boundary, not whether the boundary binds.
+
+This falsifies the §4.5 spec's intent: there is no rich amp-
+geometry sub-surface that the constraint-free optimum was
+hiding. The unconstrained `strong_pass` was an artifact of the
+optimizer correctly finding a degenerate orthogonality, not
+evidence of richer interference structure.
+
+### Verdict
+
+**§7.5 (`make-rung3-default`) is dead.** Rung3 stays opt-in.
+Production encoding choice for the compression loop should be
+made on the cross-encoding stability evidence
+([`cross-encoding-stability.md`](cross-encoding-stability.md))
+plus separate baselines for HEA at greater depth — not on the
+Rung3 amp branch.
+
+Follow-up (b) (symmetric anchoring) is dropped as redundant: the
+constraint experiment is the cleaner test of the same hypothesis
+and has already answered it.
+
+Reproducer:
+
+```
+python examples/rung3_viability_spike.py \
+    --output-dir examples/output/rung3_spike_constrained \
+    --min-amp-overlap 0.5
+```
+
+Artifact: [`data/rung3_viability_spike_constrained.json`](data/rung3_viability_spike_constrained.json).
 
 ## Reproducing the result
 
