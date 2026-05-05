@@ -192,7 +192,7 @@ reference.
       Gemma `compression_score` formula) needs a different signal
       source for the magnitude inputs.
 
-- [ ] 4.2 Behavioural-Gram one-pair probe (research-track). PR #18
+- [x] 4.2 Behavioural-Gram one-pair probe (research-track). PR #18
       settled the *decoder-geometry* validity question
       (`G_polygram` vs decoder squared-cosine Gram). Its closing
       caveat names the next gap explicitly: "Two SAE features can
@@ -286,3 +286,34 @@ reference.
       pre-committed to numerical thresholds and assumed Gemma-Scope
       steering infrastructure that doesn't exist in this repo.
       Pushed back with a smaller scoped probe; user accepted.)
+
+      *Closed 2026-05-04*. Empirical findings landed in
+      `docs/research/behavioural-gram-probe.md` and the reproducible
+      script `examples/behavioural_gram_probe.py`. TL;DR across the
+      within-cluster pair `feat_7836 ↔ feat_11978`
+      (Polygram-predicted 0.987, decoder 0.992) and the
+      cross-cluster contrast `feat_7836 ↔ feat_15796`
+      (Polygram-predicted 0.464, decoder 0.904), 654 held-out
+      tokens: Polygram's *ordering* of pairs is preserved in real
+      behaviour (within > cross on Jaccard 0.30 vs 0.19, Pearson
+      +0.25 vs +0.19) but its *magnitudes* are heavily compressed
+      (Polygram's 2.1× gap collapses to ~1.6× on Jaccard). Even the
+      0.987-overlap pair fires together on only ~30% of token
+      positions where either fires — high decoder overlap does not
+      mean "always co-fires." Layer-0 ablation-KL is ~5e-5 for
+      every feature: too small to discriminate, so the
+      substitutability metric trivially passes. Outcome bucket:
+      *mixed* — co-occurrence and Pearson carry a signed signal
+      aligned with Polygram's prediction; ablation-KL is undefined
+      at this layer. Practical implications: (a) Polygram is a
+      ranker at the *behavioural* level too, not just for decoder
+      geometry (corroborates §4.1); (b) "high decoder overlap" is
+      not "redundant feature" — co-firing patterns matter; (c)
+      layer-0 ablation-impact metrics measure noise, the
+      peer-agent steering loop should target deeper SAE layers;
+      (d) the §4.1 closure stands and is now confirmed at the
+      behavioural level. Follow-ups: repeat at deeper layers
+      (`blocks.5` / `blocks.10` resid_pre SAEs from the same
+      `jbloom/...` repo); scale to 30+ pairs to measure the
+      Polygram → behavioural-Jaccard correlation directly; replace
+      next-token-KL with a logit-lens or attention-shift metric.
