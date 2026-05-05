@@ -230,7 +230,6 @@ def _select_features(
     """
     w_dec = sae["W_dec"]  # (n_features_total, d_model)
     norms = np.linalg.norm(w_dec, axis=1)
-    n_total = w_dec.shape[0]
 
     # Candidate seeds: those with firing rate ≥ min_firing_rate AND in
     # the user-specified candidate pool (default: full SAE, but
