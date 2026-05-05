@@ -442,7 +442,7 @@ reference.
       Polygram overlaps, picked per-layer) close the remaining
       cheap probes before a full loop spec.
 
-- [ ] 4.4 Polygram → behavioural-Jaccard correlation at scale
+- [x] 4.4 Polygram → behavioural-Jaccard correlation at scale
       (research-track). PRs #20 (§4.2) and #23 (§4.3) settled two
       load-bearing questions on a single within-cluster pair plus a
       cross-cluster contrast: Polygram's *ordering* (within > cross)
@@ -563,3 +563,35 @@ reference.
       established the directional signal but is statistically
       anecdotal at N = 2; §4.4 is the smallest probe that turns
       the directional claim into a calibrated slope.)
+      Done 2026-05-05 in `add-behavioural-scaleup-impl`. Scope
+      ran at the cap-imposed sizing (8 features → 28 pairs)
+      rather than the spec's "~25 features → ~300 pairs" — the
+      rung-1 MPS encoding caps a Dictionary at 8 features
+      (`MAX_FEATURES_PER_DICTIONARY` in `polygram/sae_import.py:23`),
+      a constraint the spec missed at draft time. Headline
+      result clears the 0.6 threshold:
+      `Spearman(Polygram, Jaccard) = +0.637`. Per-bucket Jaccard
+      means separate cleanly: mid-overlap (0.4–0.7, n=16)
+      Jaccard 0.145 [0.10, 0.19] vs high-overlap (≥0.7, n=12)
+      Jaccard 0.621 [0.43, 0.82] — non-overlapping 95% CIs.
+      Decoder-cosine alone gives Spearman −0.054 against
+      Jaccard at this layer (selection-conditional finding —
+      seed-stratified bimodal cosine distribution kills decoder-
+      Jaccard variation, but Polygram's γ-spread still ranks).
+      Three caveats survive: low-overlap bucket is empty inside
+      the cap (β-spread between 2 KMeans clusters floors
+      cross-cluster squared overlap at ~0.44, above the 0.4
+      bucket boundary); 28 pairs share a single seed feature so
+      effective N for bootstrap CIs is overstated; ablation-KL
+      ratio gives a weaker (Spearman −0.33) confirmatory signal
+      not a primary one. Outcome bucket: high Spearman, loop
+      spec unblocked. Loop constraints settled: hook at
+      `blocks.10`, Polygram-as-primary-ranker, `Jaccard ≥ 0.30`
+      as required co-firing gate (chosen between the bucket
+      means' CIs), ablation-KL at `blocks.10` as
+      per-feature impact metric. Shipped:
+      `examples/behavioural_gram_scaleup.py`,
+      `docs/research/behavioural-scaleup-probe.md`,
+      `docs/research/data/scaleup_pairs.csv`,
+      `docs/research/data/scaleup_probe_full.log`,
+      smoke test in `tests/test_examples.py`.

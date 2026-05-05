@@ -209,6 +209,32 @@ def test_behavioural_gram_probe_smoke(capsys):
     )
 
 
+def test_behavioural_gram_scaleup_smoke(capsys, tmp_path):
+    """Smoke test: the behavioural-Gram scale-up probe imports cleanly,
+    parses CLI args, and either runs end-to-end on a tiny configuration
+    or skips with a clear message. Same skip pattern as §4.2 / §4.3:
+    SAE checkpoint absent or torch/transformers not installed both
+    produce a non-raising exit. The full probe is too expensive for
+    CI (~25 ablation passes × 12 prompts), so this asserts only that
+    `main()` returns without raising in either branch.
+    """
+    from examples.behavioural_gram_scaleup import main
+
+    csv_path = tmp_path / "scaleup_pairs.csv"
+    main([
+        "--n-prompts", "1",
+        "--n-features", "4",
+        "--csv-out", str(csv_path),
+        "--quiet",
+    ])
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert (
+        "BEHAVIOURAL-GRAM SCALE-UP" in out
+        or "behavioural_gram_scaleup:" in out
+    )
+
+
 def test_decoder_gram_validity_smoke(capsys):
     """Smoke test: the decoder-gram validity spike script runs end-to-end
     on the toy fixture. Skips the real-SAE branch (which needs a 144MB
