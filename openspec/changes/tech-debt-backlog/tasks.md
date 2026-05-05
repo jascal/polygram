@@ -595,3 +595,21 @@ reference.
       `docs/research/data/scaleup_pairs.csv`,
       `docs/research/data/scaleup_probe_full.log`,
       smoke test in `tests/test_examples.py`.
+
+## 5. Compression / disentanglement loop — first half: validator
+
+- [ ] 5.1 The "loop spec writes itself" sentence in §4.4's closure
+      block (above) names four settled constraints — `blocks.10` hook,
+      Polygram-as-primary-ranker, `Jaccard ≥ 0.30` co-firing gate,
+      ablation-KL at `blocks.10` as the per-feature impact term. The
+      first half of the loop is the **read-only validator** that runs
+      the four-constraint pipeline against any user-supplied
+      Dictionary and emits a structured `ValidationReport`. The second
+      half (the weight-modifying compression action) consumes the
+      validator's confirmed-candidate report.
+      Shipped as `add-behavioural-validator-loop` (PR #26 spec,
+      implementation follow-up): new `polygram.behavioural`
+      subpackage hosting `BehaviouralValidator`, `ValidationReport`
+      JSON + CSV round-trip, `polygram validate` CLI subcommand,
+      optional `[behavioural]` extra. The compression action is the
+      next change after this one.

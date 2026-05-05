@@ -45,7 +45,20 @@ opt = ["scipy"]
 # huggingface_hub dep tree per the v0 stance — those land in separate
 # follow-up extras once real-data signal calls for them.
 sae = ["safetensors>=0.4"]
-all = ["pytest", "ruff", "matplotlib", "jupyter", "scipy", "safetensors>=0.4"]
+# BehaviouralValidator.validate() / .run() — pulls torch + transformers
+# for the model-bound behavioural stage. predict() is torch-free and
+# stays on the no-extras install.
+behavioural = ["torch>=2.0", "transformers>=4.40", "safetensors>=0.4"]
+all = [
+    "pytest",
+    "ruff",
+    "matplotlib",
+    "jupyter",
+    "scipy",
+    "safetensors>=0.4",
+    "torch>=2.0",
+    "transformers>=4.40",
+]
 
 [project.scripts]
 polygram = "polygram.cli:main"
