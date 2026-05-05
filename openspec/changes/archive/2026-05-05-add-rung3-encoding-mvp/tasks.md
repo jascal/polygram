@@ -126,7 +126,7 @@
       production encoding choice.
 - [x] 6.3 Full test suite green (317 passed, 0 failed). Ruff
       clean.
-- [ ] 6.4 Squash-merge to main; archive this change directory
+- [x] 6.4 Squash-merge to main; archive this change directory
       under `openspec/changes/archive/`.
 
 ## 7. Findings PR (separate, follows this change)
