@@ -1,0 +1,34 @@
+
+==============================================================================
+BEHAVIOURAL-GRAM PROBE @ blocks.10.hook_resid_pre — 654 tokens across 12 prompts
+==============================================================================
+
+PAIR feat_7836 ↔ feat_11978  (within-cluster (highest Polygram overlap, 0.987))
+------------------------------------------------------------------------------
+  Polygram predicted overlap:  0.5360
+  Real decoder squared cosine: 0.0000
+  Co-occurrence (ReLU>0):     P(j|i)=0.5455  P(i|j)=0.8571  Jaccard=0.5000
+    (i fires on 22/654 tokens, j fires on 14/654, both fire on 12)
+  Pearson(act_i, act_j):       +0.9999
+  Ablation KL (mean on each feature's fire tokens):
+    KL(baseline || ablate-i) when i fires: 1.117e+00
+    KL(baseline || ablate-j) when j fires: 1.032e+00
+  Paired substitutability on 12 tokens where BOTH features fire:
+    KL(baseline || ablate-i) on both-fire tokens: 2.043e+00
+    KL(baseline || ablate-j) on both-fire tokens: 1.203e+00
+    KL ratio i/j on both-fire tokens = 1.698 (substitutable when in [0.5, 2.0])
+
+PAIR feat_7836 ↔ feat_15796  (cross-cluster (Polygram MPS 0.464, decoder 0.904))
+------------------------------------------------------------------------------
+  Polygram predicted overlap:  0.5659
+  Real decoder squared cosine: 0.0000
+  Co-occurrence (ReLU>0):     P(j|i)=0.5455  P(i|j)=1.0000  Jaccard=0.5455
+    (i fires on 22/654 tokens, j fires on 12/654, both fire on 12)
+  Pearson(act_i, act_j):       +0.9999
+  Ablation KL (mean on each feature's fire tokens):
+    KL(baseline || ablate-i) when i fires: 1.117e+00
+    KL(baseline || ablate-j) when j fires: 5.619e-01
+  Paired substitutability on 12 tokens where BOTH features fire:
+    KL(baseline || ablate-i) on both-fire tokens: 2.043e+00
+    KL(baseline || ablate-j) on both-fire tokens: 5.619e-01
+    KL ratio i/j on both-fire tokens = 3.635 (substitutable when in [0.5, 2.0])

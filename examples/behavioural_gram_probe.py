@@ -274,6 +274,7 @@ def _run_probe(
     sae_path: Path,
     *,
     n_prompts: int,
+    layer: int = 0,
     progress: bool = True,
 ) -> dict:
     """Returns one report dict containing per-pair behavioural stats
@@ -306,7 +307,7 @@ def _run_probe(
         h = args[0]
         captured.append(h.detach().cpu().numpy())
 
-    handle = model.transformer.h[0].register_forward_pre_hook(_capture_hook)
+    handle = model.transformer.h[layer].register_forward_pre_hook(_capture_hook)
 
     all_residuals: list[np.ndarray] = []
     all_baseline_logits: list[np.ndarray] = []
@@ -383,7 +384,7 @@ def _run_probe(
                 new_h = torch.from_numpy(h_np[None, ...]).to(h.dtype).to(h.device)
                 return (new_h,) + args[1:]
 
-            handle2 = model.transformer.h[0].register_forward_pre_hook(_ablate_hook)
+            handle2 = model.transformer.h[layer].register_forward_pre_hook(_ablate_hook)
             try:
                 with torch.no_grad():
                     out = model(**toks)
@@ -451,6 +452,7 @@ def _run_probe(
         })
 
     return {
+        "layer": layer,
         "n_tokens": n_tokens,
         "n_prompts": n_prompts,
         "pairs": pair_reports,
@@ -463,8 +465,10 @@ def _print_report(report: dict) -> None:
         return
     print()
     print("=" * 78)
-    print(f"BEHAVIOURAL-GRAM PROBE — {report['n_tokens']} tokens "
-          f"across {report['n_prompts']} prompts")
+    print(
+        f"BEHAVIOURAL-GRAM PROBE @ blocks.{report['layer']}.hook_resid_pre — "
+        f"{report['n_tokens']} tokens across {report['n_prompts']} prompts"
+    )
     print("=" * 78)
     for pr in report["pairs"]:
         print()
@@ -534,22 +538,44 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--quiet", action="store_true", help="suppress progress prints"
     )
+    parser.add_argument(
+        "--layer",
+        type=int,
+        default=0,
+        choices=(0, 5, 10),
+        help=(
+            "Which GPT-2 block input to hook + which SAE checkpoint to "
+            "load. The same `jbloom/GPT2-Small-SAEs-Reformatted` repo "
+            "ships SAEs for blocks {0, 5, 10}.hook_resid_pre. Note that "
+            "FEATURE_IDS were chosen on the layer-0 SAE; at layers 5 / "
+            "10 the same indices reference *different* SAE features. "
+            "The probe still measures meaningful per-feature ablation-KL "
+            "magnitudes — that is the §4.3 question — but per-pair "
+            "co-occurrence and substitutability metrics across layers "
+            "are not comparing the same semantic feature."
+        ),
+    )
     args = parser.parse_args(argv)
 
     sae_path = Path(
-        "./scratch/real-sae/blocks.0.hook_resid_pre/sae_weights.safetensors"
+        f"./scratch/real-sae/blocks.{args.layer}.hook_resid_pre/"
+        "sae_weights.safetensors"
     )
     if not sae_path.exists():
         print(
             f"behavioural_gram_probe: SAE checkpoint not found at "
-            f"{sae_path}. See docs/research/cross-encoding-stability.md for "
-            "the download command. Skipping.",
+            f"{sae_path}. Download with `hf download "
+            f"jbloom/GPT2-Small-SAEs-Reformatted "
+            f"--include='blocks.{args.layer}.hook_resid_pre/sae_weights.safetensors' "
+            f"--local-dir ./scratch/real-sae`. Skipping.",
             file=sys.stderr,
         )
         return
 
     n_prompts = max(1, min(args.n_prompts, len(PROMPTS)))
-    report = _run_probe(sae_path, n_prompts=n_prompts, progress=not args.quiet)
+    report = _run_probe(
+        sae_path, n_prompts=n_prompts, layer=args.layer, progress=not args.quiet
+    )
     _print_report(report)
 
 
