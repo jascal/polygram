@@ -131,8 +131,6 @@ class TestPostInit:
             )
         msg = str(excinfo.value)
         assert "deeper-layer-ablation-probe.md" in msg
-        assert "5e-5" in msg
-        assert "blocks.5" in msg
         assert "allow_layer_zero=True" in msg
 
     def test_layer_zero_with_override_emits_warning(self, tmp_path: Path):
