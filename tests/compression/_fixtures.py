@@ -21,21 +21,29 @@ def build_report(
     n_features: int,
     confirmed: Iterable[tuple[int, int]],
     n_fires: dict[int, int] | None = None,
+    kl_ablate: dict[int, float] | None = None,
     dictionary_name: str = "FixtureDict",
 ) -> ValidationReport:
     """Hand-build a ValidationReport with the specified ``confirmed``
     pair list.
 
     All other per-pair fields are filled with placeholder values; only
-    ``i``, ``j``, ``n_fires_i``, ``n_fires_j``, and ``gate_pass`` are
-    consulted by `Compressor`. ``n_fires`` is a per-feature override
-    map; missing features fall back to ``10 * (fid + 1)``.
+    ``i``, ``j``, ``n_fires_i``, ``n_fires_j``, ``kl_ablate_i``,
+    ``kl_ablate_j``, and ``gate_pass`` are consulted by `Compressor`.
+    ``n_fires`` is a per-feature override map; missing features fall
+    back to ``10 * (fid + 1)``. ``kl_ablate`` is a per-feature
+    override map; missing features default to ``NaN`` (geometry-only
+    semantics).
     """
     confirmed_set = {tuple(sorted(p)) for p in confirmed}
     n_fires = n_fires or {}
+    kl_ablate = kl_ablate or {}
 
     def fires(fid: int) -> int:
         return n_fires.get(fid, 10 * (fid + 1))
+
+    def ablate(fid: int) -> float:
+        return kl_ablate.get(fid, float("nan"))
 
     pairs: list[CandidatePair] = []
     for i in range(n_features):
@@ -49,8 +57,8 @@ def build_report(
                     decoder_overlap=0.9 if is_confirmed else 0.1,
                     jaccard=0.5 if is_confirmed else 0.05,
                     pearson_activation=float("nan"),
-                    kl_ablate_i=float("nan"),
-                    kl_ablate_j=float("nan"),
+                    kl_ablate_i=ablate(i),
+                    kl_ablate_j=ablate(j),
                     kl_ratio_paired=float("nan"),
                     kl_log_ratio_abs=float("nan"),
                     n_fires_i=fires(i),

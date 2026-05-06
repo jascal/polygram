@@ -47,12 +47,21 @@ class ClusterPlan:
     are kept. `zeroed` is the sorted list of all other members; the
     `zero` strategy zeroes those features' encoder columns + biases
     and decoder rows.
+
+    `cluster_norm_mean` / `cluster_norm_std` are the L2-norm mean and
+    standard deviation of the cluster members' source W_dec rows
+    (populated by `apply()`; `None` after `plan()` alone).
+    `merged_norm` is the post-rescale norm for `strategy="merge"`;
+    `None` for `strategy="zero"` and before `apply()`.
     """
 
     cluster_id: int
     members: tuple[int, ...]
     representative: int
     zeroed: tuple[int, ...]
+    cluster_norm_mean: float | None = None
+    cluster_norm_std: float | None = None
+    merged_norm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -85,6 +94,7 @@ class CompressionReport:
     n_features_zeroed: int
     n_features_kept: int
     n_clusters: int
+    scale_compression_ratio: float = 1.0
 
     # ---- JSON ------------------------------------------------------
 
@@ -158,6 +168,9 @@ class CompressionReport:
             n_features_zeroed=int(payload["n_features_zeroed"]),
             n_features_kept=int(payload["n_features_kept"]),
             n_clusters=int(payload["n_clusters"]),
+            scale_compression_ratio=float(
+                payload.get("scale_compression_ratio", 1.0)
+            ),
         )
 
     # ---- Equality --------------------------------------------------
@@ -183,6 +196,7 @@ class CompressionReport:
             and self.n_features_zeroed == other.n_features_zeroed
             and self.n_features_kept == other.n_features_kept
             and self.n_clusters == other.n_clusters
+            and self.scale_compression_ratio == other.scale_compression_ratio
         )
 
     def __hash__(self) -> int:
@@ -213,6 +227,7 @@ class CompressionReport:
             "n_features_zeroed": int(self.n_features_zeroed),
             "n_features_kept": int(self.n_features_kept),
             "n_clusters": int(self.n_clusters),
+            "scale_compression_ratio": float(self.scale_compression_ratio),
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -238,13 +253,28 @@ def _cluster_to_dict(c: ClusterPlan) -> dict[str, Any]:
         "members": [int(f) for f in c.members],
         "representative": int(c.representative),
         "zeroed": [int(f) for f in c.zeroed],
+        "cluster_norm_mean": (
+            None if c.cluster_norm_mean is None else float(c.cluster_norm_mean)
+        ),
+        "cluster_norm_std": (
+            None if c.cluster_norm_std is None else float(c.cluster_norm_std)
+        ),
+        "merged_norm": (
+            None if c.merged_norm is None else float(c.merged_norm)
+        ),
     }
 
 
 def _cluster_from_dict(raw: dict[str, Any]) -> ClusterPlan:
+    def _opt_float(v: Any) -> float | None:
+        return None if v is None else float(v)
+
     return ClusterPlan(
         cluster_id=int(raw["cluster_id"]),
         members=tuple(int(f) for f in raw["members"]),
         representative=int(raw["representative"]),
         zeroed=tuple(int(f) for f in raw["zeroed"]),
+        cluster_norm_mean=_opt_float(raw.get("cluster_norm_mean")),
+        cluster_norm_std=_opt_float(raw.get("cluster_norm_std")),
+        merged_norm=_opt_float(raw.get("merged_norm")),
     )
