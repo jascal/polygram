@@ -7,7 +7,7 @@ reference.
 
 ## 1. Documentation
 
-- [ ] 1.1 README — add a short "Choosing an encoding" section that
+- [x] 1.1 README — add a short "Choosing an encoding" section that
       contrasts `MPSRung1` (analytic structural floor; rung-1
       staircase; cheap to verify) with `HEA_Rung2` (richer θ
       tensor; depth/entangler/rotation knobs; tier-separation

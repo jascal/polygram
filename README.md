@@ -298,6 +298,34 @@ and pass it to `from_sae_lens` directly.
 See `examples/import_from_sae.py` for the full flow (toy SAE →
 Dictionary → `InterferenceSweep` → verified `.q.orca.md` + plot).
 
+## Choosing an encoding
+
+`MPSRung1` is the production default. Each feature is a 3-qubit rung-1 MPS state
+parameterized by `(α, β, γ, φ)`, with `phase_knobs=True` exposing a single
+`Rz`-axis φ per feature. Its closed-form `|⟨A|B⟩|²(δ) = M + V·cos(δ)` factorization
+means the structural floor `M − |V|` is exact and free to evaluate — `Cancellation`
+can certify how close a phase-search result is to the encoding-theoretic minimum
+without any optimizer calls. Tier-separation and co-firing rankings derived from
+`MPSRung1` transfer to real-model behaviour (Spearman ≥ 0.6 against behavioural
+Jaccard at `blocks.10` on GPT-2 small; see
+[`docs/research/behavioural-scaleup-probe.md`](docs/research/behavioural-scaleup-probe.md)).
+
+`HEA_Rung2` gives a richer θ tensor (`(|rotations|, depth, n_qubits)` per feature)
+with independent knobs for circuit depth, entangler topology, and rotation gate set
+(`Ry`/`Rz` by default). The extra expressivity lets the encoding explore geometry
+beyond a single Pauli-Rz phase axis, and `tier_separation_bound` (default `0.025`)
+causes the emitter to declare an invariant that Q-Orca can verify. The tradeoff is
+that no closed-form structural floor exists in the multi-knob case —
+`structural_floor()` raises `NotImplementedError` for `HEA_Rung2`, so cancellation
+efficiency is undefined. Cross-encoding stability on GPT-2-small SAEs shows that
+pair-level tier classifications agree with `MPSRung1` at default thresholds, but
+per-pair overlap magnitudes diverge (up to +0.30 higher cross-cluster current-overlap
+under HEA); quantitative magnitude claims should be regenerated in the target encoding.
+
+**Rule of thumb**: use `MPSRung1` by default; reach for `HEA_Rung2` when you need
+expressivity beyond a single Pauli-Rz phase axis and can live without a closed-form
+structural floor.
+
 ## Rung3 encoding (experimental)
 
 `polygram.encoding.Rung3` adds a 5-qubit encoding parallel to
