@@ -155,6 +155,7 @@ class Compressor:
         confirmed = self.validation_report.confirmed
         # For scale_aware rep_selection we need W_dec norms; load once
         # and cache for reuse in `apply()`.
+        # Cost note: ~36 MB for 4k features @ f32 — acceptable for plan().
         if (
             self.rep_selection == "scale_aware"
             and self._cached_w_dec is None
