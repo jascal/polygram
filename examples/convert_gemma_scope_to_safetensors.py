@@ -11,7 +11,7 @@ loader's ``W_dec`` rename.
 
 Usage::
 
-    huggingface-cli download google/gemma-scope-2b-pt-res \\
+    hf download google/gemma-scope-2b-pt-res \\
       layer_12/width_16k/average_l0_72/params.npz \\
       --local-dir scratch/gemma-scope/
 
