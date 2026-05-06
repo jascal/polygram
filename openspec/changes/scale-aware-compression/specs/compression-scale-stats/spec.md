@@ -20,13 +20,17 @@ For the `zero` strategy, `merged_norm` SHALL be `None`. For the `merge` strategy
 - **THEN** `cluster_norm_mean == 2.0` and `cluster_norm_std == 1.0`
 
 ### Requirement: CompressionReport carries scale_compression_ratio
-`CompressionReport` SHALL include `scale_compression_ratio: float` — the ratio of total surviving norm mass to total original norm mass across all cluster members:
+`CompressionReport` SHALL include `scale_compression_ratio: float` — the ratio of total preserved norm mass to total source norm mass across all cluster members.
+
+Per cluster, "preserved mass" is:
+- `strategy="zero"`: `||W_dec[rep]||` before compression (only the rep survives).
+- `strategy="merge"`: `merged_norm × cluster_size` — the rescaled rep's row stands in for every member it absorbed.
 
 ```
-scale_compression_ratio = Σ(||W_dec[rep,:]||_after) / Σ(||W_dec[f,:]||_before  for all f in all clusters)
+scale_compression_ratio = Σ(preserved_mass_c) / Σ(||W_dec[f]||_before for all f in all clusters)
 ```
 
-For `strategy="zero"` this equals `Σ(original_rep_norms) / Σ(all_cluster_norms)`. For `strategy="merge"` it equals `Σ(merged_norms) / Σ(all_cluster_norms)` and will be closer to 1.0.
+Under `merge_mode="simple_mean"` the merge case is mathematically `Σ(mean_c × |c|) = Σ(sum_c)`, so ratio = 1.0. Under `freq_weighted` it depends on how fires correlate with norms.
 
 #### Scenario: zero strategy scale_compression_ratio < 1
 - **WHEN** `strategy="zero"` and clusters are non-trivial (each has at least 2 members)

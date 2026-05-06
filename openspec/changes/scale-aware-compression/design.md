@@ -49,9 +49,13 @@ Merging encoder columns would risk activating the surviving feature at sites the
 
 `ClusterPlan` is populated in `plan()` before any checkpoint writes, so norm stats computed then are stable. `merged_norm` is write-time (only known after merge arithmetic), so it lives in the report-level cluster entry. To avoid a parallel cluster structure in the report, add `merged_norm` as an optional field on `ClusterPlan` itself (populated by `apply()` for merge strategy, `None` for zero).
 
-**Decision 7 — `scale_compression_ratio` = sum(surviving norms after) / sum(all norms before) over all cluster members.**
+**Decision 7 — `scale_compression_ratio` measures total preserved norm mass.**
 
-A value of 1.0 means perfect norm preservation (pure merge); 0.0 would mean all norms discarded (degenerate zero). This ratio is aggregate across the whole plan; per-cluster ratios are recoverable from `ClusterPlan.cluster_norm_mean` + `merged_norm`.
+Per cluster, the "preserved mass" is:
+- `zero`: `||W_dec[rep]||` before compression (only the rep survives).
+- `merge`: `merged_norm × cluster_size` — the rescaled rep's row stands in for every member it absorbed.
+
+`scale_compression_ratio` = sum(preserved per cluster) / sum(all member norms before). Under `merge_mode="simple_mean"` the merge case sums to exactly the original total (since `mean × N = sum`), so the ratio is 1.0. Under `freq_weighted` it depends on how fires correlate with norms. For `zero`, ratio < 1 whenever clusters are non-trivial. The ratio is aggregate across the whole plan; per-cluster ratios are recoverable from `ClusterPlan.cluster_norm_mean` + `merged_norm`.
 
 ## Risks / Trade-offs
 

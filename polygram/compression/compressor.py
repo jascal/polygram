@@ -20,11 +20,15 @@ atomically to a new file (sibling temp + `os.replace`), and rebuilds a
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import numpy as np
 
 from polygram.behavioural.report import CandidatePair, ValidationReport
 from polygram.compression._hash import sha256_file
@@ -38,7 +42,13 @@ from polygram.compression.report import (
 from polygram.compression.strategies.zero import apply_zero
 
 
-_SUPPORTED_STRATEGIES: frozenset[str] = frozenset({"zero"})
+_SUPPORTED_STRATEGIES: frozenset[str] = frozenset({"zero", "merge"})
+_SUPPORTED_REP_SELECTIONS: frozenset[str] = frozenset(
+    {"n_fires", "scale_aware"}
+)
+_SUPPORTED_MERGE_MODES: frozenset[str] = frozenset(
+    {"freq_weighted", "simple_mean"}
+)
 
 
 @dataclass
@@ -59,11 +69,19 @@ class Compressor:
     validation_report: ValidationReport
     sae_checkpoint: Path
     strategy: str = "zero"
+    rep_selection: str = "n_fires"
+    merge_mode: str = "freq_weighted"
     representatives: dict[int, int] | None = None
 
     # Cached union-find clusters keyed by cluster_id; populated by
     # `plan()` and consulted by the `representatives` validator.
     _cached_plan: CompressionPlan | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+
+    # Cached W_dec rows for `rep_selection="scale_aware"`; loaded once
+    # in `_build_plan` and re-used in `apply()` to avoid a second read.
+    _cached_w_dec: np.ndarray | None = field(
         default=None, init=False, repr=False, compare=False
     )
 
@@ -82,6 +100,17 @@ class Compressor:
             raise ValueError(
                 f"Compressor: unsupported strategy {self.strategy!r}; "
                 f"supported: {sorted(_SUPPORTED_STRATEGIES)}"
+            )
+        if self.rep_selection not in _SUPPORTED_REP_SELECTIONS:
+            raise ValueError(
+                f"Compressor: unsupported rep_selection "
+                f"{self.rep_selection!r}; "
+                f"supported: {sorted(_SUPPORTED_REP_SELECTIONS)}"
+            )
+        if self.merge_mode not in _SUPPORTED_MERGE_MODES:
+            raise ValueError(
+                f"Compressor: unsupported merge_mode {self.merge_mode!r}; "
+                f"supported: {sorted(_SUPPORTED_MERGE_MODES)}"
             )
         if self.representatives is not None:
             self._validate_representatives_against_plan()
@@ -124,6 +153,17 @@ class Compressor:
 
     def _build_plan(self, *, apply_overrides: bool) -> CompressionPlan:
         confirmed = self.validation_report.confirmed
+        # For scale_aware rep_selection we need W_dec norms; load once
+        # and cache for reuse in `apply()`.
+        if (
+            self.rep_selection == "scale_aware"
+            and self._cached_w_dec is None
+        ):
+            from polygram.sae_import import _load_sae_checkpoint
+
+            state = _load_sae_checkpoint(self.sae_checkpoint, ["W_dec"])
+            object.__setattr__(self, "_cached_w_dec", state["W_dec"])
+
         # Union-Find on confirmed-pair endpoints.
         parent: dict[int, int] = {}
 
@@ -208,7 +248,16 @@ class Compressor:
                 n_fires_total[a] += pair.n_fires_i
                 n_fires_total[b] += pair.n_fires_j
 
-        # Highest summed n_fires; tiebreak lowest fid.
+        if self.rep_selection == "scale_aware":
+            assert self._cached_w_dec is not None
+            return _score_scale_aware(
+                cluster=cluster,
+                pair_lookup=pair_lookup,
+                w_dec=self._cached_w_dec,
+                n_fires_total=n_fires_total,
+            )
+
+        # Default: highest summed n_fires; tiebreak lowest fid.
         return min(cluster, key=lambda fid: (-n_fires_total[fid], fid))
 
     # ----------------------------------------------------------------
@@ -248,7 +297,24 @@ class Compressor:
         )
         source_sha = sha256_file(self.sae_checkpoint)
 
-        rewritten = _dispatch_strategy(self.strategy, source_state, plan)
+        # Compute scale stats from the source W_dec, then apply strategy.
+        cluster_norm_stats = _compute_cluster_norm_stats(
+            source_state["W_dec"], plan
+        )
+        n_fires_by_fid = _aggregate_n_fires(self.validation_report)
+        rewritten, merged_norms = _dispatch_strategy(
+            self.strategy,
+            source_state,
+            plan,
+            merge_mode=self.merge_mode,
+            n_fires_by_fid=n_fires_by_fid,
+        )
+        plan = _patch_cluster_scale_fields(
+            plan, cluster_norm_stats, merged_norms
+        )
+        scale_compression_ratio = _compute_scale_compression_ratio(
+            source_state["W_dec"], plan, merged_norms
+        )
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         # Atomic write: temp file in the same directory, then os.replace.
@@ -288,6 +354,7 @@ class Compressor:
             n_features_zeroed=n_zeroed,
             n_features_kept=n_kept,
             n_clusters=len(plan.clusters),
+            scale_compression_ratio=scale_compression_ratio,
         )
 
         # Polygram's rung-1 MPS encoding caps a Dictionary at 8
@@ -330,10 +397,201 @@ class Compressor:
 # ============================================================================
 
 
-def _dispatch_strategy(name: str, state, plan: CompressionPlan):
+def _dispatch_strategy(
+    name: str,
+    state,
+    plan: CompressionPlan,
+    *,
+    merge_mode: str = "freq_weighted",
+    n_fires_by_fid: dict[int, int] | None = None,
+):
     if name == "zero":
-        return apply_zero(state, plan)
+        return apply_zero(state, plan), None
+    if name == "merge":
+        from polygram.compression.strategies.merge import apply_merge
+
+        return apply_merge(
+            state,
+            plan,
+            merge_mode=merge_mode,
+            n_fires_by_fid=n_fires_by_fid,
+        )
     raise ValueError(
         f"Compressor: unsupported strategy {name!r}; "
         f"supported: {sorted(_SUPPORTED_STRATEGIES)}"
     )
+
+
+# ============================================================================
+# scale_aware rep selection
+# ============================================================================
+
+
+_NORM_EPS = 1e-8
+
+
+def _normalise_minmax(values: np.ndarray) -> np.ndarray:
+    """Min-max scale to [0, 1]; constant input → all zeros."""
+    lo, hi = float(values.min()), float(values.max())
+    if hi - lo < _NORM_EPS:
+        return np.zeros_like(values)
+    return (values - lo) / (hi - lo)
+
+
+def _score_scale_aware(
+    *,
+    cluster: set[int],
+    pair_lookup: dict[tuple[int, int], CandidatePair],
+    w_dec: np.ndarray,
+    n_fires_total: dict[int, int],
+) -> int:
+    """Score each candidate in `cluster` and return the best fid
+    (tiebreak: lowest fid). Score = 0.4·norm_proximity + 0.4·ablation
+    + 0.2·log_freq, all min-max normalised across the cluster.
+
+    If every kl_ablate value for this cluster is NaN (geometry-only
+    confirmer), the ablation term is zeroed and a UserWarning is
+    emitted once per call.
+    """
+    members = sorted(cluster)
+    norms = np.array(
+        [float(np.linalg.norm(w_dec[fid])) for fid in members],
+        dtype=np.float64,
+    )
+    median_norm = float(np.median(norms))
+    norm_proximity = 1.0 - np.abs(norms - median_norm) / (
+        median_norm + _NORM_EPS
+    )
+    norm_proximity = np.clip(norm_proximity, 0.0, 1.0)
+
+    # Ablation importance: sum kl_ablate over pairs touching each fid.
+    ablation_raw: dict[int, float] = {fid: 0.0 for fid in members}
+    ablation_seen: dict[int, bool] = {fid: False for fid in members}
+    for (a, b), pair in pair_lookup.items():
+        if a in cluster and b in cluster:
+            if not math.isnan(pair.kl_ablate_i):
+                ablation_raw[a] += float(pair.kl_ablate_i)
+                ablation_seen[a] = True
+            if not math.isnan(pair.kl_ablate_j):
+                ablation_raw[b] += float(pair.kl_ablate_j)
+                ablation_seen[b] = True
+    if not any(ablation_seen.values()):
+        warnings.warn(
+            "scale_aware rep_selection: kl_ablate is NaN for every "
+            "pair in cluster; falling back to n_fires-only scoring",
+            UserWarning,
+            stacklevel=3,
+        )
+        ablation_norm = np.zeros(len(members), dtype=np.float64)
+    else:
+        ablation_norm = _normalise_minmax(
+            np.array([ablation_raw[fid] for fid in members], dtype=np.float64)
+        )
+
+    log_freq = np.log(
+        np.array(
+            [float(n_fires_total[fid]) + _NORM_EPS for fid in members],
+            dtype=np.float64,
+        )
+    )
+    log_freq_norm = _normalise_minmax(log_freq)
+
+    score = 0.4 * norm_proximity + 0.4 * ablation_norm + 0.2 * log_freq_norm
+    # argmax on (score, -fid) so highest score wins; tiebreak lowest fid.
+    best_idx = int(
+        max(range(len(members)), key=lambda i: (score[i], -members[i]))
+    )
+    return members[best_idx]
+
+
+# ============================================================================
+# Per-cluster scale statistics
+# ============================================================================
+
+
+def _compute_cluster_norm_stats(
+    w_dec: np.ndarray, plan: CompressionPlan
+) -> dict[int, tuple[float, float]]:
+    """Return cluster_id → (norm_mean, norm_std) over members."""
+    out: dict[int, tuple[float, float]] = {}
+    for cluster in plan.clusters:
+        norms = np.linalg.norm(w_dec[list(cluster.members), :], axis=1)
+        out[cluster.cluster_id] = (
+            float(norms.mean()),
+            float(norms.std()),
+        )
+    return out
+
+
+def _patch_cluster_scale_fields(
+    plan: CompressionPlan,
+    cluster_norm_stats: dict[int, tuple[float, float]],
+    merged_norms: dict[int, float] | None,
+) -> CompressionPlan:
+    """Rebuild a CompressionPlan with cluster_norm_mean / std / merged_norm
+    populated on each ClusterPlan.
+    """
+    new_clusters = []
+    for c in plan.clusters:
+        mean_, std_ = cluster_norm_stats.get(c.cluster_id, (None, None))
+        merged = (
+            None if merged_norms is None else merged_norms.get(c.cluster_id)
+        )
+        new_clusters.append(
+            ClusterPlan(
+                cluster_id=c.cluster_id,
+                members=c.members,
+                representative=c.representative,
+                zeroed=c.zeroed,
+                cluster_norm_mean=mean_,
+                cluster_norm_std=std_,
+                merged_norm=merged,
+            )
+        )
+    return CompressionPlan(
+        clusters=tuple(new_clusters),
+        feature_ids=plan.feature_ids,
+    )
+
+
+def _compute_scale_compression_ratio(
+    w_dec_source: np.ndarray,
+    plan: CompressionPlan,
+    merged_norms: dict[int, float] | None,
+) -> float:
+    """Total preserved norm mass / total source norm mass.
+
+    For ``zero``: preserved = rep_norm_before per cluster. For
+    ``merge``: preserved = merged_norm × cluster_size — i.e., the
+    rep's rescaled row "stands in" for every member it absorbed.
+    Under ``simple_mean`` this equals the source sum exactly, so
+    the ratio is 1.0; under ``freq_weighted`` it depends on how
+    fires correlate with norms. Returns 1.0 if there are no
+    clusters.
+    """
+    if not plan.clusters:
+        return 1.0
+    total_before = 0.0
+    total_after = 0.0
+    for c in plan.clusters:
+        norms = np.linalg.norm(w_dec_source[list(c.members), :], axis=1)
+        total_before += float(norms.sum())
+        if merged_norms is not None and c.cluster_id in merged_norms:
+            total_after += float(merged_norms[c.cluster_id]) * len(c.members)
+        else:
+            total_after += float(
+                np.linalg.norm(w_dec_source[c.representative])
+            )
+    if total_before <= 0.0:
+        return 1.0
+    return total_after / total_before
+
+
+def _aggregate_n_fires(report: ValidationReport) -> dict[int, int]:
+    """Sum n_fires_i / n_fires_j across every pair to get a per-fid
+    activation-count proxy."""
+    out: dict[int, int] = defaultdict(int)
+    for p in report.pairs:
+        out[p.i] += int(p.n_fires_i)
+        out[p.j] += int(p.n_fires_j)
+    return out
