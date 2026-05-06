@@ -6,6 +6,8 @@ to keep the repo free of binary blobs.
 
 from __future__ import annotations
 
+import json
+import struct
 import sys
 from pathlib import Path
 
@@ -360,10 +362,6 @@ class TestLazySlice:
 # ---------------------------------------------------------------------------
 # BF16 + alias support (task 2.3)
 # ---------------------------------------------------------------------------
-
-import json
-import struct
-
 
 def _write_bf16_decoder(path: Path, arr: np.ndarray, key: str = "W_dec") -> None:
     """Write a safetensors file with one BF16 tensor under `key`."""
