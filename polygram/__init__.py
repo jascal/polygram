@@ -1,6 +1,7 @@
 """Polygram — quantum interference laboratory for polysemantic feature dictionaries."""
 
 from polygram.batch import BatchExperiment, BatchResults, BatchRun
+from polygram.confirmation import ClusterConfirmer, Confirmer, DecoderGeometryConfirmer
 from polygram.behavioural import (
     BehaviouralValidator,
     BucketStats,
@@ -47,6 +48,9 @@ __all__ = [
     "BatchRun",
     "BehaviouralValidator",
     "BucketStats",
+    "ClusterConfirmer",
+    "Confirmer",
+    "DecoderGeometryConfirmer",
     "CandidatePair",
     "Cancellation",
     "CancellationResult",

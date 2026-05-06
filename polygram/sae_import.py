@@ -31,6 +31,161 @@ _SAE_EXTRA_INSTALL_HINT = (
     "install with `pip install polygram[sae]`."
 )
 
+# Unified alias table: source key (as it appears in the file) → canonical key.
+# Covers PyTorch nn.Linear naming (LlamaScope, etc.) and legacy short forms.
+_KEY_ALIASES: dict[str, str] = {
+    "W_dec": "W_dec",
+    "decoder.weight": "W_dec",
+    "dec": "W_dec",
+    "W_enc": "W_enc",
+    "encoder.weight": "W_enc",
+    "b_dec": "b_dec",
+    "decoder.bias": "b_dec",
+    "b_enc": "b_enc",
+    "encoder.bias": "b_enc",
+}
+
+# Safetensors dtype string → numpy dtype (BF16 is handled specially).
+_NUMPY_DTYPE_MAP: dict[str, "np.dtype[Any]"] = {
+    "F32": np.dtype("float32"),
+    "F16": np.dtype("float16"),
+    "F64": np.dtype("float64"),
+    "I8": np.dtype("int8"),
+    "I16": np.dtype("int16"),
+    "I32": np.dtype("int32"),
+    "I64": np.dtype("int64"),
+    "U8": np.dtype("uint8"),
+    "U16": np.dtype("uint16"),
+    "U32": np.dtype("uint32"),
+    "U64": np.dtype("uint64"),
+}
+
+
+def _read_safetensors_header(path: Path) -> dict[str, dict]:
+    """Read only the JSON metadata section from a safetensors file.
+
+    Returns a map of tensor name → {dtype, shape, data_offsets}.
+    The ``__metadata__`` key, if present, is stripped.
+    """
+    with open(path, "rb") as f:
+        header_len = int.from_bytes(f.read(8), "little")
+        header_bytes = f.read(header_len)
+    meta: dict[str, dict] = json.loads(header_bytes)
+    meta.pop("__metadata__", None)
+    return meta
+
+
+def _bf16_to_f32(raw: bytes, shape: tuple) -> np.ndarray:
+    """Convert raw bfloat16 bytes to a float32 ndarray.
+
+    BF16 occupies the upper 16 bits of a float32 word; left-shifting by 16
+    and reinterpreting gives the exact float32 equivalent.
+    """
+    u16 = np.frombuffer(raw, dtype=np.uint16)
+    return (u16.astype(np.uint32) << 16).view(np.float32).reshape(shape).copy()
+
+
+def _correct_orientation(arr: np.ndarray, src_key: str) -> np.ndarray:
+    """Transpose PyTorch nn.Linear weight tensors to polygram convention.
+
+    Only acts on the two aliased keys that carry PyTorch orientation:
+    - ``decoder.weight``: PyTorch (d_model, d_sae) → polygram (d_sae, d_model)
+    - ``encoder.weight``: PyTorch (d_sae, d_model) → polygram (d_model, d_sae)
+
+    Square tensors are left unchanged (orientation is ambiguous).
+    """
+    if arr.ndim != 2 or arr.shape[0] == arr.shape[1]:
+        return arr
+    if src_key == "decoder.weight":
+        return arr.T
+    if src_key == "encoder.weight" and arr.shape[0] > arr.shape[1]:
+        return arr.T
+    return arr
+
+
+def _load_sae_checkpoint(
+    path: Path | str,
+    keys: list[str],
+) -> dict[str, np.ndarray]:
+    """Load named tensors from a safetensors file, normalised to float32.
+
+    Resolves each canonical key through ``_KEY_ALIASES``, converts bfloat16
+    tensors via raw-byte bit-shift (no torch), and corrects PyTorch
+    ``nn.Linear`` weight orientation for ``decoder.weight`` /
+    ``encoder.weight``.
+
+    Parameters
+    ----------
+    path:
+        Path to a ``.safetensors`` file.
+    keys:
+        Canonical key names to load (``"W_dec"``, ``"W_enc"``,
+        ``"b_dec"``, ``"b_enc"``).
+
+    Returns
+    -------
+    dict mapping each canonical key to a float32 ndarray.
+
+    Raises
+    ------
+    ValueError
+        When a requested canonical key has no alias present in the file.
+    """
+    path = Path(path)
+    header = _read_safetensors_header(path)
+    present = set(header.keys())
+
+    # Resolve each canonical key to the source key actually in the file.
+    src_keys: dict[str, str] = {}  # canonical → source
+    for canonical in keys:
+        found = next(
+            (src for src, dst in _KEY_ALIASES.items() if dst == canonical and src in present),
+            None,
+        )
+        if found is None:
+            tried = sorted(src for src, dst in _KEY_ALIASES.items() if dst == canonical)
+            raise ValueError(
+                f"_load_sae_checkpoint: no key aliasing to {canonical!r} found in "
+                f"{path}. Tried aliases {tried}; file contains: {sorted(present)}"
+            )
+        src_keys[canonical] = found
+
+    if not any(header[src]["dtype"] == "BF16" for src in src_keys.values()):
+        # Fast path: safetensors API handles the read directly.
+        from safetensors import safe_open
+
+        out: dict[str, np.ndarray] = {}
+        with safe_open(str(path), framework="numpy") as f:
+            for canonical, src in src_keys.items():
+                arr = np.asarray(f.get_tensor(src), dtype=np.float32)
+                out[canonical] = _correct_orientation(arr, src)
+        return out
+
+    # BF16 path: read raw tensor bytes and convert.
+    with open(path, "rb") as fh:
+        header_len = int.from_bytes(fh.read(8), "little")
+        data_start = 8 + header_len
+        out = {}
+        for canonical, src in src_keys.items():
+            meta = header[src]
+            dtype_str: str = meta["dtype"]
+            shape = tuple(meta["shape"])
+            lo, hi = meta["data_offsets"]
+            fh.seek(data_start + lo)
+            raw = fh.read(hi - lo)
+            if dtype_str == "BF16":
+                arr = _bf16_to_f32(raw, shape)
+            else:
+                np_dt = _NUMPY_DTYPE_MAP.get(dtype_str)
+                if np_dt is None:
+                    raise ValueError(
+                        f"_load_sae_checkpoint: unsupported dtype {dtype_str!r} "
+                        f"for tensor {src!r} in {path}"
+                    )
+                arr = np.frombuffer(raw, dtype=np_dt).reshape(shape).astype(np.float32)
+            out[canonical] = _correct_orientation(arr, src)
+    return out
+
 
 @dataclass(frozen=True)
 class SAEFeatureRecord:
@@ -172,30 +327,19 @@ def load_sae_safetensors(
     """
     try:
         from safetensors import safe_open  # noqa: F401
-        from safetensors.numpy import load_file  # noqa: F401
     except ImportError as exc:  # pragma: no cover - exercised via monkeypatch
         raise ImportError(_SAE_EXTRA_INSTALL_HINT) from exc
 
     if feature_ids is not None:
         return _load_subset(path, feature_ids, names=names)
 
-    from safetensors.numpy import load_file
-
-    tensors = load_file(str(path))
-    matched, present = _detect_decoder_key(list(tensors.keys()))
-    weight = tensors[matched]
+    tensors = _load_sae_checkpoint(Path(path), ["W_dec"])
+    weight = tensors["W_dec"]
     if weight.ndim != 2:
         raise ValueError(
-            f"load_sae_safetensors: tensor {matched!r} has shape "
+            f"load_sae_safetensors: W_dec has shape "
             f"{tuple(weight.shape)}; expected 2D"
         )
-    if matched == "decoder.weight" and weight.shape[0] != weight.shape[1]:
-        # PyTorch nn.Linear stores weights as (out, in); for a decoder
-        # out = d_model and in = d_sae, so transpose to put features
-        # on rows. Square matrices are ambiguous — prefer the
-        # row-as-feature default (no transpose) and document the
-        # ambiguity in the design doc.
-        weight = weight.T
 
     n_features = weight.shape[0]
     resolved_names: dict[int, str] = {}
@@ -219,10 +363,6 @@ def load_sae_safetensors(
             activation_mean=None,
             activation_std=None,
         )
-    # Surface the matched key for downstream debugging without
-    # changing the public return shape — callers who want it can
-    # re-run `_detect_decoder_key`.
-    del present
     return out
 
 

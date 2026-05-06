@@ -235,11 +235,17 @@ class Compressor:
             )
 
         # Lazy imports — keep the module import-cheap.
-        from safetensors.numpy import load_file, save_file
+        from safetensors.numpy import save_file
 
-        from polygram.sae_import import from_sae_lens, load_sae_safetensors
+        from polygram.sae_import import (
+            _load_sae_checkpoint,
+            from_sae_lens,
+            load_sae_safetensors,
+        )
 
-        source_state = load_file(str(self.sae_checkpoint))
+        source_state = _load_sae_checkpoint(
+            self.sae_checkpoint, ["W_dec", "W_enc", "b_dec", "b_enc"]
+        )
         source_sha = sha256_file(self.sae_checkpoint)
 
         rewritten = _dispatch_strategy(self.strategy, source_state, plan)

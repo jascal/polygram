@@ -536,32 +536,15 @@ class BehaviouralValidator:
 
 
 def _load_sae_full(path: Path) -> dict[str, np.ndarray]:
-    """Load `W_enc / b_enc / W_dec / b_dec` from a `.safetensors` file
-    via the safetensors loader. Raises `ValueError` listing missing
-    tensors on incomplete files.
-    """
-    try:
-        from safetensors import safe_open
-    except ImportError as exc:  # pragma: no cover
-        raise ImportError(
-            "BehaviouralValidator: safetensors is required to load "
-            "the SAE checkpoint; install via `pip install polygram[sae]`."
-        ) from exc
+    """Load `W_enc / b_enc / W_dec / b_dec` from a `.safetensors` file.
 
-    out: dict[str, np.ndarray] = {}
-    with safe_open(str(path), framework="numpy") as f:
-        present = set(f.keys())
-        required = ("W_enc", "b_enc", "W_dec", "b_dec")
-        missing = [k for k in required if k not in present]
-        if missing:
-            raise ValueError(
-                f"BehaviouralValidator: SAE checkpoint at {path} is "
-                f"missing tensor(s) {missing}; required keys are "
-                f"{list(required)}, present: {sorted(present)}"
-            )
-        for k in required:
-            out[k] = np.asarray(f.get_tensor(k), dtype=np.float32)
-    return out
+    Delegates to the shared normaliser which handles bfloat16 conversion,
+    key aliasing (LlamaScope-style names), and orientation correction.
+    Raises `ValueError` listing missing tensors on incomplete files.
+    """
+    from polygram.sae_import import _load_sae_checkpoint
+
+    return _load_sae_checkpoint(path, ["W_enc", "b_enc", "W_dec", "b_dec"])
 
 
 def _ablation_kl_for_feature(

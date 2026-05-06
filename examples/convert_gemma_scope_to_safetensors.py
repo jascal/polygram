@@ -1,27 +1,40 @@
-"""Convert a Gemma-Scope ``params.npz`` SAE checkpoint into the
-``W_dec``-keyed safetensors layout that ``load_sae_safetensors``
-already understands.
+"""Convert a Gemma-Scope ``params.npz`` SAE checkpoint to safetensors.
 
-Gemma-Scope (``google/gemma-scope-*``) ships every SAE as a NumPy zip
-with lowercase keys ``w_enc``, ``w_dec``, ``b_enc``, ``b_dec``,
-``threshold`` (JumpReLU). For projection-geometry work we only need
-``w_dec`` — its rows are unit-norm feature directions in d_model
-space, matching the convention the SAELens GPT-2 SAEs use after the
-loader's ``W_dec`` rename.
+By default all keys are preserved (``W_dec``, ``W_enc``, ``b_dec``,
+``b_enc``, ``threshold``), producing a checkpoint that is compatible with
+both ``load_sae_safetensors`` and :class:`~polygram.Compressor`.
 
-Usage::
+Pass ``--dec-only`` to write only the ``W_dec`` tensor, which is sufficient
+for projection-geometry work (``load_sae_safetensors``, Gram analysis) but
+cannot be used as a compressor checkpoint.
+
+Gemma-Scope (``google/gemma-scope-*``) ships SAEs as NumPy zips with keys
+``w_enc``, ``w_dec``, ``b_enc``, ``b_dec``, ``threshold`` (JumpReLU). The
+``W_dec`` rows are unit-norm feature directions in ``d_model`` space,
+matching the convention the SAELens GPT-2 SAEs use after the loader's
+``W_dec`` rename.
+
+Full-convert → compress workflow::
 
     hf download google/gemma-scope-2b-pt-res \\
-      layer_12/width_16k/average_l0_72/params.npz \\
+      embedding/width_4k/average_l0_21/params.npz \\
       --local-dir scratch/gemma-scope/
 
     python examples/convert_gemma_scope_to_safetensors.py \\
-      --input scratch/gemma-scope/layer_12/width_16k/average_l0_72/params.npz \\
-      --output scratch/gemma-scope/layer_12_w16k_l0_72.safetensors
+      --input scratch/gemma-scope/embedding/width_4k/average_l0_21/params.npz \\
+      --output scratch/gemma-scope/embedding_w4k_l0_21_full.safetensors
 
-The output file is then a drop-in for any pipeline that calls
-``load_sae_safetensors`` — including
-``cross_encoding_stability_truly_insane.py`` via ``--sae-path``.
+    # then load, confirm, and compress:
+    #   records = load_sae_safetensors("...full.safetensors")
+    #   confirmer = DecoderGeometryConfirmer(records, "...full.safetensors", ids)
+    #   Compressor(confirmer.run(), "...full.safetensors").run(output_checkpoint=...)
+
+Projection-geometry only (``--dec-only``)::
+
+    python examples/convert_gemma_scope_to_safetensors.py \\
+      --input scratch/gemma-scope/embedding/width_4k/average_l0_21/params.npz \\
+      --output scratch/gemma-scope/embedding_w4k_l0_21.safetensors \\
+      --dec-only
 """
 
 from __future__ import annotations
@@ -35,12 +48,27 @@ import numpy as np
 
 _DECODER_KEY_CANDIDATES = ("w_dec", "W_dec", "decoder", "dec")
 
+# Keys to preserve in a full conversion (lower-case source → upper-case target).
+_FULL_KEY_MAP = {
+    "w_dec": "W_dec",
+    "W_dec": "W_dec",
+    "w_enc": "W_enc",
+    "W_enc": "W_enc",
+    "b_dec": "b_dec",
+    "b_enc": "b_enc",
+    "threshold": "threshold",
+}
 
-def convert(input_path: Path, output_path: Path) -> tuple[int, int]:
-    """Read ``params.npz`` at ``input_path`` and write a safetensors
-    file at ``output_path`` containing a single ``W_dec`` tensor.
 
-    Returns ``(d_sae, d_model)`` for caller logging."""
+def convert(
+    input_path: Path,
+    output_path: Path,
+    *,
+    dec_only: bool = False,
+) -> tuple[int, int, list[str]]:
+    """Read ``params.npz`` at ``input_path`` and write a safetensors file.
+
+    Returns ``(d_sae, d_model, keys_written)``."""
     from safetensors.numpy import save_file
 
     with np.load(input_path) as data:
@@ -54,17 +82,24 @@ def convert(input_path: Path, output_path: Path) -> tuple[int, int]:
             )
         w_dec = np.asarray(data[matched])
 
+        if dec_only:
+            payload = {"W_dec": w_dec.astype(np.float32, copy=False)}
+        else:
+            payload = {}
+            for src_key, dst_key in _FULL_KEY_MAP.items():
+                if src_key in keys:
+                    payload[dst_key] = np.asarray(data[src_key]).astype(
+                        np.float32, copy=False
+                    )
+            if "W_dec" not in payload:
+                payload["W_dec"] = w_dec.astype(np.float32, copy=False)
+
     if w_dec.ndim != 2:
         raise ValueError(
             f"decoder tensor at key {matched!r} has shape {w_dec.shape}; "
             f"expected 2D (d_sae, d_model)"
         )
 
-    # Gemma-Scope ships (d_sae, d_model) — same convention the loader
-    # treats as W_dec. Heuristic guard: if rows < cols, that's almost
-    # certainly already (d_sae, d_model); if rows > cols, also likely
-    # (d_sae, d_model) since SAEs are over-complete. So no transpose
-    # path here — but warn loudly if the shape looks suspicious.
     d_sae, d_model = w_dec.shape
     if d_sae < d_model:
         print(
@@ -75,11 +110,8 @@ def convert(input_path: Path, output_path: Path) -> tuple[int, int]:
         )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    save_file(
-        {"W_dec": w_dec.astype(np.float32, copy=False)},
-        str(output_path),
-    )
-    return d_sae, d_model
+    save_file(payload, str(output_path))
+    return d_sae, d_model, sorted(payload.keys())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -92,16 +124,21 @@ def main(argv: list[str] | None = None) -> int:
         "--output", required=True, type=Path,
         help="destination .safetensors path",
     )
+    parser.add_argument(
+        "--dec-only", action="store_true",
+        help="write only W_dec (sufficient for geometry work; not for compression)",
+    )
     args = parser.parse_args(argv)
 
     if not args.input.exists():
         print(f"error: input not found: {args.input}", file=sys.stderr)
         return 2
 
-    d_sae, d_model = convert(args.input, args.output)
-    print(
-        f"wrote {args.output} — W_dec shape ({d_sae}, {d_model})"
+    d_sae, d_model, keys_written = convert(
+        args.input, args.output, dec_only=args.dec_only
     )
+    keys_str = ", ".join(keys_written)
+    print(f"wrote {args.output} — W_dec shape ({d_sae}, {d_model})  keys: {keys_str}")
     return 0
 
 

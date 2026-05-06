@@ -355,3 +355,56 @@ class TestLazySlice:
             load_sae_safetensors(
                 tmp_path / "sae.safetensors", feature_ids=[0]
             )
+
+
+# ---------------------------------------------------------------------------
+# BF16 + alias support (task 2.3)
+# ---------------------------------------------------------------------------
+
+import json
+import struct
+
+
+def _write_bf16_decoder(path: Path, arr: np.ndarray, key: str = "W_dec") -> None:
+    """Write a safetensors file with one BF16 tensor under `key`."""
+    f32 = arr.astype(np.float32)
+    bf16_data = (f32.view(np.uint32) >> 16).astype(np.uint16).tobytes()
+    header = {key: {"dtype": "BF16", "shape": list(arr.shape), "data_offsets": [0, len(bf16_data)]}}
+    header_json = json.dumps(header).encode("utf-8")
+    pad = (8 - len(header_json) % 8) % 8
+    header_json += b" " * pad
+    with open(path, "wb") as f:
+        f.write(struct.pack("<Q", len(header_json)))
+        f.write(header_json)
+        f.write(bf16_data)
+
+
+class TestBF16AndAlias:
+    def test_bf16_w_dec_loads_without_error(self, tmp_path: Path):
+        arr = np.arange(12, dtype=np.float32).reshape(3, 4)
+        path = tmp_path / "bf16.safetensors"
+        _write_bf16_decoder(path, arr, key="W_dec")
+        records = load_sae_safetensors(path)
+        assert len(records) == 3
+        for rec in records.values():
+            assert rec.projection.dtype == np.float64
+
+    def test_bf16_decoder_weight_alias_resolves(self, tmp_path: Path):
+        arr = np.ones((4, 16), dtype=np.float32)  # (d_model, d_sae) PyTorch layout
+        path = tmp_path / "bf16_alias.safetensors"
+        _write_bf16_decoder(path, arr, key="decoder.weight")
+        records = load_sae_safetensors(path)
+        # After transpose: d_sae=16 features, each of length d_model=4
+        assert len(records) == 16
+        assert records[0].projection.shape == (4,)
+
+    def test_bf16_projections_approximately_correct(self, tmp_path: Path):
+        rng = np.random.default_rng(42)
+        arr = rng.standard_normal((4, 8)).astype(np.float32)
+        path = tmp_path / "bf16_vals.safetensors"
+        _write_bf16_decoder(path, arr, key="W_dec")
+        records = load_sae_safetensors(path)
+        for i in range(4):
+            np.testing.assert_allclose(
+                records[i].projection, arr[i, :], rtol=1e-2
+            )
