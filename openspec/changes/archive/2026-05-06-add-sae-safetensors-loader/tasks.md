@@ -158,10 +158,11 @@
 
 - [x] 7.1 Full pytest suite green; ruff clean.
 - [x] 7.2 `openspec validate add-sae-safetensors-loader --strict` ✓.
-- [ ] 7.3 Commit + push, open impl PR, merge after review.
+- [x] 7.3 Commit + push, open impl PR, merge after review.
+      (Shipped as PR #15 → `d314c98`.)
 
 ## 8. Archive
 
-- [ ] 8.1 `openspec archive add-sae-safetensors-loader` after merge
+- [x] 8.1 `openspec archive add-sae-safetensors-loader` after merge
       — propagate the new requirements into
       `openspec/specs/{sae,cli}/spec.md`.

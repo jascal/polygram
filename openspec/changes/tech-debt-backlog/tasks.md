@@ -598,7 +598,7 @@ reference.
 
 ## 5. Compression / disentanglement loop — first half: validator
 
-- [ ] 5.1 The "loop spec writes itself" sentence in §4.4's closure
+- [x] 5.1 The "loop spec writes itself" sentence in §4.4's closure
       block (above) names four settled constraints — `blocks.10` hook,
       Polygram-as-primary-ranker, `Jaccard ≥ 0.30` co-firing gate,
       ablation-KL at `blocks.10` as the per-feature impact term. The
@@ -608,24 +608,22 @@ reference.
       half (the weight-modifying compression action) consumes the
       validator's confirmed-candidate report.
       Shipped as `add-behavioural-validator-loop` (PR #26 spec,
-      implementation follow-up): new `polygram.behavioural`
+      PR #27 impl, archived 2026-05-05): new `polygram.behavioural`
       subpackage hosting `BehaviouralValidator`, `ValidationReport`
       JSON + CSV round-trip, `polygram validate` CLI subcommand,
       optional `[behavioural]` extra. The compression action is the
       next change after this one.
-- [ ] 5.2 Compression-action default encoding is **gated on the
+- [x] 5.2 Compression-action default encoding was **gated on the
       Rung3 §4.5 viability spike** (`add-rung3-encoding-mvp`,
-      PR #29 → impl PR pending). Rung3 ships `Cancellation(
-      encoding="rung3")` and the joint
-      (φ, θ_amp, ψ_aux) optimizer that, in principle, breaks below
-      MPSRung1's phase-only floor. The follow-up findings PR
-      (`docs/research/rung3-viability-spike.md`) decides:
-      - **strong-pass** → open `make-rung3-default` change flipping
-        the production encoding for `Dictionary` / `Cancellation` /
-        `BehaviouralValidator` consumers, then implement compression
-        on Rung3.
-      - **partial / fail** → compression-impl proceeds with
-        MPSRung1 as default; Rung3 stays opt-in.
-      The compression spec itself (`add-compression-action`, PR #28)
-      is encoding-agnostic and lands independently — only the
-      compression-impl PR needs to wait for the verdict.
+      archived 2026-05-05). Rung3 shipped `Cancellation(
+      encoding="rung3")` and the joint (φ, θ_amp, ψ_aux) optimizer
+      that, in principle, breaks below MPSRung1's phase-only floor.
+      Verdict: **`partial_pass`** — the unconstrained spike's
+      `strong_pass` was an artifact of the optimizer finding the
+      trivial amp-zeroing solution `(θ_b ≈ π/4, ψ_b ≈ π)`. The
+      constrained re-run (PR #31, `min_amp_overlap = 0.5`) lands
+      every pair at `residual = 0.500` exactly, confirming the amp
+      branch buys no real geometric leverage. See
+      [`docs/research/rung3-viability-spike.md`](../../../docs/research/rung3-viability-spike.md).
+      Decision: `make-rung3-default` is dead; compression-impl proceeds
+      with MPSRung1 as default; Rung3 stays opt-in.

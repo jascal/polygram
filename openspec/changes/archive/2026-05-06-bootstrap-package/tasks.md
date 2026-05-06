@@ -20,12 +20,10 @@
 
 ## 3. CI
 
-- [ ] 3.1 `.github/workflows/test.yml` runs `pytest` + `ruff check`
-      on Python 3.11 and 3.12 — **blocked**: workflow file authored at
-      `ci-pending/test.yml` because the local `gh` PAT lacks the
-      `workflow` scope. Move into place once the PAT is regenerated or
-      paste via the GitHub web UI; see `ci-pending/README.md`.
-- [ ] 3.2 First successful CI run on `main` (gated on 3.1)
+- [x] 3.1 `.github/workflows/test.yml` runs `pytest` + `ruff check`
+      on Python 3.11 and 3.12.
+- [x] 3.2 First successful CI run on `main` — green on both 3.11 and
+      3.12 by the time PR #31 merged.
 
 ## 4. Agent orientation
 
