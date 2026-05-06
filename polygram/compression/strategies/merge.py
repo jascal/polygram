@@ -18,6 +18,8 @@ caller can populate ``ClusterPlan.merged_norm``.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from polygram.compression.report import CompressionPlan
@@ -101,6 +103,21 @@ def apply_merge(
                 )
         else:  # "simple_mean"
             merged = float(norms.mean())
+
+        # Surface degenerate clusters: every member had zero L2 norm
+        # in the source W_dec, so the merge produces nothing. Rare in
+        # practice (would mean an upstream pass already silenced the
+        # whole cluster) but quiet failure here would hide it.
+        if merged <= _NORM_EPS:
+            warnings.warn(
+                f"apply_merge: cluster {cluster.cluster_id} (members "
+                f"{list(members)}) has merged_norm <= {_NORM_EPS}; all "
+                f"members appear to have zero-norm decoder rows in the "
+                f"source checkpoint. Surviving rep will remain "
+                f"effectively silent.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         merged_norms[cluster.cluster_id] = merged
 

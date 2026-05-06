@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -177,6 +179,40 @@ class TestRepresentativeRescaling:
         # but the actual W_dec[0] row stays zero.
         np.testing.assert_allclose(merged[0], 1.5, atol=1e-5)
         assert np.all(out["W_dec"][0] == 0)
+
+
+class TestAllZeroCluster:
+    def test_all_zero_norm_cluster_emits_warning(self):
+        """Every member has zero-norm W_dec → merged_norm = 0.
+        Must emit a UserWarning so the caller notices the cluster
+        produced a silent rep."""
+        state = _state(dec_norms={0: 0.0, 1: 0.0})
+        plan = _two_member_plan(rep=0, other=1)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            out, merged = apply_merge(
+                state, plan, merge_mode="simple_mean"
+            )
+        assert any(
+            issubclass(w.category, UserWarning)
+            and "merged_norm" in str(w.message)
+            for w in caught
+        ), f"expected merged_norm warning, got: {[str(w.message) for w in caught]}"
+        assert merged[0] == 0.0
+        # The rep row stays zero (rep_norm == 0 → rescaling skipped).
+        assert np.all(out["W_dec"][0] == 0)
+
+    def test_normal_cluster_emits_no_warning(self):
+        """Sanity: a healthy cluster with positive norms does NOT
+        emit the all-zero warning."""
+        state = _state(dec_norms={0: 1.0, 1: 3.0})
+        plan = _two_member_plan(rep=0, other=1)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            apply_merge(state, plan, merge_mode="simple_mean")
+        assert not any(
+            "merged_norm" in str(w.message) for w in caught
+        )
 
 
 class TestErrorPaths:

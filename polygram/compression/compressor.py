@@ -569,6 +569,14 @@ def _compute_scale_compression_ratio(
     the ratio is 1.0; under ``freq_weighted`` it depends on how
     fires correlate with norms. Returns 1.0 if there are no
     clusters.
+
+    Note: only cluster members participate in this ratio.
+    Singleton (un-clustered) features are excluded from both
+    numerator and denominator — see the open question in
+    ``openspec/changes/scale-aware-compression/design.md``.
+    Their norms are preserved exactly by the strategy, so
+    counting them would just bias the ratio toward 1.0 in a
+    way that hides cluster-level loss.
     """
     if not plan.clusters:
         return 1.0
