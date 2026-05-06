@@ -598,7 +598,7 @@ reference.
 
 ## 5. Compression / disentanglement loop — first half: validator
 
-- [ ] 5.1 The "loop spec writes itself" sentence in §4.4's closure
+- [x] 5.1 The "loop spec writes itself" sentence in §4.4's closure
       block (above) names four settled constraints — `blocks.10` hook,
       Polygram-as-primary-ranker, `Jaccard ≥ 0.30` co-firing gate,
       ablation-KL at `blocks.10` as the per-feature impact term. The
@@ -613,7 +613,7 @@ reference.
       JSON + CSV round-trip, `polygram validate` CLI subcommand,
       optional `[behavioural]` extra. The compression action is the
       next change after this one.
-- [ ] 5.2 Compression-action default encoding is **gated on the
+- [x] 5.2 Compression-action default encoding is **gated on the
       Rung3 §4.5 viability spike** (`add-rung3-encoding-mvp`,
       PR #29 → impl PR pending). Rung3 ships `Cancellation(
       encoding="rung3")` and the joint
