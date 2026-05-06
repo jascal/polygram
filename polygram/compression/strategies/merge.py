@@ -125,13 +125,11 @@ def apply_merge(
         if rep_norm > _NORM_EPS:
             w_dec[rep] = w_dec[rep] * (merged / rep_norm)
 
-        # Note: we deliberately do NOT merge encoder columns for the
-        # surviving rep. Combining encoder weights would expand the
-        # rep's firing footprint to token contexts that activated the
-        # zeroed siblings — risking false positives at sites the
-        # original rep never fired on. Restricting the merge to
-        # decoder norm rescaling preserves reconstruction mass without
-        # changing where the surviving feature activates.
+        # Encoder columns for non-reps are zeroed, NOT merged into the
+        # surviving rep — see design.md Decision 5: combining encoder
+        # weights would expand the rep's firing footprint to token
+        # contexts that activated the zeroed siblings, risking false
+        # positives at sites the original rep never fired on.
         for fid in members:
             if fid == rep:
                 continue
