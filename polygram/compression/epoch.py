@@ -33,7 +33,10 @@ import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
+
+if TYPE_CHECKING:
+    from polygram.config import EpochCompressionConfig  # noqa: F401
 
 import numpy as np
 
@@ -65,8 +68,13 @@ class EpochCompressor:
     """Orchestrates multi-panel validate → aggregate → compress
     iteration to a stable cluster-set fixed point.
 
-    Default knobs encode the §4.4 / §4.3 calibration. Override via
-    constructor arguments or CLI flags.
+    Default knobs encode the iterative-loop preset (`coverage_target=0.5`,
+    `n_visits_per_feature=1`, `max_iterations=1`) — see
+    :class:`polygram.config.EpochCompressionConfig`. Pass
+    ``config=EpochCompressionConfig(...)`` to swap in a tuning bundle;
+    individual kwargs always win over ``config``, which wins over the
+    dataclass defaults. The pre-change exhaustive-offline-run defaults
+    are reachable via :meth:`EpochCompressor.thorough`.
     """
 
     sae_checkpoint: Path
@@ -75,18 +83,24 @@ class EpochCompressor:
     model_name: str = "gpt2"
     strategy: str = "zero"
     device: str | None = None
-    coverage_target: float = 0.95
-    cosine_threshold: float = 0.30
-    n_visits_per_feature: int = 3
+    # Tuning fields default to ``None`` as a sentinel; ``__post_init__``
+    # resolves them via per-field-kwarg > config > dataclass-default
+    # precedence. Defaults match the iterative-loop preset (the new
+    # behaviour after polygram-tuning-config); ``EpochCompressor.thorough``
+    # restores the pre-change exhaustive-offline-run defaults.
+    coverage_target: float | None = None
+    cosine_threshold: float | None = None
+    n_visits_per_feature: int | None = None
     n_panels_max: int = 1000
-    min_firing_rate: float = 0.01
-    max_iterations: int = 5
-    quality_delta_multiplier: float = 2.0
-    polygram_overlap_threshold: float = 0.7
-    jaccard_threshold: float = 0.30
-    min_both_fire: int = 5
+    min_firing_rate: float | None = None
+    max_iterations: int | None = None
+    quality_delta_multiplier: float | None = None
+    polygram_overlap_threshold: float | None = None
+    jaccard_threshold: float | None = None
+    min_both_fire: int | None = None
     save_intermediate_reports: bool = False
     allow_layer_zero: bool = False
+    config: "EpochCompressionConfig | None" = None
 
     # Internal state populated during run()
     _zeroed: set[int] = field(default_factory=set, init=False, repr=False, compare=False)
@@ -96,6 +110,38 @@ class EpochCompressor:
     # ----------------------------------------------------------------
 
     def __post_init__(self) -> None:
+        # Precedence resolution against an optional EpochCompressionConfig.
+        # Per-field kwargs (already non-None) win; otherwise pull from the
+        # supplied config; otherwise fall through to the iterative-preset
+        # defaults stored on EpochCompressionConfig itself. The embedded
+        # ``validation: ValidationConfig`` field of the config (when set)
+        # supplies polygram_overlap_threshold / jaccard_threshold /
+        # min_both_fire when those per-field kwargs aren't given.
+        from polygram.config import EpochCompressionConfig, ValidationConfig
+
+        cfg = self.config if self.config is not None else EpochCompressionConfig()
+        val_cfg = (
+            cfg.validation if cfg.validation is not None else ValidationConfig()
+        )
+        if self.coverage_target is None:
+            self.coverage_target = cfg.coverage_target
+        if self.cosine_threshold is None:
+            self.cosine_threshold = cfg.cosine_threshold
+        if self.n_visits_per_feature is None:
+            self.n_visits_per_feature = cfg.n_visits_per_feature
+        if self.max_iterations is None:
+            self.max_iterations = cfg.max_iterations
+        if self.quality_delta_multiplier is None:
+            self.quality_delta_multiplier = cfg.quality_delta_multiplier
+        if self.polygram_overlap_threshold is None:
+            self.polygram_overlap_threshold = val_cfg.polygram_overlap_threshold
+        if self.jaccard_threshold is None:
+            self.jaccard_threshold = val_cfg.jaccard_threshold
+        if self.min_firing_rate is None:
+            self.min_firing_rate = val_cfg.min_firing_rate
+        if self.min_both_fire is None:
+            self.min_both_fire = val_cfg.min_both_fire
+
         self.sae_checkpoint = Path(self.sae_checkpoint)
         if not self.sae_checkpoint.is_file():
             raise ValueError(
@@ -157,6 +203,52 @@ class EpochCompressor:
                 "probe.md); use layer >= 5 (recommended: 10), or pass "
                 "allow_layer_zero=True"
             )
+
+    # ----------------------------------------------------------------
+    # Named tuning presets (see polygram.config)
+    # ----------------------------------------------------------------
+
+    @classmethod
+    def fast(cls, **overrides) -> "EpochCompressor":
+        """Construct an ``EpochCompressor`` tuned for the iterative
+        outer-loop case: ``coverage_target=0.5``, ``n_visits_per_feature=1``,
+        ``max_iterations=1`` (the dataclass defaults after
+        polygram-tuning-config).
+
+        ``**overrides`` accepts every constructor kwarg, including the
+        required positional inputs (``sae_checkpoint``, ``prompts``,
+        ``layer``). Tuning kwargs in ``overrides`` win over the preset.
+        """
+        from polygram.config import EpochCompressionConfig
+
+        defaults = EpochCompressionConfig()
+        return cls._from_preset(defaults, overrides)
+
+    @classmethod
+    def thorough(cls, **overrides) -> "EpochCompressor":
+        """Construct an ``EpochCompressor`` tuned for the
+        exhaustive-offline-run case (the pre-change defaults):
+        ``coverage_target=0.95``, ``n_visits_per_feature=3``,
+        ``max_iterations=5``.
+        """
+        from polygram.config import EpochCompressionConfig
+
+        defaults = EpochCompressionConfig(
+            coverage_target=0.95,
+            cosine_threshold=0.30,
+            n_visits_per_feature=3,
+            max_iterations=5,
+        )
+        return cls._from_preset(defaults, overrides)
+
+    @classmethod
+    def _from_preset(
+        cls, preset, overrides: dict
+    ) -> "EpochCompressor":
+        # Tuning kwargs in ``overrides`` win over the preset's values; we
+        # rely on the constructor's own precedence resolution by passing
+        # ``config=preset`` plus any explicit overrides.
+        return cls(config=preset, **overrides)
 
     # ----------------------------------------------------------------
     # Main loop

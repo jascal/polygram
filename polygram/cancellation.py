@@ -19,8 +19,12 @@ import math
 import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from polygram.config import CancellationConfig  # noqa: F401
 
 from polygram._assertions import hierarchical_ordering_preserved
 from polygram.dictionary import Dictionary, _parse_knob_path
@@ -180,6 +184,13 @@ class Cancellation:
     `tolerance`, optionally constrained to preserve hierarchical-tier
     ordering.
 
+    Pass ``config=CancellationConfig(...)`` (see :mod:`polygram.config`)
+    to supply a typed tuning bundle for ``tolerance``, ``preserve_tiers``,
+    ``optimize``, ``grid_outer``, and ``min_amp_overlap``. Per-field
+    kwargs win over ``config``, which wins over the dataclass defaults.
+    Search-target fields (``dictionary``, ``target_pair``, ``knobs``,
+    ``optimize_all``) remain explicit constructor inputs.
+
     The default search space is the two `<feature>.phi` knobs of the
     target pair (preserves the rung-1 2-φ behavior). For HEA
     dictionaries, callers can pass a richer `knobs` list mixing
@@ -195,18 +206,40 @@ class Cancellation:
 
     dictionary: Dictionary
     target_pair: tuple[str, str]
-    tolerance: float = 0.05
-    preserve_tiers: bool = True
-    optimize: dict = field(
-        default_factory=lambda: {"method": "grid", "max_steps": 50}
-    )
+    # Tuning fields default to ``None`` as a sentinel; ``__post_init__``
+    # resolves them via the per-field-kwarg > config > dataclass-default
+    # precedence rule documented in :mod:`polygram.config`. The resolved
+    # values are always concrete (non-None) post-construction, matching
+    # the pre-config-rewrite behaviour.
+    tolerance: float | None = None
+    preserve_tiers: bool | None = None
+    optimize: dict | None = None
     optimize_all: bool = False
     knobs: list[str] | None = None
     encoding: str | None = None
-    grid_outer: tuple[int, int] = (5, 5)
-    min_amp_overlap: float = 0.0
+    grid_outer: tuple[int, int] | None = None
+    min_amp_overlap: float | None = None
+    config: "CancellationConfig | None" = None
 
     def __post_init__(self) -> None:
+        # ``config`` precedence resolution. Per-field kwargs (already set
+        # to non-None on the instance) win; otherwise pull from ``config``
+        # if supplied; otherwise fall through to ``CancellationConfig``'s
+        # own defaults.
+        from polygram.config import CancellationConfig
+
+        cfg = self.config if self.config is not None else CancellationConfig()
+        if self.tolerance is None:
+            self.tolerance = cfg.tolerance
+        if self.preserve_tiers is None:
+            self.preserve_tiers = cfg.preserve_tiers
+        if self.optimize is None:
+            self.optimize = dict(cfg.optimize)
+        if self.grid_outer is None:
+            self.grid_outer = cfg.grid_outer
+        if self.min_amp_overlap is None:
+            self.min_amp_overlap = cfg.min_amp_overlap
+
         if self.optimize_all:
             raise NotImplementedError(
                 "optimize_all=True is reserved for a future release; "

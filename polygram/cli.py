@@ -103,9 +103,14 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     feature_ids = _parse_feature_ids(args.features)
     records = load_toy_sae(sae_path)
 
-    from_sae_lens_kwargs: dict[str, Any] = {}
-    if args.assign_gamma:
-        from_sae_lens_kwargs["assign_gamma"] = True
+    from_sae_lens_kwargs: dict[str, Any] = {
+        # Preserve the CLI's existing contract — "without --assign-gamma,
+        # every feature gets γ=0" — even after polygram's library-level
+        # default flipped to True. The CLI flag stays the user-facing
+        # opt-in; passing it explicit-False here insulates the CLI from
+        # the library default change.
+        "assign_gamma": bool(args.assign_gamma),
+    }
     if args.n_clusters is not None:
         from_sae_lens_kwargs["n_clusters"] = args.n_clusters
 

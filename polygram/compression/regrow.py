@@ -42,7 +42,10 @@ import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
+
+if TYPE_CHECKING:
+    from polygram.config import RegrowConfig  # noqa: F401
 
 import numpy as np
 
@@ -192,15 +195,57 @@ class Regrower:
         report,  # CompressionReport — quoted to keep the import lazy-free
         sae_checkpoint: str | os.PathLike,
         *,
-        strategy: str,
+        strategy: str | None = None,
         prompts: Sequence[str] | None = None,
         cached_residuals: np.ndarray | None = None,
-        seed: int = 0,
-        n_init: int = 4,
-        model_name: str = "gpt2",
-        layer: int = 10,
+        seed: int | None = None,
+        n_init: int | None = None,
+        model_name: str | None = None,
+        layer: int | None = None,
         device: str | None = None,
+        config: "RegrowConfig | None" = None,
     ) -> "Regrower":
+        # Precedence: per-field kwarg (non-None) > config > error for
+        # required fields (model_name, layer have no default — silently
+        # falling back to GPT-2 layer 10 was the pre-change footgun).
+        if config is not None:
+            if strategy is None:
+                strategy = config.strategy
+            if prompts is None and config.prompts is not None:
+                prompts = list(config.prompts)
+            if seed is None:
+                seed = config.seed
+            if n_init is None:
+                n_init = config.n_init
+            if model_name is None:
+                model_name = config.model_name
+            if layer is None:
+                layer = config.layer
+            if device is None:
+                device = config.device
+        # Required-field enforcement: when no config supplies them and no
+        # per-field kwarg is given, raise a clear TypeError. The previous
+        # ``model_name="gpt2"`` and ``layer=10`` defaults silently bound
+        # the regrower to a GPT-2-shaped host model — incorrect for any
+        # other architecture.
+        missing = [
+            name
+            for name, value in (("model_name", model_name), ("layer", layer))
+            if value is None
+        ]
+        if missing:
+            raise TypeError(
+                f"Regrower.from_compression_report missing required keyword "
+                f"argument(s): {', '.join(missing)}. Pass them explicitly or "
+                f"via config=RegrowConfig(model_name=..., layer=...)."
+            )
+        # Fill defaults for the optional fields we made sentinels above.
+        if strategy is None:
+            strategy = "residual_kmeans"
+        if seed is None:
+            seed = 0
+        if n_init is None:
+            n_init = 4
         zeroed: set[int] = {
             int(fid)
             for cluster in report.plan.clusters

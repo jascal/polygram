@@ -25,7 +25,10 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
+
+if TYPE_CHECKING:
+    from polygram.config import ValidationConfig  # noqa: F401
 
 import numpy as np
 
@@ -75,6 +78,10 @@ class BehaviouralValidator:
     high-bucket CIs; `min_firing_rate = 0.01` matches §4.4's
     eligibility filter; `min_both_fire = 5` is the §4.4 KL-ratio
     definability gate.
+
+    Pass ``config=ValidationConfig(...)`` (see :mod:`polygram.config`)
+    to supply a typed tuning bundle. Per-field kwargs win over ``config``,
+    which wins over the dataclass defaults.
     """
 
     dictionary: Dictionary
@@ -83,12 +90,16 @@ class BehaviouralValidator:
     prompts: Sequence[str]
     layer: int
     model_name: str = "gpt2"
-    polygram_overlap_threshold: float = 0.7
-    jaccard_threshold: float = 0.30
-    min_firing_rate: float = 0.01
-    min_both_fire: int = 5
-    allow_layer_zero: bool = False
+    # Tuning fields default to ``None`` as a sentinel; ``__post_init__``
+    # resolves them via the per-field-kwarg > config > dataclass-default
+    # precedence rule documented in :mod:`polygram.config`.
+    polygram_overlap_threshold: float | None = None
+    jaccard_threshold: float | None = None
+    min_firing_rate: float | None = None
+    min_both_fire: int | None = None
+    allow_layer_zero: bool | None = None
     device: str | None = None
+    config: "ValidationConfig | None" = None
 
     # Internal cache of decoder rows after a successful predict() call.
     _decoder_rows_cache: np.ndarray | None = field(
@@ -100,6 +111,21 @@ class BehaviouralValidator:
     # ----------------------------------------------------------------
 
     def __post_init__(self) -> None:
+        # Precedence resolution against an optional ValidationConfig.
+        from polygram.config import ValidationConfig
+
+        cfg = self.config if self.config is not None else ValidationConfig()
+        if self.polygram_overlap_threshold is None:
+            self.polygram_overlap_threshold = cfg.polygram_overlap_threshold
+        if self.jaccard_threshold is None:
+            self.jaccard_threshold = cfg.jaccard_threshold
+        if self.min_firing_rate is None:
+            self.min_firing_rate = cfg.min_firing_rate
+        if self.min_both_fire is None:
+            self.min_both_fire = cfg.min_both_fire
+        if self.allow_layer_zero is None:
+            self.allow_layer_zero = cfg.allow_layer_zero
+
         if not isinstance(self.feature_ids, list):
             self.feature_ids = list(self.feature_ids)
         n_dict = len(self.dictionary.features)

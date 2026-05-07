@@ -70,3 +70,52 @@ class TestPostinit:
                 sae_checkpoint=_checkpoint(tmp_path),
                 representatives={0: 7},
             )
+
+
+# ---------------------------------------------------------------------------
+# Tasks §4.3 — Compressor accepts CompressionConfig with override precedence.
+# Note: Compressor's legacy defaults (strategy="zero", rep_selection="n_fires")
+# differ from CompressionConfig's defaults, so a no-config call preserves the
+# historical defaults; supplying a config switches in the config's values.
+# ---------------------------------------------------------------------------
+
+
+class TestCompressionConfigPassthrough:
+    def test_no_config_preserves_legacy_defaults(self, tmp_path: Path):
+        report = build_report(n_features=8, confirmed=[(0, 1)])
+        c = Compressor(
+            validation_report=report,
+            sae_checkpoint=_checkpoint(tmp_path),
+        )
+        assert c.strategy == "zero"
+        assert c.rep_selection == "n_fires"
+        assert c.merge_mode == "freq_weighted"
+
+    def test_config_overrides_legacy_defaults(self, tmp_path: Path):
+        from polygram import CompressionConfig
+
+        report = build_report(n_features=8, confirmed=[(0, 1)])
+        cfg = CompressionConfig(strategy="merge", rep_selection="scale_aware")
+        c = Compressor(
+            validation_report=report,
+            sae_checkpoint=_checkpoint(tmp_path),
+            config=cfg,
+        )
+        assert c.strategy == "merge"
+        assert c.rep_selection == "scale_aware"
+        assert c.merge_mode == "freq_weighted"  # CompressionConfig default
+
+    def test_per_field_kwarg_overrides_config(self, tmp_path: Path):
+        from polygram import CompressionConfig
+
+        report = build_report(n_features=8, confirmed=[(0, 1)])
+        cfg = CompressionConfig(strategy="merge", rep_selection="scale_aware")
+        c = Compressor(
+            validation_report=report,
+            sae_checkpoint=_checkpoint(tmp_path),
+            config=cfg,
+            strategy="zero",
+        )
+        # kwarg wins for strategy; config still supplies rep_selection.
+        assert c.strategy == "zero"
+        assert c.rep_selection == "scale_aware"

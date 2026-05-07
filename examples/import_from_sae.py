@@ -51,7 +51,15 @@ FIXTURE = (
 def build_dictionary_and_report():
     records = load_toy_sae(FIXTURE)
     selection = [0, 1, 4, 5]  # mammals/dog_{poodle, beagle} + birds/hawk_{red, cooper}
-    return from_sae_lens(records, selection, name="ToySAEAnimals")
+    # The toy fixture's projections are tuned for the all-γ=0 path;
+    # ``assign_gamma=True`` (polygram's new default for real SAEs) gives
+    # this toy dictionary nonzero γs that violate the
+    # hierarchical_ordering_preserved invariant on the demo sweep. Pin
+    # the legacy behaviour explicitly here so the example's downstream
+    # assertions remain stable.
+    return from_sae_lens(
+        records, selection, name="ToySAEAnimals", assign_gamma=False
+    )
 
 
 def main(

@@ -75,6 +75,12 @@ def main(argv: list[str] | None = None) -> int:
              "residual stream (default: 10, matching the §4.4 hook)",
     )
     parser.add_argument(
+        "--model-name", type=str, default="gpt2",
+        help="HuggingFace model id for the residual-capture pass "
+             "(default: gpt2). Required by Regrower.from_compression_report "
+             "since polygram-tuning-config removed the silent GPT-2 default.",
+    )
+    parser.add_argument(
         "--seed", type=int, default=0,
         help="RNG seed for k-means (default: 0)",
     )
@@ -142,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         prompts=prompts,
         seed=args.seed,
         layer=args.layer,
+        model_name=args.model_name,
     )
 
     print(

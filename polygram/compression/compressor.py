@@ -27,8 +27,12 @@ import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from polygram.config import CompressionConfig  # noqa: F401
 
 from polygram.behavioural.report import CandidatePair, ValidationReport
 from polygram.compression._hash import sha256_file
@@ -56,9 +60,14 @@ class Compressor:
     """Consumes a `ValidationReport` and rewrites an SAE checkpoint
     so the redundancies the validator confirmed become inert.
 
-    Defaults encode the §4.4 / §5.1 calibration: the only currently
-    implemented strategy is `"zero"` (see `add-compression-action/
-    design.md` Decision 5); `merge` is deferred.
+    Defaults encode the §4.4 / §5.1 calibration. Pass
+    ``config=CompressionConfig(...)`` (see :mod:`polygram.config`) to
+    swap in a typed tuning bundle; per-field kwargs win over ``config``,
+    which wins over the dataclass defaults. Note that the dataclass
+    defaults here (``strategy="zero"``, ``rep_selection="n_fires"``)
+    differ from ``CompressionConfig``'s own iterative-friendly defaults
+    (``"merge"`` / ``"scale_aware"``); a no-config call therefore
+    preserves the historical defaults rather than silently switching.
 
     `representatives` overrides the per-cluster representative pick.
     Keys are cluster ids assigned in `plan()` by ascending min-fid;
@@ -68,10 +77,19 @@ class Compressor:
 
     validation_report: ValidationReport
     sae_checkpoint: Path
-    strategy: str = "zero"
-    rep_selection: str = "n_fires"
-    merge_mode: str = "freq_weighted"
+    # Tuning fields default to ``None`` as a sentinel; ``__post_init__``
+    # resolves them via per-field-kwarg > config > legacy-default. Note
+    # that the legacy Compressor defaults (``"zero"`` / ``"n_fires"`` /
+    # ``"freq_weighted"``) differ from ``CompressionConfig``'s own
+    # iterative-friendly defaults (``"merge"`` / ``"scale_aware"`` /
+    # ``"freq_weighted"``); a no-config call therefore preserves the
+    # historical Compressor defaults rather than silently switching to
+    # the config defaults. See :mod:`polygram.config`.
+    strategy: str | None = None
+    rep_selection: str | None = None
+    merge_mode: str | None = None
     representatives: dict[int, int] | None = None
+    config: "CompressionConfig | None" = None
 
     # Cached union-find clusters keyed by cluster_id; populated by
     # `plan()` and consulted by the `representatives` validator.
@@ -90,6 +108,24 @@ class Compressor:
     # ----------------------------------------------------------------
 
     def __post_init__(self) -> None:
+        # Precedence: per-field kwarg (already set on instance) > config
+        # > legacy-default. Resolve before the existing range checks.
+        if self.config is not None:
+            if self.strategy is None:
+                self.strategy = self.config.strategy
+            if self.rep_selection is None:
+                self.rep_selection = self.config.rep_selection
+            if self.merge_mode is None:
+                self.merge_mode = self.config.merge_mode
+        # Legacy fallbacks (preserves pre-config-rewrite behaviour for
+        # the no-config-no-kwargs construction path).
+        if self.strategy is None:
+            self.strategy = "zero"
+        if self.rep_selection is None:
+            self.rep_selection = "n_fires"
+        if self.merge_mode is None:
+            self.merge_mode = "freq_weighted"
+
         self.sae_checkpoint = Path(self.sae_checkpoint)
         if not self.sae_checkpoint.is_file():
             raise ValueError(

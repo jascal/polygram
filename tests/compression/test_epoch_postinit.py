@@ -85,3 +85,95 @@ class TestPostInit:
             sae_checkpoint=_checkpoint(tmp_path),
             prompts=["x"], layer=0, allow_layer_zero=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# Tasks §4.3 / §5.2 / §5.3 — EpochCompressor accepts EpochCompressionConfig
+# with override precedence; named presets `.fast()` / `.thorough()` bundle
+# tuning defaults so callers don't repeat the same kwargs.
+# ---------------------------------------------------------------------------
+
+
+class TestEpochCompressionConfigPassthrough:
+    def test_no_config_uses_iterative_preset_defaults(self, tmp_path: Path):
+        ec = EpochCompressor(
+            sae_checkpoint=_checkpoint(tmp_path), prompts=["x"], layer=10,
+        )
+        # New defaults after polygram-tuning-config (was 0.95 / 3 / 5).
+        assert ec.coverage_target == 0.5
+        assert ec.n_visits_per_feature == 1
+        assert ec.max_iterations == 1
+        # cosine_threshold default unchanged.
+        assert ec.cosine_threshold == 0.30
+
+    def test_config_supplies_unset_fields(self, tmp_path: Path):
+        from polygram import EpochCompressionConfig
+
+        cfg = EpochCompressionConfig(coverage_target=0.9, max_iterations=3)
+        ec = EpochCompressor(
+            sae_checkpoint=_checkpoint(tmp_path), prompts=["x"], layer=10,
+            config=cfg,
+        )
+        assert ec.coverage_target == 0.9
+        assert ec.max_iterations == 3
+        # other fields take config defaults
+        assert ec.n_visits_per_feature == 1
+
+    def test_per_field_kwarg_overrides_config(self, tmp_path: Path):
+        from polygram import EpochCompressionConfig
+
+        cfg = EpochCompressionConfig(coverage_target=0.9)
+        ec = EpochCompressor(
+            sae_checkpoint=_checkpoint(tmp_path), prompts=["x"], layer=10,
+            config=cfg, coverage_target=0.7,
+        )
+        # kwarg wins.
+        assert ec.coverage_target == 0.7
+
+    def test_validation_config_supplies_validator_knobs(self, tmp_path: Path):
+        from polygram import EpochCompressionConfig, ValidationConfig
+
+        cfg = EpochCompressionConfig(
+            validation=ValidationConfig(
+                polygram_overlap_threshold=0.85,
+                jaccard_threshold=0.5,
+                min_both_fire=8,
+            )
+        )
+        ec = EpochCompressor(
+            sae_checkpoint=_checkpoint(tmp_path), prompts=["x"], layer=10,
+            config=cfg,
+        )
+        assert ec.polygram_overlap_threshold == 0.85
+        assert ec.jaccard_threshold == 0.5
+        assert ec.min_both_fire == 8
+
+
+class TestEpochCompressorPresets:
+    def test_fast_matches_default_construction(self, tmp_path: Path):
+        # Spec scenario: a = .fast(), b = default; tuning fields equal.
+        ckpt = _checkpoint(tmp_path)
+        a = EpochCompressor.fast(sae_checkpoint=ckpt, prompts=["x"], layer=10)
+        b = EpochCompressor(sae_checkpoint=ckpt, prompts=["x"], layer=10)
+        assert a.coverage_target == b.coverage_target
+        assert a.n_visits_per_feature == b.n_visits_per_feature
+        assert a.max_iterations == b.max_iterations
+
+    def test_thorough_restores_legacy_defaults(self, tmp_path: Path):
+        ec = EpochCompressor.thorough(
+            sae_checkpoint=_checkpoint(tmp_path), prompts=["x"], layer=10,
+        )
+        assert ec.coverage_target == 0.95
+        assert ec.n_visits_per_feature == 3
+        assert ec.max_iterations == 5
+
+    def test_fast_accepts_overrides(self, tmp_path: Path):
+        ec = EpochCompressor.fast(
+            sae_checkpoint=_checkpoint(tmp_path), prompts=["x"], layer=10,
+            coverage_target=0.6,
+        )
+        # override wins...
+        assert ec.coverage_target == 0.6
+        # ...others stay at fast() values
+        assert ec.n_visits_per_feature == 1
+        assert ec.max_iterations == 1

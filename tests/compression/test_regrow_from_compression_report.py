@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from polygram import (
     ClusterPlan,
@@ -60,7 +61,7 @@ class TestChainedConstructor:
         ).astype(np.float32)
         r = Regrower.from_compression_report(
             report, sae_checkpoint=sae_path,
-            strategy="residual_kmeans",
+            strategy="residual_kmeans", model_name="gpt2", layer=10,
             cached_residuals=residuals,
         )
         assert sorted(r.zeroed) == [2, 9]
@@ -73,7 +74,7 @@ class TestChainedConstructor:
         ).astype(np.float32)
         r = Regrower.from_compression_report(
             report, sae_checkpoint=sae_path,
-            strategy="residual_kmeans",
+            strategy="residual_kmeans", model_name="gpt2", layer=10,
             cached_residuals=residuals,
         )
         result = r.run(tmp_path / "out.safetensors")
@@ -88,8 +89,90 @@ class TestChainedConstructor:
             (50, 8)
         ).astype(np.float32)
         r = Regrower(
-            sae_checkpoint=sae_path, strategy="residual_kmeans",
+            sae_checkpoint=sae_path, strategy="residual_kmeans", model_name="gpt2", layer=10,
             zeroed={2, 9}, cached_residuals=residuals,
         )
         result = r.run(tmp_path / "out.safetensors")
         assert result.report.provenance == {}
+
+
+# ---------------------------------------------------------------------------
+# Tasks §8 — Regrower.from_compression_report requires explicit model_name
+# and layer (no GPT-2 fallback) and accepts a RegrowConfig with the
+# documented kwarg > config > defaults precedence.
+# ---------------------------------------------------------------------------
+
+
+class TestFromCompressionReportRequiredKwargs:
+    def test_missing_model_name_raises(self, tmp_path: Path):
+        sae_path = _setup(tmp_path)
+        report = _hand_built_compression_report(sae_path)
+        with pytest.raises(TypeError, match="model_name"):
+            Regrower.from_compression_report(
+                report, sae_checkpoint=sae_path,
+                strategy="residual_kmeans",
+                cached_residuals=np.zeros((10, 8), dtype=np.float32),
+                layer=10,  # model_name missing
+            )
+
+    def test_missing_layer_raises(self, tmp_path: Path):
+        sae_path = _setup(tmp_path)
+        report = _hand_built_compression_report(sae_path)
+        with pytest.raises(TypeError, match="layer"):
+            Regrower.from_compression_report(
+                report, sae_checkpoint=sae_path,
+                strategy="residual_kmeans",
+                cached_residuals=np.zeros((10, 8), dtype=np.float32),
+                model_name="gpt2",  # layer missing
+            )
+
+    def test_missing_both_raises_with_both_in_message(self, tmp_path: Path):
+        sae_path = _setup(tmp_path)
+        report = _hand_built_compression_report(sae_path)
+        with pytest.raises(TypeError) as excinfo:
+            Regrower.from_compression_report(
+                report, sae_checkpoint=sae_path,
+                strategy="residual_kmeans",
+                cached_residuals=np.zeros((10, 8), dtype=np.float32),
+            )
+        assert "model_name" in str(excinfo.value)
+        assert "layer" in str(excinfo.value)
+
+
+class TestFromCompressionReportConfigPassthrough:
+    def test_config_supplies_model_name_and_layer(self, tmp_path: Path):
+        from polygram import RegrowConfig
+
+        sae_path = _setup(tmp_path)
+        report = _hand_built_compression_report(sae_path)
+        cfg = RegrowConfig(model_name="pythia-160m", layer=4, seed=42)
+        residuals = np.random.default_rng(0).standard_normal(
+            (50, 8)
+        ).astype(np.float32)
+        r = Regrower.from_compression_report(
+            report, sae_checkpoint=sae_path,
+            strategy="residual_kmeans",
+            cached_residuals=residuals,
+            config=cfg,
+        )
+        assert r.model_name == "pythia-160m"
+        assert r.layer == 4
+        assert r.seed == 42
+
+    def test_per_field_kwarg_overrides_config(self, tmp_path: Path):
+        from polygram import RegrowConfig
+
+        sae_path = _setup(tmp_path)
+        report = _hand_built_compression_report(sae_path)
+        cfg = RegrowConfig(model_name="pythia-160m", layer=4)
+        residuals = np.random.default_rng(0).standard_normal(
+            (50, 8)
+        ).astype(np.float32)
+        r = Regrower.from_compression_report(
+            report, sae_checkpoint=sae_path,
+            strategy="residual_kmeans",
+            cached_residuals=residuals,
+            config=cfg, layer=10,
+        )
+        assert r.model_name == "pythia-160m"  # from config
+        assert r.layer == 10  # kwarg wins
