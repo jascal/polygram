@@ -824,3 +824,68 @@ class TestRung3Cancellation:
                 dictionary=d, target_pair=("a", "b"),
                 min_amp_overlap=0.5,
             )
+
+
+# ---------------------------------------------------------------------------
+# Tasks §3.3 — Cancellation accepts CancellationConfig with override
+# precedence: per-field kwarg > config > dataclass-default. See
+# polygram.config for the documented rule.
+# ---------------------------------------------------------------------------
+
+
+class TestCancellationConfigPassthrough:
+    def _animals_local(self):
+        return _animals()
+
+    def test_no_config_preserves_legacy_defaults(self):
+        from polygram import Cancellation
+
+        canc = Cancellation(
+            dictionary=self._animals_local(), target_pair=("dog_poodle", "bird_hawk")
+        )
+        # Pre-config legacy defaults round-tripped through CancellationConfig.
+        assert canc.tolerance == 0.05
+        assert canc.preserve_tiers is True
+        assert canc.optimize == {"method": "grid", "max_steps": 50}
+        assert canc.grid_outer == (5, 5)
+        assert canc.min_amp_overlap == 0.0
+
+    def test_config_supplies_unset_fields(self):
+        from polygram import Cancellation, CancellationConfig
+
+        cfg = CancellationConfig(tolerance=0.01, preserve_tiers=False)
+        canc = Cancellation(
+            dictionary=self._animals_local(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            config=cfg,
+        )
+        # Config fills in for the unsupplied fields...
+        assert canc.tolerance == 0.01
+        assert canc.preserve_tiers is False
+        # ...and other fields keep CancellationConfig's own defaults.
+        assert canc.optimize == {"method": "grid", "max_steps": 50}
+        assert canc.grid_outer == (5, 5)
+
+    def test_per_field_kwarg_overrides_config(self):
+        from polygram import Cancellation, CancellationConfig
+
+        cfg = CancellationConfig(tolerance=0.01)
+        canc = Cancellation(
+            dictionary=self._animals_local(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            config=cfg,
+            tolerance=0.001,
+        )
+        # kwarg wins over config.
+        assert canc.tolerance == 0.001
+
+    def test_config_optimize_dict_propagates(self):
+        from polygram import Cancellation, CancellationConfig
+
+        cfg = CancellationConfig(optimize={"method": "grid", "max_steps": 7})
+        canc = Cancellation(
+            dictionary=self._animals_local(),
+            target_pair=("dog_poodle", "bird_hawk"),
+            config=cfg,
+        )
+        assert canc.optimize == {"method": "grid", "max_steps": 7}

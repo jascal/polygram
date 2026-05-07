@@ -171,3 +171,61 @@ class TestPostInit:
                 prompts=["x"],
                 layer=5,
             )
+
+
+# ---------------------------------------------------------------------------
+# Tasks §3.3 — BehaviouralValidator accepts ValidationConfig with override
+# precedence (per-field kwarg > config > dataclass-default).
+# ---------------------------------------------------------------------------
+
+
+class TestValidationConfigPassthrough:
+    def test_no_config_preserves_legacy_defaults(self, tmp_path: Path):
+        dictionary, sae_path = _build_dict(tmp_path, [0, 1])
+        v = BehaviouralValidator(
+            dictionary=dictionary,
+            sae_checkpoint=sae_path,
+            feature_ids=[0, 1],
+            prompts=["x"],
+            layer=5,
+        )
+        assert v.polygram_overlap_threshold == 0.7
+        assert v.jaccard_threshold == 0.30
+        assert v.min_firing_rate == 0.01
+        assert v.min_both_fire == 5
+        assert v.allow_layer_zero is False
+
+    def test_config_supplies_unset_fields(self, tmp_path: Path):
+        from polygram import ValidationConfig
+
+        dictionary, sae_path = _build_dict(tmp_path, [0, 1])
+        cfg = ValidationConfig(polygram_overlap_threshold=0.8, jaccard_threshold=0.5)
+        v = BehaviouralValidator(
+            dictionary=dictionary,
+            sae_checkpoint=sae_path,
+            feature_ids=[0, 1],
+            prompts=["x"],
+            layer=5,
+            config=cfg,
+        )
+        assert v.polygram_overlap_threshold == 0.8
+        assert v.jaccard_threshold == 0.5
+        # Fields not on the config still take ValidationConfig's own defaults.
+        assert v.min_firing_rate == 0.01
+        assert v.min_both_fire == 5
+
+    def test_per_field_kwarg_overrides_config(self, tmp_path: Path):
+        from polygram import ValidationConfig
+
+        dictionary, sae_path = _build_dict(tmp_path, [0, 1])
+        cfg = ValidationConfig(polygram_overlap_threshold=0.8)
+        v = BehaviouralValidator(
+            dictionary=dictionary,
+            sae_checkpoint=sae_path,
+            feature_ids=[0, 1],
+            prompts=["x"],
+            layer=5,
+            config=cfg,
+            polygram_overlap_threshold=0.95,
+        )
+        assert v.polygram_overlap_threshold == 0.95

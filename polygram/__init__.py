@@ -1,6 +1,14 @@
 """Polygram — quantum interference laboratory for polysemantic feature dictionaries."""
 
 from polygram.batch import BatchExperiment, BatchResults, BatchRun
+from polygram.config import (
+    CancellationConfig,
+    CompressionConfig,
+    EpochCompressionConfig,
+    RegrowConfig,
+    SAEImportConfig,
+    ValidationConfig,
+)
 from polygram.confirmation import ClusterConfirmer, Confirmer, DecoderGeometryConfirmer
 from polygram.behavioural import (
     BehaviouralValidator,
@@ -48,6 +56,12 @@ __all__ = [
     "BatchRun",
     "BehaviouralValidator",
     "BucketStats",
+    "CancellationConfig",
+    "CompressionConfig",
+    "EpochCompressionConfig",
+    "RegrowConfig",
+    "SAEImportConfig",
+    "ValidationConfig",
     "ClusterConfirmer",
     "Confirmer",
     "DecoderGeometryConfirmer",

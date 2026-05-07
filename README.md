@@ -496,6 +496,89 @@ wrapper: `polygram compress-epoch ...`. Worked example:
 `examples/compress_epoch_validated.py`. See
 `docs/research/compression-epoch-design.md` for the rationale.
 
+## Configuration (`polygram.config`)
+
+Every tunable knob on a public polygram constructor is also reachable
+through a frozen dataclass under `polygram.config`. Six configs cover
+the surface:
+
+| Config | Used by | Defaults |
+|---|---|---|
+| `CompressionConfig` | `Compressor` | `strategy="merge"`, `rep_selection="scale_aware"`, `merge_mode="freq_weighted"`, `confirmer=None` |
+| `EpochCompressionConfig` | `EpochCompressor` (embeds `ValidationConfig` via the `validation` field) | iterative-loop preset: `coverage_target=0.5`, `cosine_threshold=0.30`, `n_visits_per_feature=1`, `max_iterations=1`, `quality_delta_multiplier=2.0` |
+| `CancellationConfig` | `Cancellation` | `tolerance=0.05`, `preserve_tiers=True`, `optimize={"method":"grid","max_steps":50}`, `grid_outer=(5,5)`, `min_amp_overlap=0.0` |
+| `ValidationConfig` | `BehaviouralValidator`, embedded in `EpochCompressionConfig` | `polygram_overlap_threshold=0.7`, `jaccard_threshold=0.30`, `min_firing_rate=0.01`, `min_both_fire=5`, `allow_layer_zero=False` |
+| `RegrowConfig` | `Regrower.from_compression_report` | required: `model_name`, `layer`. Optional: `strategy="residual_kmeans"`, `seed=0`, `n_init=4`, `prompts=None`, `device=None` |
+| `SAEImportConfig` | `from_sae_lens` | `assign_gamma=True` (flipped from the legacy `False`), `gamma_range=(-0.25, 0.25)`, `n_clusters=2` |
+
+### Override precedence
+
+Each affected constructor accepts an optional `config=` keyword. The
+resolution rule is **per-field kwargs > config > dataclass defaults**:
+
+```python
+from polygram import Cancellation, CancellationConfig
+
+cfg = CancellationConfig(tolerance=0.01, preserve_tiers=False)
+
+# Both kwargs taken from cfg.
+canc = Cancellation(dictionary=d, target_pair=("a", "b"), config=cfg)
+
+# Same cfg, but tolerance overridden by the per-field kwarg.
+canc = Cancellation(
+    dictionary=d, target_pair=("a", "b"),
+    config=cfg, tolerance=0.001,
+)
+```
+
+When `config` is omitted and no per-field kwargs are passed, behaviour
+matches the constructor's pre-config defaults — except for the three
+intentional default flips called out below (see CHANGELOG).
+
+### Named presets on `EpochCompressor`
+
+`EpochCompressor.fast()` returns an instance whose tuning matches the
+new iterative-preset defaults; `EpochCompressor.thorough()` restores
+the pre-change "exhaustive offline run" defaults
+(`coverage_target=0.95`, `n_visits_per_feature=3`, `max_iterations=5`).
+Both classmethods accept `**overrides` for any constructor kwarg,
+including the required positional inputs:
+
+```python
+ec = EpochCompressor.fast(
+    sae_checkpoint=ckpt, prompts=prompts, layer=10,
+    coverage_target=0.6,  # override the preset
+)
+```
+
+### Dict round-trip (FSM contexts, YAML configs)
+
+Every config has `to_dict()` (JSON-serialisable; tuples → lists; nested
+configs serialised recursively) and a `from_dict(data)` classmethod
+that coerces lists back into tuple-typed fields, recurses into nested
+configs, and emits a `UserWarning` for unknown keys (so a dict stored
+under an older polygram release survives a knob being added).
+
+Downstream callers (e.g. sae-forge's outer-loop FSM context) can stash
+a config bundle on a context dict and rebuild it on the action side
+without writing per-field marshalling code:
+
+```python
+# Caller side
+ctx = {
+    "compression": CompressionConfig(strategy="merge").to_dict(),
+    "regrow": RegrowConfig(model_name="pythia-160m", layer=4).to_dict(),
+}
+
+# Action side
+from polygram import CompressionConfig, RegrowConfig
+
+if (d := ctx.get("compression")):
+    Compressor(..., config=CompressionConfig.from_dict(d))
+if (d := ctx.get("regrow")):
+    Regrower.from_compression_report(..., config=RegrowConfig.from_dict(d))
+```
+
 ## Development
 
 ```bash

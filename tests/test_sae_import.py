@@ -158,9 +158,21 @@ def test_assign_gamma_writes_nonzero_gammas():
     assert all(-0.25 - 1e-12 <= g <= 0.25 + 1e-12 for g in gammas)
 
 
-def test_default_gammas_stay_zero():
+def test_default_assign_gamma_now_true():
+    # ``assign_gamma`` default flipped from False → True per the
+    # polygram-tuning-config change. Matches the README guidance that
+    # γ=0 is "almost always wrong" on real SAEs.
     records = load_toy_sae(FIXTURE)
     d, report = from_sae_lens(records, [0, 1, 4, 5])
+    assert report.gamma_method == "projection_pca"
+    assert any(abs(f.gamma) > 1e-9 for f in d.features)
+
+
+def test_explicit_assign_gamma_false_keeps_legacy_behaviour():
+    # Pinning the pre-change behaviour: callers who genuinely want γ=0
+    # pass ``assign_gamma=False`` explicitly.
+    records = load_toy_sae(FIXTURE)
+    d, report = from_sae_lens(records, [0, 1, 4, 5], assign_gamma=False)
     assert report.gamma_method == "zero"
     assert all(f.gamma == 0.0 for f in d.features)
 
@@ -203,3 +215,41 @@ def test_tier_preservation_none_for_singleton():
     records = load_toy_sae(FIXTURE)
     _, report = from_sae_lens(records, [0])
     assert report.tier_preservation is None
+
+
+# ---------------------------------------------------------------------------
+# Tasks §7 — from_sae_lens accepts SAEImportConfig with override
+# precedence (per-field kwarg > config > dataclass-default).
+# ---------------------------------------------------------------------------
+
+
+class TestSAEImportConfigPassthrough:
+    def test_config_supplies_assign_gamma_false(self):
+        from polygram import SAEImportConfig
+
+        records = load_toy_sae(FIXTURE)
+        cfg = SAEImportConfig(assign_gamma=False)
+        d, report = from_sae_lens(records, [0, 1, 4, 5], config=cfg)
+        assert report.gamma_method == "zero"
+        assert all(f.gamma == 0.0 for f in d.features)
+
+    def test_per_field_kwarg_overrides_config(self):
+        from polygram import SAEImportConfig
+
+        records = load_toy_sae(FIXTURE)
+        # Config says False, but the explicit kwarg wins.
+        cfg = SAEImportConfig(assign_gamma=False)
+        d, report = from_sae_lens(
+            records, [0, 1, 4, 5], config=cfg, assign_gamma=True
+        )
+        assert report.gamma_method == "projection_pca"
+        assert any(abs(f.gamma) > 1e-9 for f in d.features)
+
+    def test_config_supplies_gamma_range(self):
+        from polygram import SAEImportConfig
+
+        records = load_toy_sae(FIXTURE)
+        cfg = SAEImportConfig(assign_gamma=True, gamma_range=(-0.1, 0.1))
+        d, _ = from_sae_lens(records, [0, 1, 4, 5], config=cfg)
+        for f in d.features:
+            assert -0.1 - 1e-12 <= f.gamma <= 0.1 + 1e-12

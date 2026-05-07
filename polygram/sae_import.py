@@ -13,7 +13,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from polygram.config import SAEImportConfig  # noqa: F401
 
 import numpy as np
 
@@ -472,8 +475,9 @@ def from_sae_lens(
     n_clusters: int | None = None,
     encoding: MPSRung1 | None = None,
     beta_range: tuple[float, float] = (-0.5, 0.5),
-    assign_gamma: bool = False,
-    gamma_range: tuple[float, float] = (-0.25, 0.25),
+    assign_gamma: bool | None = None,
+    gamma_range: tuple[float, float] | None = None,
+    config: "SAEImportConfig | None" = None,
 ) -> tuple[Dictionary, SelectionReport]:
     """Build a `Dictionary` from an explicit subset of SAE features.
 
@@ -481,15 +485,40 @@ def from_sae_lens(
 
     1. `cluster_assignments` (user) — `dict[feature_id, cluster_name]`
     2. Labels of the form `"<cluster>/<name>"` — parse the prefix
-    3. K-means with `n_clusters` (default 2) on projection vectors
+    3. K-means with `n_clusters` on projection vectors (defaulting to
+       :class:`polygram.SAEImportConfig`'s ``n_clusters=2`` when not
+       supplied via either kwarg or config)
 
     β values are spread evenly across cluster means within `beta_range`.
-    α, φ default to 0. γ defaults to 0 unless `assign_gamma=True`, in
-    which case each feature's γ is its projection vector's coefficient
-    on the first principal component of its assigned cluster's
-    centered projection vectors, rescaled into `gamma_range`. Refuses
+    α, φ default to 0. γ is per-feature PCA-derived (rescaled into
+    ``gamma_range``) when ``assign_gamma=True`` (the default; the
+    pre-change default was ``False`` but README guidance has long noted
+    that γ=0 collapses every in-cluster feature onto the same encoded
+    state and is "almost always wrong" on real SAEs). Pass
+    ``assign_gamma=False`` to restore the legacy γ=0 behaviour. Refuses
     subsets larger than 8 features.
+
+    The optional ``config`` keyword accepts an
+    :class:`polygram.SAEImportConfig` whose ``assign_gamma``,
+    ``gamma_range``, and ``n_clusters`` fields supply values when the
+    matching per-field kwarg is left unset. Per-field kwargs win over
+    ``config``; ``config`` wins over the dataclass defaults.
     """
+    # Precedence: per-field kwarg (non-None) > config > SAEImportConfig
+    # defaults. ``n_clusters`` honoured only when no explicit kwarg is
+    # passed (None means "not supplied"); otherwise we leave it alone so
+    # the user-driven cluster-count selection logic keeps its existing
+    # behaviour (a None ``n_clusters`` triggers a different default
+    # downstream — see the original implementation).
+    from polygram.config import SAEImportConfig
+
+    cfg = config if config is not None else SAEImportConfig()
+    if assign_gamma is None:
+        assign_gamma = cfg.assign_gamma
+    if gamma_range is None:
+        gamma_range = cfg.gamma_range
+    if n_clusters is None and config is not None:
+        n_clusters = cfg.n_clusters
     if len(feature_ids) > MAX_FEATURES_PER_DICTIONARY:
         raise ValueError(
             f"selected {len(feature_ids)} features, but Polygram's "
