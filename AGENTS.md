@@ -2,12 +2,18 @@
 
 ## What this repo is
 
-Polygram is a researcher-friendly Python frontend that emits verifiable
-[Q-Orca](https://github.com/jascal/q-orca-lang) `.q.orca.md` machines for
-mechanistic-interpretability experiments on hierarchical polysemantic feature
-dictionaries. It does **not** define a new file format — it generates standard
-Q-Orca artifacts and uses Q-Orca for verification, simulation, and the analytic
-Gram helper.
+Polygram is a researcher-friendly Python frontend for mechanistic-interpretability
+experiments on hierarchical polysemantic feature dictionaries in LLMs. It
+explores several ways of modelling polysemantic representations — quantum-
+inspired MPS/HEA encodings (with phase-interference and cancellation
+primitives), behavioural validation against real models, and a compression /
+regrow loop over SAE checkpoints — so quantum interference is one technique
+among several, not the headline.
+
+For the quantum-inspired encodings it emits verifiable
+[Q-Orca](https://github.com/jascal/q-orca-lang) `.q.orca.md` machines; it does
+**not** define a new file format and uses Q-Orca for verification, simulation,
+and the analytic Gram helper.
 
 ## Workflow: OpenSpec-driven
 

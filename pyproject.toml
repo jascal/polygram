@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "polygram"
 dynamic = ["version"]
-description = "Polygram — Quantum Interference Laboratory for Polysemantic Feature Dictionaries"
+description = "Polygram — a laboratory for modelling polysemantic feature representations in LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -13,11 +13,12 @@ authors = [
     { name = "Allan Scott" }
 ]
 keywords = [
-    "quantum",
+    "mechanistic-interpretability",
     "interpretability",
     "sparse-autoencoder",
+    "sae",
     "polysemantic",
-    "interference",
+    "compression",
     "mps",
     "q-orca",
 ]

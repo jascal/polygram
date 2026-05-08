@@ -1,16 +1,20 @@
 # Polygram
 
-**Quantum Interference Laboratory for Polysemantic Feature Dictionaries**
+**A laboratory for modelling polysemantic feature representations in LLMs.**
 
-Polygram is a researcher-friendly Python frontend that emits verifiable
-[Q-Orca](https://github.com/jascal/q-orca-lang) `.q.orca.md` machines for
-mechanistic-interpretability experiments on hierarchical polysemantic feature
-dictionaries.
+Polygram is a researcher-friendly Python frontend for mechanistic-interpretability
+experiments on hierarchical polysemantic feature dictionaries. It explores
+several approaches to representing, analyzing, and compressing SAE feature
+dictionaries — including quantum-inspired MPS/HEA encodings (with phase-
+interference sweeps, cancellation studies, and entanglement probes),
+behavioural validation against real models, and component-level
+compression / regrowth workflows.
 
-It builds on Q-Orca's rung-1 MPS encoding with safe `Rz` phase knobs (q-orca
-PR #51) to enable phase-interference sweeps, destructive cancellation studies,
-entanglement probes, and hybrid measurement-feedback steering on
-SAE-style dictionaries.
+The quantum-inspired encodings emit verifiable
+[Q-Orca](https://github.com/jascal/q-orca-lang) `.q.orca.md` machines, building
+on Q-Orca's rung-1 MPS encoding with safe `Rz` phase knobs (q-orca PR #51).
+Quantum interference is one lens among several the project applies to
+polysemantic representations, not the whole story.
 
 ## Status
 
