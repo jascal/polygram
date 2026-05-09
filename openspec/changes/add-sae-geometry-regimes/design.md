@@ -13,7 +13,7 @@ memory).
 A five-SAE smoke probe established the calibration scope is
 narrower than originally framed:
 
-| SAE | training | layer | n_features × d_model | decoder norm | cosine std | tier_pres random |
+| SAE | training | layer | n_features × d_model | decoder norm (mean ± std) | cosine std | tier_preservation (random subset) |
 |---|---|---|---|---|---|---|
 | Whisper-tiny enc.b2 (audio) | TopK | mid (b2/4) | 6,144 × 384 | 1.020 ± 0.071 | 0.056 | -0.408 |
 | Whisper-large-v1 enc.b16 (audio) | TopK | mid (b16/24) | 20,480 × 1,280 | 0.996 ± 0.043 | 0.028 | -0.000 |
@@ -384,12 +384,21 @@ output.
   third-party-registered?** Probably not in the v0.2 surface;
   add only if a sae-forge debugging need surfaces it.
 - **Does `uniform_sphere` need a different default
-  `gamma_range`?** Phase-1 used `(-0.25, 0.25)` (today's
-  default) and γ via per-cluster PCA worked fine inside the
-  k=16 buckets. Leaving it unchanged for v0.2; revisit if
-  audio-SAE follow-ups indicate γ-range tuning matters.
+  `gamma_range`?** The five-SAE panel used `(-0.25, 0.25)`
+  (today's default) and γ via per-cluster PCA worked fine
+  inside the k=16 buckets across audio + text SAEs. Leaving
+  it unchanged for v0.2; revisit if a profile-aware fidelity
+  spike indicates γ-range tuning matters at scale.
 - **Should the registry persist third-party registrations
   across `importlib.reload`?** Current design says no — re-
   importing `polygram.geometry` resets the registry to the
   built-ins. sae-forge will need to call `register_profile`
   in its package init. Acceptable for v0.2.
+- **Where does the regime threshold actually sit?** The panel
+  bounds it to "small dense LM SAEs (GPT-2-small d=768, ≤24K)
+  are clustered; everything ≥ ~16K × ~1K is uniform-sphere".
+  We have no SAE in the panel between those scales, so the
+  exact boundary (e.g. is GPT-2-medium at d=1024 still
+  clustered?) is unknown. Out of scope for v0.2; consumers
+  who hit ambiguity should fall back to `clustered` (fail
+  loud) rather than guess.

@@ -13,7 +13,7 @@
 - [ ] 2.3 Move `_tier_preservation` (today in `sae_import.py`) into `clustered.py` as `TierPreservationFidelity.compute(...)` returning `float | None`
 - [ ] 2.4 Implement `clustered() -> GeometricProfile` factory with `default_n_clusters=2`, `default_gamma_range=(-0.25, 0.25)`
 - [ ] 2.5 Generate a frozen golden fixture `tests/fixtures/golden_clustered.json` from the v0.1.0 baseline on the toy SAE: capture full `Dictionary.features` (name, cluster, beta, gamma, phi), `report.cluster_assignments`, `report.beta_variance_explained`, `report.tier_preservation`
-- [ ] 2.6 Add regression test `tests/test_clustered_golden.py` asserting byte-equality of v0.2 output against the golden fixture for a deterministic fixture call
+- [ ] 2.6 Add regression test `tests/test_clustered_golden.py` asserting byte-equality of v0.2 output against the golden fixture for a deterministic fixture call. The test docstring SHALL state that the fixture is regenerated **only on intentional default changes** to the `clustered` profile (renamed kwargs, retuned β-spread, etc.) and never as a side effect of refactoring; if a future change needs to ship multiple golden sets, version the filename (`golden_clustered_v2.json`) rather than overwriting.
 
 ## 3. Implement the uniform-sphere profile
 
@@ -48,7 +48,7 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Update `README.md` "SAE import" section: document `profile=` kwarg, the two built-in profiles, when to use which, and the consumer-meta-knowledge framing
+- [ ] 7.1 Update `README.md` "SAE import" section: document `profile=` kwarg, the two built-in profiles, when to use which, and the consumer-meta-knowledge framing. Explicitly state the resolution order in both the README and the `from_sae_lens` public docstring: **per-field kwarg > `SAEImportConfig.profile` > registry default (`clustered`)** — surface this in caller-facing prose, not just in the spec scenarios.
 - [ ] 7.2 Update `README.md` "Choosing an encoding" section: cross-link profiles to encodings (clustered + MPSRung1 is the validated combo; uniform-sphere is provisional pending behavioural validation)
 - [ ] 7.3 Add `docs/research/sae-geometry-regimes.md` capturing the Phase-1 audio findings (cosine distributions on Whisper-tiny block-2 and Whisper-large-v1 block-16, n_clusters sweep, why Pearson fidelity collapses on uniform-sphere data) — references the conversation that motivated this change
 - [ ] 7.4 Update `CHANGELOG.md` for v0.2.0: new `profile` kwarg (additive, default unchanged), new `geometric_fidelity` field on `SelectionReport`, retained-but-scoped `tier_preservation`, new `polygram.geometry` module
@@ -57,6 +57,7 @@
 ## 8. Adjacent bug fixes surfaced by the probe panel
 
 - [ ] 8.1 Fix `load_sae_safetensors(feature_ids=...)` bfloat16 slice path: `_load_subset` in `polygram/sae_import.py` calls `np.asarray(slc[:, fid_int], dtype=float)` on a raw bf16 tensor and crashes with `TypeError: data type 'bfloat16' not understood`. The eager full-decoder path works because it goes via torch's float-conversion. Llama-Scope L0R surfaced this; modern LLM SAEs (Llama-Scope, Gemma-Scope, plausibly Qwen-Scope at scale) ship bf16 by default, so this is load-bearing for the implementation pass — not optional cleanup.
+- [ ] 8.1.1 Extract a module-private `_safe_to_float32(tensor) -> np.ndarray` helper in `polygram/sae_import.py` that dispatches to torch's `.to(torch.float32).numpy()` for any non-numpy-native dtype (bf16, fp16, fp8 if it ever ships) and falls through to `np.asarray(..., dtype=np.float32)` otherwise. Use it from both the eager and sliced paths so they stay in lockstep and future loaders don't re-discover the bf16 quirk.
 - [ ] 8.2 Add a regression test `tests/test_load_sae_safetensors_bfloat16.py` that constructs a tiny bf16 fixture and calls `load_sae_safetensors(path, feature_ids=[0, 1])`; assert it returns float32 records without raising
 
 ## 9. Validation pass
