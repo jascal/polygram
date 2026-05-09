@@ -13,7 +13,6 @@ import struct
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from polygram import load_sae_safetensors
 

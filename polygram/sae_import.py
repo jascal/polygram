@@ -589,30 +589,9 @@ def from_sae_lens(
     # against the live registry so v0.1.x SAEImportConfig instances
     # (no profile field) deserialise cleanly.
     from polygram.config import SAEImportConfig
-    from polygram.geometry import (
-        GeometricProfile as _GeometricProfile,
-        get_profile,
-    )
 
     cfg = config if config is not None else SAEImportConfig()
-
-    # Resolve profile. None → config.profile (also possibly None) →
-    # registry default "clustered".
-    if profile is None:
-        cfg_profile_name = getattr(cfg, "profile", None)
-        if cfg_profile_name is not None:
-            resolved_profile = get_profile(cfg_profile_name)
-        else:
-            resolved_profile = get_profile("clustered")
-    elif isinstance(profile, str):
-        resolved_profile = get_profile(profile)
-    elif isinstance(profile, _GeometricProfile):
-        resolved_profile = profile
-    else:
-        raise TypeError(
-            f"from_sae_lens: profile must be str | GeometricProfile | "
-            f"None; got {type(profile).__name__}"
-        )
+    resolved_profile = _resolve_profile(profile, cfg)
 
     if assign_gamma is None:
         assign_gamma = cfg.assign_gamma
@@ -793,3 +772,31 @@ def from_sae_lens(
 
 def _label_has_cluster_prefix(label: str | None) -> bool:
     return isinstance(label, str) and "/" in label and label.split("/", 1)[0]
+
+
+def _resolve_profile(
+    profile: "str | GeometricProfile | None", cfg: "SAEImportConfig"
+) -> "GeometricProfile":
+    """Resolve `from_sae_lens`'s `profile=` argument.
+
+    Resolution order: explicit kwarg > ``cfg.profile`` (string) >
+    registry default (``"clustered"``). Strings are looked up against
+    the live `polygram.geometry` registry so third-party-registered
+    profiles work without any plumbing here.
+    """
+    from polygram.geometry import (
+        GeometricProfile as _GeometricProfile,
+        get_profile,
+    )
+
+    if profile is None:
+        cfg_profile_name = getattr(cfg, "profile", None)
+        return get_profile(cfg_profile_name or "clustered")
+    if isinstance(profile, str):
+        return get_profile(profile)
+    if isinstance(profile, _GeometricProfile):
+        return profile
+    raise TypeError(
+        f"from_sae_lens: profile must be str | GeometricProfile | "
+        f"None; got {type(profile).__name__}"
+    )

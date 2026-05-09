@@ -238,10 +238,10 @@ records `"zero"` (default) or `"projection_pca"`.
 `from_sae_lens` accepts a `profile=` kwarg selecting which geometric
 regime the SAE belongs to. Two built-in profiles ship:
 
-| profile | scope | strategy | fidelity |
+| profile | calibrated for | strategy | fidelity |
 |---|---|---|---|
-| `clustered` (default) | small dense LM SAEs at GPT-2-small scale (d_model ≤ 768, ≤24K features) | k=2 k-means + antipodal β | Pearson `tier_preservation` |
-| `uniform-sphere` | SAEs with `d_model ≥ ~1K` and `n_features ≥ ~16K` — audio + large LM SAEs | k≥16 k-means + PCA-axis β | rank-recall@k |
+| `clustered` (default) | GPT-2-small-style SAEs (d_model ≤ 768, ≤24K features) | k=2 k-means + antipodal β | Pearson `tier_preservation` |
+| `uniform-sphere` | Whisper, Qwen-Scope, Llama-Scope, Gemma-Scope at width (d_model ≥ ~1K, ≥16K features) | k≥16 k-means + PCA-axis β | rank-recall@k |
 
 Pass the profile that matches your SAE's pedigree:
 

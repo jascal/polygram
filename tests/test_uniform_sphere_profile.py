@@ -9,7 +9,6 @@ checkpoint.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from polygram import from_sae_lens
 from polygram.sae_import import SAEFeatureRecord

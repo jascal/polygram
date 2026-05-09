@@ -35,6 +35,12 @@ class UniformSphereKnobAssignment:
     """
 
     beta_range: tuple[float, float] = (-0.5, 0.5)
+    # n_init=4 is a cost/quality compromise: sklearn defaults to 10, but
+    # our pure-numpy k-means is ~5x slower per run, and on the uniform-
+    # sphere geometries this profile targets, runs converge to similar
+    # inertia within 3-4 seeds (cluster identity is itself ambiguous on
+    # near-orthogonal inputs). Bump if a downstream calibration shows
+    # seed-sensitivity in the resulting fidelity.
     n_init: int = 4
 
     def assign(
