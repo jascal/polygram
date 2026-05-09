@@ -394,6 +394,7 @@ class SAEImportConfig(_ConfigMixin):
     assign_gamma: bool = True
     gamma_range: tuple[float, float] = (-0.25, 0.25)
     n_clusters: int = 2
+    profile: str | None = None
 
     def __post_init__(self) -> None:
         if not (
@@ -409,6 +410,11 @@ class SAEImportConfig(_ConfigMixin):
             raise ValueError(
                 f"SAEImportConfig: n_clusters must be >= 1; "
                 f"got {self.n_clusters}"
+            )
+        if self.profile is not None and not isinstance(self.profile, str):
+            raise ValueError(
+                f"SAEImportConfig: profile must be a string or None; "
+                f"got {type(self.profile).__name__}"
             )
 
 

@@ -1,0 +1,132 @@
+{
+  "from_labels": {
+    "beta_variance_explained": 0.9765315046416698,
+    "cluster_assignments": {
+      "dog_beagle": "mammals",
+      "dog_poodle": "mammals",
+      "hawk_cooper": "birds",
+      "hawk_red": "birds"
+    },
+    "cluster_method": "from_labels",
+    "features": [
+      {
+        "alpha": 0.0,
+        "beta": -0.5,
+        "cluster": "mammals",
+        "gamma": -0.24999999999999994,
+        "name": "dog_poodle",
+        "phi": 0.0
+      },
+      {
+        "alpha": 0.0,
+        "beta": -0.5,
+        "cluster": "mammals",
+        "gamma": 0.25,
+        "name": "dog_beagle",
+        "phi": 0.0
+      },
+      {
+        "alpha": 0.0,
+        "beta": 0.5,
+        "cluster": "birds",
+        "gamma": -0.19889065390931643,
+        "name": "hawk_red",
+        "phi": 0.0
+      },
+      {
+        "alpha": 0.0,
+        "beta": 0.5,
+        "cluster": "birds",
+        "gamma": 0.19889065390931643,
+        "name": "hawk_cooper",
+        "phi": 0.0
+      }
+    ],
+    "gamma_method": "projection_pca",
+    "geometric_fidelity": 0.9007818172501108,
+    "hierarchy": {
+      "birds": [
+        "hawk_red",
+        "hawk_cooper"
+      ],
+      "mammals": [
+        "dog_poodle",
+        "dog_beagle"
+      ]
+    },
+    "profile": "clustered",
+    "reconstruction_error": {
+      "dog_beagle": 0.11157995729184521,
+      "dog_poodle": 0.11157995729184518,
+      "hawk_cooper": 0.08876884267579475,
+      "hawk_red": 0.08876884267579474
+    },
+    "tier_preservation": 0.9007818172501108,
+    "warnings": []
+  },
+  "kmeans": {
+    "beta_variance_explained": 0.9765315046416698,
+    "cluster_assignments": {
+      "dog_beagle": "cluster_1",
+      "dog_poodle": "cluster_1",
+      "hawk_cooper": "cluster_0",
+      "hawk_red": "cluster_0"
+    },
+    "cluster_method": "kmeans",
+    "features": [
+      {
+        "alpha": 0.0,
+        "beta": -0.5,
+        "cluster": "cluster_1",
+        "gamma": -0.24999999999999994,
+        "name": "dog_poodle",
+        "phi": 0.0
+      },
+      {
+        "alpha": 0.0,
+        "beta": -0.5,
+        "cluster": "cluster_1",
+        "gamma": 0.25,
+        "name": "dog_beagle",
+        "phi": 0.0
+      },
+      {
+        "alpha": 0.0,
+        "beta": 0.5,
+        "cluster": "cluster_0",
+        "gamma": -0.19889065390931643,
+        "name": "hawk_red",
+        "phi": 0.0
+      },
+      {
+        "alpha": 0.0,
+        "beta": 0.5,
+        "cluster": "cluster_0",
+        "gamma": 0.19889065390931643,
+        "name": "hawk_cooper",
+        "phi": 0.0
+      }
+    ],
+    "gamma_method": "projection_pca",
+    "geometric_fidelity": 0.9007818172501108,
+    "hierarchy": {
+      "cluster_0": [
+        "hawk_red",
+        "hawk_cooper"
+      ],
+      "cluster_1": [
+        "dog_poodle",
+        "dog_beagle"
+      ]
+    },
+    "profile": "clustered",
+    "reconstruction_error": {
+      "dog_beagle": 0.11157995729184521,
+      "dog_poodle": 0.11157995729184518,
+      "hawk_cooper": 0.08876884267579475,
+      "hawk_red": 0.08876884267579474
+    },
+    "tier_preservation": 0.9007818172501108,
+    "warnings": []
+  }
+}

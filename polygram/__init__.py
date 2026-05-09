@@ -1,4 +1,22 @@
-"""Polygram — quantum interference laboratory for polysemantic feature dictionaries."""
+"""Polygram — laboratory for modelling polysemantic feature dictionaries.
+
+Public surface (re-exported from this module):
+
+- **Core**: ``Dictionary``, ``Feature``, ``MPSRung1``, ``HEA_Rung2``,
+  ``Rung3``, ``Experiment``, ``Cancellation``, ``InterferenceSweep``.
+- **SAE bridge**: ``from_sae_lens``, ``load_sae_safetensors``,
+  ``load_toy_sae``, ``SAEFeatureRecord``, ``SelectionReport``.
+- **Geometric profiles** (v0.2+): ``clustered``, ``uniform_sphere``,
+  ``GeometricProfile``, ``register_profile``, ``get_profile``,
+  ``available_profiles``. See ``polygram.geometry`` and
+  ``docs/research/sae-geometry-regimes.md``.
+- **Behavioural / compression**: ``BehaviouralValidator``,
+  ``ValidationReport``, ``Compressor``, ``Regrower``,
+  ``EpochCompressor``.
+- **Configuration**: ``CancellationConfig``, ``CompressionConfig``,
+  ``EpochCompressionConfig``, ``RegrowConfig``, ``SAEImportConfig``,
+  ``ValidationConfig``.
+"""
 
 from polygram.batch import BatchExperiment, BatchResults, BatchRun
 from polygram.config import (
@@ -40,6 +58,14 @@ from polygram.dictionary import Dictionary, Feature
 from polygram.emit import write_qorca
 from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung3State
 from polygram.experiment import Experiment, ExperimentResult, InterferenceSweep
+from polygram.geometry import (
+    GeometricProfile,
+    available_profiles,
+    clustered,
+    get_profile,
+    register_profile,
+    uniform_sphere,
+)
 from polygram.sae_import import (
     SAEFeatureRecord,
     SelectionReport,
@@ -48,7 +74,7 @@ from polygram.sae_import import (
     load_toy_sae,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "BatchExperiment",
@@ -81,6 +107,7 @@ __all__ = [
     "Experiment",
     "ExperimentResult",
     "Feature",
+    "GeometricProfile",
     "HEA_Rung2",
     "InterferenceSweep",
     "MPSRung1",
@@ -97,8 +124,13 @@ __all__ = [
     "SlotPopulation",
     "ValidationReport",
     "ValidationSummary",
+    "available_profiles",
+    "clustered",
     "from_sae_lens",
+    "get_profile",
     "load_sae_safetensors",
     "load_toy_sae",
+    "register_profile",
+    "uniform_sphere",
     "write_qorca",
 ]
