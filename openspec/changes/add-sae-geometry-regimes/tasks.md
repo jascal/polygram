@@ -54,8 +54,13 @@
 - [ ] 7.4 Update `CHANGELOG.md` for v0.2.0: new `profile` kwarg (additive, default unchanged), new `geometric_fidelity` field on `SelectionReport`, retained-but-scoped `tier_preservation`, new `polygram.geometry` module
 - [ ] 7.5 Update `polygram/__init__.py` module docstring's surface-area summary
 
-## 8. Validation pass
+## 8. Adjacent bug fixes surfaced by the probe panel
 
-- [ ] 8.1 Run `openspec validate add-sae-geometry-regimes` and resolve any structural issues
-- [ ] 8.2 Re-run Phase-1 audio-SAE smoke probe with the new `profile="uniform-sphere"` path; capture before/after numbers in `docs/research/sae-geometry-regimes.md` and confirm `geometric_fidelity` reads as a stable float (not the Pearson sign-flip we saw in Phase-1)
-- [ ] 8.3 Confirm `polygram analyze` CLI on the bundled toy SAE produces identical output before and after this change (clustered default path)
+- [ ] 8.1 Fix `load_sae_safetensors(feature_ids=...)` bfloat16 slice path: `_load_subset` in `polygram/sae_import.py` calls `np.asarray(slc[:, fid_int], dtype=float)` on a raw bf16 tensor and crashes with `TypeError: data type 'bfloat16' not understood`. The eager full-decoder path works because it goes via torch's float-conversion. Llama-Scope L0R surfaced this; modern LLM SAEs (Llama-Scope, Gemma-Scope, plausibly Qwen-Scope at scale) ship bf16 by default, so this is load-bearing for the implementation pass — not optional cleanup.
+- [ ] 8.2 Add a regression test `tests/test_load_sae_safetensors_bfloat16.py` that constructs a tiny bf16 fixture and calls `load_sae_safetensors(path, feature_ids=[0, 1])`; assert it returns float32 records without raising
+
+## 9. Validation pass
+
+- [ ] 9.1 Run `openspec validate add-sae-geometry-regimes` and resolve any structural issues
+- [ ] 9.2 Re-run the five-SAE smoke probe panel (Whisper × 2, Qwen-Scope, Llama-Scope L0R + L12R) with the new `profile="uniform-sphere"` path; capture before/after numbers in `docs/research/sae-geometry-regimes.md` and confirm `geometric_fidelity` reads as a stable float across selection strategies (the Pearson sign-flip we observed pre-change should not recur under rank-recall@k)
+- [ ] 9.3 Confirm `polygram analyze` CLI on the bundled toy SAE produces identical output before and after this change (clustered default path)

@@ -1,42 +1,52 @@
 ## Why
 
-A three-SAE smoke probe — Whisper-tiny `encoder.blocks.2` (TopK
-on LibriSpeech), Whisper-large-v1 `encoder.blocks.16` (TopK on
-AudioSet), and Qwen3-1.7B layer 14 (Qwen-Scope TopK W32K L0_50,
-text) — revealed that polygram's current `from_sae_lens`
-defaults are calibrated for one specific corner of SAE-space and
-collapse outside it.
+A five-SAE smoke probe — Whisper-tiny `encoder.blocks.2` and
+Whisper-large-v1 `encoder.blocks.16` (audio, TopK), Qwen-Scope
+Qwen3-1.7B layer 14 (text 1.7B, TopK), Llama-Scope Llama3.1-8B
+L0R 8x and L12R 8x (text 8B; L0R unknown training, L12R
+JumpReLU) — revealed that polygram's current `from_sae_lens`
+defaults are calibrated for one specific corner of SAE-space
+and collapse outside it.
 
 Findings (full numbers in
 `docs/research/sae-geometry-regimes.md`):
 
-- All three SAEs sit on a quasi-uniform sphere: mean
-  off-diagonal cosine ≈ 0, std 0.03–0.06, decoder rows unit-
-  norm (Qwen-Scope to floating-point precision, Whisper to
-  ~3% std).
-- Pearson `tier_preservation` flips sign across feature-
-  selection strategies on Whisper-tiny (-0.41 random / +0.27
-  clustered / -0.40 anti-clustered) — the metric is
-  selection-driven noise on uniform-sphere data, not a fidelity
-  signal. On Qwen-Scope it stays positive but small (+0.30).
-- `encoding_suitability_score` saturates at 1e-5 to 1e-4 on
-  all three, regardless of `n_clusters` or layer choice.
-- Cancellation efficiency hits 0.999 on the top-|V| pair across
-  all three — a signature of polygram's `k=2` binary β-spread
-  hitting its structural floor immediately rather than evidence
-  of a faithful encoding.
+- All five SAEs sit on a quasi-uniform sphere: mean off-
+  diagonal cosine ≈ 0, std 0.016–0.056. Decoder normalization
+  varies wildly (Llama L0R has mean norm 2.0 with range
+  [0.41, 3.14]; Qwen-Scope is at floating-point precision
+  unit-norm; Whisper sits in between) yet all five give the
+  same uniform-sphere cosine signature.
+- Pearson `tier_preservation` is selection-driven noise across
+  the board — Whisper-tiny flips -0.41 / +0.27 / -0.40 across
+  random / clustered / anti-clustered subsets; Llama-Scope
+  L0R goes -0.09 / +0.21 / +0.26 (anti-clustered higher than
+  cos-clustered, geometrically backwards). Not a fidelity
+  signal on this regime.
+- `encoding_suitability_score` saturates at 1e-5 to 1e-7 on
+  all five, regardless of `n_clusters` or layer choice.
+- Cancellation efficiency hits 0.999 on the top-|V| pair
+  across all five — a signature of polygram's `k=2` binary
+  β-spread hitting its structural floor immediately rather
+  than evidence of a faithful encoding.
 
-The crucial reframing is that **the regime split is geometric,
-not modality-flavoured**. Audio SAEs and Qwen-Scope (a text SAE
-on a 1.7B-param LLM) sit in the same projection-space regime;
-the difference between them and polygram's calibration baseline
-isn't text-vs-audio but **scale + decoder normalization +
-training regime**. Today's defaults match small dense LM SAEs
-(GPT-2-small d=768, ≤24K features, dense ReLU / JumpReLU per
-the §4.4 calibration and the resolved cross-encoding stability
-spike). They mismatch large LM SAEs (Qwen-Scope, plausibly
-Gemma-Scope and Llama-Scope at width) the same way they
-mismatch audio SAEs.
+The five-SAE panel **eliminates four candidate regime
+indicators as confounds**: modality (audio + text both land
+here), training recipe (TopK + JumpReLU both land here),
+decoder normalization (strict + drifty + non-unit all land
+here), and layer position (first + mid both land here, with
+first-layer just having a heavier cosine tail). The single
+predictor that survives is **width × d_model**: any SAE with
+`d_model ≥ ~1K` and `n_features ≥ ~16K` lands in the uniform-
+sphere regime.
+
+Today's defaults match small dense LM SAEs at the GPT-2-small
+scale (d=768, ≤24K features) — locked in by the §4.4
+calibration and the resolved cross-encoding stability spike
+(per project memory). That narrow corner is the *exception*,
+not the rule, in the modern SAE landscape. They mismatch
+**every other SAE we've measured**, including text SAEs at
+1.7B and 8B scale.
 
 Polygram has *one* implicit geometric profile when there are at
 least two empirical regimes. Downstream consumers (sae-forge
@@ -51,13 +61,16 @@ benefit from selecting the appropriate profile explicitly.
   recommended `from_sae_lens` defaults (`n_clusters`,
   `gamma_range`).
 - Ship two named profiles, **named after projection-space
-  geometry rather than modality**: `"clustered"` (the new
-  default alias for today's behaviour — k=2 k-means, β = ±0.5
-  antipodal spread, Pearson `tier_preservation`; calibrated on
-  small dense LM SAEs, GPT-2-small specifically) and
-  `"uniform-sphere"` (k≥16 k-means, β derived from PCA-axis
-  coordinates rather than cluster ordinal, rank-recall@k as
-  fidelity; calibrated on the audio + Qwen-Scope evidence).
+  geometry rather than modality or architecture**:
+  `"clustered"` (the new default alias for today's behaviour —
+  k=2 k-means, β = ±0.5 antipodal spread, Pearson
+  `tier_preservation`; calibrated on small dense LM SAEs,
+  GPT-2-small specifically — d_model ≤ 768, ≤24K features)
+  and `"uniform-sphere"` (k≥16 k-means, β derived from
+  PCA-axis coordinates rather than cluster ordinal, rank-
+  recall@k as fidelity; calibrated on five SAEs spanning audio
+  + text, TopK + JumpReLU, and the full normalization range —
+  the predictor is `d_model ≥ ~1K` and `n_features ≥ ~16K`).
 - Add `from_sae_lens(..., profile: str | GeometricProfile | None =
   None)`. `None` and `"clustered"` both resolve to today's
   behaviour exactly (no observable change for existing callers).

@@ -10,44 +10,76 @@ LM SAEs* — specifically GPT-2-small — by the §4.4 calibration
 and the resolved cross-encoding stability spike (per project
 memory).
 
-A three-SAE smoke probe established the calibration scope is
+A five-SAE smoke probe established the calibration scope is
 narrower than originally framed:
 
-| SAE | n_features × d_model | decoder norm | cosine std | tier_pres random |
-|---|---|---|---|---|
-| Whisper-tiny enc.b2 (audio) | 6,144 × 384 | 1.020 ± 0.071 | 0.056 | -0.408 |
-| Whisper-large-v1 enc.b16 (audio) | 20,480 × 1,280 | 0.996 ± 0.043 | 0.028 | -0.000 |
-| Qwen-Scope L14 W32K (text) | 32,768 × 2,048 | 1.000 ± 0.000 | 0.035 | +0.297 |
+| SAE | training | layer | n_features × d_model | decoder norm | cosine std | tier_pres random |
+|---|---|---|---|---|---|---|
+| Whisper-tiny enc.b2 (audio) | TopK | mid (b2/4) | 6,144 × 384 | 1.020 ± 0.071 | 0.056 | -0.408 |
+| Whisper-large-v1 enc.b16 (audio) | TopK | mid (b16/24) | 20,480 × 1,280 | 0.996 ± 0.043 | 0.028 | -0.000 |
+| Qwen-Scope L14 W32K (text 1.7B) | TopK | mid (L14/28) | 32,768 × 2,048 | 1.000 ± 0.000 | 0.035 | +0.297 |
+| Llama-Scope L0R 8x (text 8B) | unknown | first (L0/32) | 32,768 × 4,096 | 1.998 ± 0.260 | 0.020 | -0.089 |
+| Llama-Scope L12R 8x (text 8B) | JumpReLU | mid (L12/32) | 32,768 × 4,096 | 1.001 ± 0.002 | 0.016 | +0.210 |
 
 (See `scratch/whisper_sae/`, `scratch/whisper_large_sae/`,
-`scratch/qwen_scope/` for the raw artifacts and the conversation
-history for the methodology.)
+`scratch/qwen_scope/`, `scratch/llama-scope/`,
+`scratch/llama_scope_l12/` for the raw artifacts and the
+conversation history for the methodology.)
 
-All three SAEs sit on a quasi-uniform sphere: mean off-diagonal
-cosine ≈ 0, decoder rows unit-norm (Qwen-Scope to floating-
-point precision; Whisper to ~3% std), real clusters appearing
-only at k≈256. On the audio SAEs the Pearson
-`tier_preservation` flips sign with selection strategy; on
-Qwen-Scope it stays positive but small (+0.30 random vs +0.37
-clustered) — slightly more recoverable structure than audio,
-but the same regime. `encoding_suitability_score` saturates at
-~1e-5 to 1e-4 across all three, regardless of `n_clusters` or
+All five SAEs sit on a quasi-uniform sphere: mean off-diagonal
+cosine ≈ 0, cosine std in `[0.016, 0.056]`, real clusters
+appearing only at k≈256. The Pearson `tier_preservation` is
+selection-driven noise on every one of them — sometimes
+positive, sometimes negative, never reliably tracking a real
+geometric property (Whisper-tiny flips -0.41 → +0.27 → -0.40
+across selection strategies; Llama L12R is more stable but
+still has anti-clustered tier_pres flipping sign relative to
+random/clustered). `encoding_suitability_score` saturates at
+~1e-5 to 1e-7 across all five, regardless of `n_clusters` or
 layer choice. Cancellation efficiency hits 0.999 on the top-|V|
-pair across all three — a signature of polygram's k=2 binary
+pair across all five — a signature of polygram's k=2 binary
 β-spread hitting its structural floor immediately rather than
 evidence of a faithful encoding.
 
-The crucial reframing: **the calibration mismatch is not text-
-vs-audio.** Qwen-Scope is a text SAE, and it lands in the same
-regime as the audio SAEs, not the same regime as polygram's
-GPT-2-small calibration baseline. The empirical split runs
-along **scale + decoder normalization + training regime**:
+### What the five SAEs eliminate as confounds
 
-- Today's defaults match small dense LM SAEs (GPT-2-small d=768,
-  ≤24K features, dense ReLU / JumpReLU).
-- A second regime — TopK or strict-unit-norm decoders, large
-  width (≥16K features), large d_model (≥1K) — covers
-  audio SAEs and large LM SAEs alike.
+The five SAEs span four orthogonal axes that earlier framings
+treated as regime-defining:
+
+- **Modality**: audio (Whisper × 2) and text (Qwen, Llama × 2)
+  both land in uniform-sphere. Modality is not the selector.
+- **Training recipe**: TopK (Whisper × 2, Qwen, Llama L0R) and
+  JumpReLU (Llama L12R) both land in uniform-sphere. Sparsity
+  mechanism is not the selector.
+- **Decoder normalization**: strict unit-norm (Qwen at floating
+  precision; Llama L12R at 0.002 std), drifty unit-norm
+  (Whisper × 2 at 0.04–0.07 std), and **non-unit-norm**
+  (Llama L0R at mean 1.998, std 0.260, range [0.41, 3.14])
+  all land in uniform-sphere. Decoder normalization is not the
+  selector.
+- **Layer position**: first-layer (Llama L0R) and mid-stack
+  (the other four) both land in uniform-sphere. Layer L0 has a
+  heavier cosine tail (max 0.826 vs 0.075 at L12R) — pre-
+  mixing residual-stream features include some near-duplicates
+  — but the bulk projection-space distribution is still
+  uniform-sphere by std and q95. Layer is not the selector.
+
+### What predicts the regime
+
+**Width × d_model.** Once an SAE crosses approximately
+`(d_model ≥ ~1K) × (n_features ≥ ~16K)`, the decoder rows
+distribute near-uniformly on the unit sphere regardless of
+training recipe, modality, layer, or whether the trainer
+explicitly normalised the decoder. The five-SAE evidence is
+unanimous on this axis.
+
+The crucial reframing: **the calibration mismatch is purely
+geometric, not architectural and not modality-flavoured.**
+Polygram's defaults match small dense LM SAEs at the
+GPT-2-small scale (d=768, ≤24K features); they mismatch
+everything else. The narrow GPT-2-small corner where
+`clustered` is the right default is the *exception*, not the
+rule, in the modern SAE landscape.
 
 Downstream consumer sae-forge has meta-knowledge of each SAE's
 pedigree at orchestration time. Polygram doesn't need to
@@ -167,11 +199,15 @@ Documented contract:
 
 - `clustered` is appropriate when the SAE has recoverable
   small-k cluster structure visible in cosine geometry. The
-  empirical scope is GPT-2-small at ≤24K features.
+  empirical scope is small dense LM SAEs at GPT-2-small scale
+  (d_model ≤ 768, ≤24K features).
 - `uniform-sphere` is appropriate when features sit on a near-
   uniform sphere with cosine std ≤ ~0.06 and `tier_preservation`
-  is selection-driven noise. The empirical scope so far is
-  audio TopK SAEs + Qwen-Scope.
+  is selection-driven noise. The empirical scope is **any SAE
+  with d_model ≥ ~1K and n_features ≥ ~16K**, regardless of
+  modality (audio + text), training recipe (TopK + JumpReLU),
+  decoder normalization (strict / drifty / non-unit), or layer
+  position (first / mid).
 - For SAEs outside both characterised regimes, register a
   custom profile or fall back to `clustered` (fail loud rather
   than silently mis-calibrate).
