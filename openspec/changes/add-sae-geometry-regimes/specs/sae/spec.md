@@ -10,9 +10,9 @@
 - When `profile` is a `GeometricProfile`, it SHALL be used
   directly.
 - When `profile is None`, the function SHALL resolve to
-  `polygram.geometry.text_clustered()` — the v0.1.0-equivalent
+  `polygram.geometry.clustered()` — the v0.1.0-equivalent
   default. This resolution SHALL be observable behaviour (i.e.
-  `report.profile == "text-clustered"`).
+  `report.profile == "clustered"`).
 
 The selected profile SHALL govern the k-means path's defaults
 (`n_clusters`, `gamma_range`) and the strategy used to compute
@@ -33,18 +33,18 @@ When `config: SAEImportConfig` is supplied and contains a
 `profile` field, that profile SHALL be used unless the
 per-field `profile` kwarg also supplies one. `SAEImportConfig`
 SHALL gain an optional `profile: str | None = None` field;
-`None` resolves to the registry default (text-clustered) at
+`None` resolves to the registry default (clustered) at
 `from_sae_lens` time, not at `SAEImportConfig` construction
 time, so the resolution path is centralised.
 
-#### Scenario: omitting profile is byte-equal to passing text-clustered
+#### Scenario: omitting profile is byte-equal to passing clustered
 
 - **WHEN** `from_sae_lens(records, [0, 1, 4, 5])` is called on
   the bundled toy SAE fixture without a `profile` argument
 - **THEN** the returned `Dictionary` and `SelectionReport` are
   bit-equal to those returned by the same call with
-  `profile="text-clustered"`, and `report.profile` is the string
-  `"text-clustered"`
+  `profile="clustered"`, and `report.profile` is the string
+  `"clustered"`
 
 #### Scenario: per-field n_clusters overrides profile default
 
@@ -70,7 +70,7 @@ time, so the resolution path is centralised.
 `SelectionReport` SHALL gain two fields:
 
 - `profile: str` — the `name` of the `GeometricProfile` used
-  for this build; never `None` (defaults to `"text-clustered"`
+  for this build; never `None` (defaults to `"clustered"`
   when `from_sae_lens` was called without a profile)
 - `geometric_fidelity: float | None` — the output of the
   active profile's `GeometricFidelity` metric for this build;
@@ -80,16 +80,16 @@ time, so the resolution path is centralised.
 The existing `tier_preservation: float | None` field SHALL be
 retained and SHALL be populated whenever the active profile's
 `GeometricFidelity` is the v0.1.0 Pearson correlation (i.e.
-exactly the `text-clustered` profile, plus any third-party
+exactly the `clustered` profile, plus any third-party
 profiles that opt to reuse that metric). For profiles that use
 a different metric, `tier_preservation` SHALL be `None` and the
 profile's chosen scalar appears in `geometric_fidelity` instead.
 
-#### Scenario: text-clustered populates both fields with equal values
+#### Scenario: clustered populates both fields with equal values
 
 - **WHEN** `from_sae_lens(records, ids,
-  profile="text-clustered")` is called
-- **THEN** `report.profile == "text-clustered"`, and
+  profile="clustered")` is called
+- **THEN** `report.profile == "clustered"`, and
   `report.tier_preservation == report.geometric_fidelity`
   (or both are `None`)
 
