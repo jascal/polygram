@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from polygram.config import SAEImportConfig  # noqa: F401
+    from polygram.geometry import GeometricProfile  # noqa: F401
 
 import numpy as np
 
@@ -86,6 +87,30 @@ def _bf16_to_f32(raw: bytes, shape: tuple) -> np.ndarray:
     """
     u16 = np.frombuffer(raw, dtype=np.uint16)
     return (u16.astype(np.uint32) << 16).view(np.float32).reshape(shape).copy()
+
+
+def _safe_to_float32(arr: Any) -> np.ndarray:
+    """Convert any safetensors-returned tensor view to a float32 ndarray.
+
+    The safetensors slice API under ``framework="numpy"`` returns numpy
+    views for native dtypes but raw objects numpy can't interpret for
+    bfloat16. Future loaders are likely to hit fp8 with the same shape
+    of issue. This helper centralises the conversion.
+    """
+    if isinstance(arr, np.ndarray):
+        return arr.astype(np.float32, copy=False)
+    # Fall back to torch's float-conversion if available — handles bf16,
+    # fp16, fp8, and anything else torch knows about.
+    try:
+        import torch  # noqa: F401
+
+        if isinstance(arr, torch.Tensor):
+            return arr.detach().to(torch.float32).cpu().numpy()
+    except ImportError:
+        pass
+    # Last resort: try numpy's coercion. Will raise the same TypeError
+    # the bf16 slice path used to raise — but with a clearer ancestor.
+    return np.asarray(arr, dtype=np.float32)
 
 
 def _correct_orientation(arr: np.ndarray, src_key: str) -> np.ndarray:
@@ -239,9 +264,17 @@ class SelectionReport:
     projection vector to its assigned cluster centroid. `tier_preservation`
     is the Pearson correlation between off-diagonal `|G|²` entries of
     the projection-space cosine-overlap matrix and the analytic
-    Polygram Gram of the built `Dictionary` at φ=0; `None` when there
-    is only one selected feature so no off-diagonals exist.
+    Polygram Gram of the built `Dictionary` at φ=0; populated only by
+    the `clustered` profile (and any third-party profiles that opt to
+    reuse `TierPreservationFidelity`). For other profiles
+    `tier_preservation` is `None` and the profile's chosen scalar is in
+    `geometric_fidelity` instead.
     `gamma_method` records `"zero"` (default) or `"projection_pca"`.
+    `profile` is the name of the `GeometricProfile` used for this
+    build; defaults to `"clustered"` when `from_sae_lens` is called
+    without a profile. `geometric_fidelity` is the active profile's
+    headline fidelity scalar; `None` when the metric isn't defined for
+    this geometry / sample size.
     """
 
     n_input_features: int
@@ -253,6 +286,8 @@ class SelectionReport:
     tier_preservation: float | None = None
     gamma_method: str = "zero"
     warnings: list[str] = field(default_factory=list)
+    profile: str = "clustered"
+    geometric_fidelity: float | None = None
 
 
 def _detect_decoder_key(
@@ -381,14 +416,25 @@ def _load_subset(
     requested row (or column, post-orientation) is sliced individually
     off disk. For GB-class SAEs this turns a multi-GB working set into
     a per-row ``d_model × 8`` byte read.
+
+    BF16 tensors take a separate raw-bytes path (the safetensors slice
+    API cannot return bf16 to numpy). For non-transposed bf16 we read
+    just the requested row's bytes directly; for the transposed case
+    (PyTorch ``decoder.weight`` non-square) we materialise the full
+    tensor once via the eager bf16 path. Most modern LLM SAEs use the
+    fast row-slice path.
     """
     from safetensors import safe_open
 
-    with safe_open(str(path), framework="numpy") as f:
+    path_obj = Path(path)
+    header = _read_safetensors_header(path_obj)
+
+    with safe_open(str(path_obj), framework="numpy") as f:
         keys = list(f.keys())
         matched, _ = _detect_decoder_key(keys)
-        slc = f.get_slice(matched)
-        shape = tuple(slc.get_shape())
+        meta = header[matched]
+        shape = tuple(meta["shape"])
+        dtype_str = meta["dtype"]
         if len(shape) != 2:
             raise ValueError(
                 f"load_sae_safetensors: tensor {matched!r} has shape "
@@ -420,13 +466,39 @@ def _load_subset(
                     )
                 resolved_names[int(key)] = str(value)
 
+        is_bf16 = dtype_str == "BF16"
+        bf16_full: np.ndarray | None = None
+        if is_bf16 and transpose:
+            # Transposed bf16: pull the full tensor through the eager
+            # bf16 conversion. Slower than per-row but rare in practice
+            # (most modern SAEs ship ``W_dec`` in (n_features, d_model)
+            # layout, hitting the fast non-transpose row-slice path).
+            full = _load_sae_checkpoint(path_obj, ["W_dec"])
+            bf16_full = full["W_dec"]  # already float32, oriented
+
+        slc = None if is_bf16 else f.get_slice(matched)
+
         out: dict[int, SAEFeatureRecord] = {}
         for fid in feature_ids:
             fid_int = int(fid)
-            if transpose:
-                row = np.asarray(slc[:, fid_int], dtype=float)
+            if is_bf16:
+                if bf16_full is not None:
+                    row = bf16_full[fid_int, :].astype(np.float32, copy=False)
+                else:
+                    # Fast path: read just this row's raw bytes.
+                    lo, _ = meta["data_offsets"]
+                    row_bytes = shape[1] * 2
+                    with open(path_obj, "rb") as fh:
+                        header_len = int.from_bytes(fh.read(8), "little")
+                        data_start = 8 + header_len
+                        fh.seek(data_start + lo + fid_int * row_bytes)
+                        raw = fh.read(row_bytes)
+                    row = _bf16_to_f32(raw, (shape[1],))
             else:
-                row = np.asarray(slc[fid_int, :], dtype=float)
+                if transpose:
+                    row = _safe_to_float32(slc[:, fid_int])
+                else:
+                    row = _safe_to_float32(slc[fid_int, :])
             out[fid_int] = SAEFeatureRecord(
                 feature_id=fid_int,
                 name=resolved_names.get(fid_int, f"feat_{fid_int}"),
@@ -478,6 +550,7 @@ def from_sae_lens(
     assign_gamma: bool | None = None,
     gamma_range: tuple[float, float] | None = None,
     config: "SAEImportConfig | None" = None,
+    profile: "str | GeometricProfile | None" = None,
 ) -> tuple[Dictionary, SelectionReport]:
     """Build a `Dictionary` from an explicit subset of SAE features.
 
@@ -485,40 +558,52 @@ def from_sae_lens(
 
     1. `cluster_assignments` (user) — `dict[feature_id, cluster_name]`
     2. Labels of the form `"<cluster>/<name>"` — parse the prefix
-    3. K-means with `n_clusters` on projection vectors (defaulting to
-       :class:`polygram.SAEImportConfig`'s ``n_clusters=2`` when not
-       supplied via either kwarg or config)
+    3. The active profile's `KnobAssignment` strategy (k-means or
+       PCA-axis depending on profile)
 
-    β values are spread evenly across cluster means within `beta_range`.
-    α, φ default to 0. γ is per-feature PCA-derived (rescaled into
-    ``gamma_range``) when ``assign_gamma=True`` (the default; the
-    pre-change default was ``False`` but README guidance has long noted
-    that γ=0 collapses every in-cluster feature onto the same encoded
-    state and is "almost always wrong" on real SAEs). Pass
-    ``assign_gamma=False`` to restore the legacy γ=0 behaviour. Refuses
+    The active profile's `GeometricFidelity` is computed regardless of
+    which cluster-assignment path was taken.
+
+    Profile resolution order:
+        per-field ``profile`` kwarg
+        > ``SAEImportConfig.profile``
+        > registry default (``"clustered"`` — v0.1.0-equivalent)
+
+    The ``"clustered"`` profile reproduces the v0.1.0 defaults
+    byte-for-byte: k=2 k-means, β = ±0.5 antipodal spread, Pearson
+    `tier_preservation` fidelity. The ``"uniform-sphere"`` profile
+    targets SAEs with `d_model ≥ ~1K` and `n_features ≥ ~16K` (audio
+    + large LM SAEs); see ``polygram.geometry`` and
+    ``docs/research/sae-geometry-regimes.md``.
+
+    β values are spread according to the profile (`clustered`:
+    cluster-ordinal antipodal; `uniform-sphere`: PCA-axis coordinate).
+    α, φ default to 0. γ is per-feature PCA-derived when
+    ``assign_gamma=True`` (the default). Per-field kwargs (`n_clusters`,
+    `gamma_range`, `assign_gamma`, etc.) override profile defaults;
+    profile defaults override strategy internal defaults. Refuses
     subsets larger than 8 features.
-
-    The optional ``config`` keyword accepts an
-    :class:`polygram.SAEImportConfig` whose ``assign_gamma``,
-    ``gamma_range``, and ``n_clusters`` fields supply values when the
-    matching per-field kwarg is left unset. Per-field kwargs win over
-    ``config``; ``config`` wins over the dataclass defaults.
     """
-    # Precedence: per-field kwarg (non-None) > config > SAEImportConfig
-    # defaults. ``n_clusters`` honoured only when no explicit kwarg is
-    # passed (None means "not supplied"); otherwise we leave it alone so
-    # the user-driven cluster-count selection logic keeps its existing
-    # behaviour (a None ``n_clusters`` triggers a different default
-    # downstream — see the original implementation).
+    # Precedence: per-field kwarg (non-None) > config > profile defaults
+    # > SAEImportConfig defaults. Profile is resolved at call time
+    # against the live registry so v0.1.x SAEImportConfig instances
+    # (no profile field) deserialise cleanly.
     from polygram.config import SAEImportConfig
 
     cfg = config if config is not None else SAEImportConfig()
+    resolved_profile = _resolve_profile(profile, cfg)
+
     if assign_gamma is None:
         assign_gamma = cfg.assign_gamma
     if gamma_range is None:
         gamma_range = cfg.gamma_range
-    if n_clusters is None and config is not None:
-        n_clusters = cfg.n_clusters
+    # n_clusters default cascade: kwarg > config (only if config explicitly
+    # supplied) > profile.default_n_clusters > strategy internal default.
+    if n_clusters is None:
+        if config is not None:
+            n_clusters = cfg.n_clusters
+        elif resolved_profile.default_n_clusters is not None:
+            n_clusters = resolved_profile.default_n_clusters
     if len(feature_ids) > MAX_FEATURES_PER_DICTIONARY:
         raise ValueError(
             f"selected {len(feature_ids)} features, but Polygram's "
@@ -539,7 +624,19 @@ def from_sae_lens(
 
     warnings: list[str] = []
 
+    # Cluster-assignment paths (run upstream of strategy dispatch and
+    # bypass the profile's KnobAssignment). cluster_assignments and
+    # from_labels are explicit user-supplied or label-derived; they are
+    # not the strategy's job.
+    bypass_strategy = False
+    cluster_per_feature: list[str]
+    method: str
+    betas_explicit: list[float] | None = None
+    gammas_explicit: list[float] | None = None
+    var_explained_explicit: float | None = None
+
     if cluster_assignments is not None:
+        bypass_strategy = True
         method = "user"
         for fid in feature_ids:
             if fid not in cluster_assignments:
@@ -548,24 +645,34 @@ def from_sae_lens(
                 )
         cluster_per_feature = [cluster_assignments[fid] for fid in feature_ids]
     elif all(_label_has_cluster_prefix(r.label) for r in selected):
+        bypass_strategy = True
         method = "from_labels"
         cluster_per_feature = [r.label.split("/", 1)[0] for r in selected]
     else:
-        method = "kmeans"
-        k = n_clusters if n_clusters is not None else 2
-        if k > len(selected):
+        # Strategy dispatch.
+        n_for_warn = (
+            n_clusters
+            if n_clusters is not None
+            else (resolved_profile.default_n_clusters or 2)
+        )
+        if n_for_warn > len(selected):
             warnings.append(
-                f"n_clusters={k} > selected={len(selected)}; "
+                f"n_clusters={n_for_warn} > selected={len(selected)}; "
                 f"clamping to {len(selected)}"
             )
-            k = len(selected)
-        labels, empties = _kmeans(projs, k, seed=0)
-        if empties:
-            warnings.append(
-                f"k-means produced {len(empties)} empty cluster(s) "
-                f"(k={k}, n={len(selected)})"
-            )
-        cluster_per_feature = [f"cluster_{int(label)}" for label in labels]
+        result = resolved_profile.knob_assignment.assign(
+            projs,
+            [r.name for r in selected],
+            n_clusters=n_clusters,
+            gamma_range=gamma_range,
+            assign_gamma=assign_gamma,
+            seed=0,
+        )
+        cluster_per_feature = result.cluster_per_feature
+        method = result.cluster_method
+        betas_explicit = result.betas
+        gammas_explicit = result.gammas
+        var_explained_explicit = result.beta_variance_explained
 
     cluster_order: list[str] = []
     seen: set[str] = set()
@@ -574,22 +681,46 @@ def from_sae_lens(
             cluster_order.append(c)
             seen.add(c)
 
-    betas_by_cluster = _spread_betas(cluster_order, beta_range)
-    centroids_by_cluster = _centroids(projs, cluster_per_feature)
-    var_explained = _variance_explained(projs, centroids_by_cluster, cluster_per_feature)
-
-    if assign_gamma:
-        gammas = _gamma_via_cluster_pca(
-            projs, cluster_per_feature, gamma_range
+    # When the strategy was bypassed, fall back to v0.1.0 cluster-ordinal
+    # β spread + per-cluster-PCA γ + cluster-residual variance — the
+    # historical contract for cluster_assignments / from_labels paths.
+    if bypass_strategy:
+        from polygram.geometry.clustered import (
+            _centroids,
+            _gamma_via_cluster_pca,
+            _spread_betas,
+            _variance_explained,
         )
-        gamma_method = "projection_pca"
+
+        betas_by_cluster = _spread_betas(cluster_order, beta_range)
+        centroids_by_cluster = _centroids(projs, cluster_per_feature)
+        var_explained = _variance_explained(
+            projs, centroids_by_cluster, cluster_per_feature
+        )
+        if assign_gamma:
+            gammas = _gamma_via_cluster_pca(
+                projs, cluster_per_feature, gamma_range
+            )
+            gamma_method = "projection_pca"
+        else:
+            gammas = [0.0] * len(selected)
+            gamma_method = "zero"
+        betas = [betas_by_cluster[c] for c in cluster_per_feature]
     else:
-        gammas = [0.0] * len(selected)
-        gamma_method = "zero"
+        betas = betas_explicit  # type: ignore[assignment]
+        gammas = gammas_explicit  # type: ignore[assignment]
+        var_explained = var_explained_explicit  # type: ignore[assignment]
+        gamma_method = "projection_pca" if assign_gamma else "zero"
+        # For reconstruction_error reporting we still need centroids
+        # (defined as cluster mean of raw projections, regardless of
+        # strategy).
+        from polygram.geometry.clustered import _centroids
+
+        centroids_by_cluster = _centroids(projs, cluster_per_feature)
 
     features = [
-        Feature(name=r.name, cluster=c, beta=betas_by_cluster[c], gamma=g)
-        for r, c, g in zip(selected, cluster_per_feature, gammas)
+        Feature(name=r.name, cluster=c, beta=b, gamma=g)
+        for r, c, b, g in zip(selected, cluster_per_feature, betas, gammas)
     ]
     hierarchy: dict[str, list[str]] = {c: [] for c in cluster_order}
     for f in features:
@@ -606,7 +737,22 @@ def from_sae_lens(
         r.name: float(np.linalg.norm(r.projection - centroids_by_cluster[c]))
         for r, c in zip(selected, cluster_per_feature)
     }
-    tier_preservation = _tier_preservation(projs, dictionary)
+
+    # Always invoke the active profile's fidelity, regardless of which
+    # cluster-assignment path was taken.
+    geometric_fidelity = resolved_profile.geometric_fidelity.compute(
+        projs, dictionary
+    )
+    # tier_preservation field stays populated only for the v0.1.0
+    # Pearson metric (TierPreservationFidelity, used by `clustered`).
+    from polygram.geometry.clustered import TierPreservationFidelity
+
+    if isinstance(
+        resolved_profile.geometric_fidelity, TierPreservationFidelity
+    ):
+        tier_preservation: float | None = geometric_fidelity
+    else:
+        tier_preservation = None
 
     report = SelectionReport(
         n_input_features=n_features_input,
@@ -618,6 +764,8 @@ def from_sae_lens(
         tier_preservation=tier_preservation,
         gamma_method=gamma_method,
         warnings=warnings,
+        profile=resolved_profile.name,
+        geometric_fidelity=geometric_fidelity,
     )
     return dictionary, report
 
@@ -626,142 +774,29 @@ def _label_has_cluster_prefix(label: str | None) -> bool:
     return isinstance(label, str) and "/" in label and label.split("/", 1)[0]
 
 
-def _spread_betas(
-    cluster_order: list[str], beta_range: tuple[float, float]
-) -> dict[str, float]:
-    n = len(cluster_order)
-    lo, hi = beta_range
-    if n == 0:
-        return {}
-    if n == 1:
-        return {cluster_order[0]: 0.5 * (lo + hi)}
-    return {c: lo + (hi - lo) * i / (n - 1) for i, c in enumerate(cluster_order)}
+def _resolve_profile(
+    profile: "str | GeometricProfile | None", cfg: "SAEImportConfig"
+) -> "GeometricProfile":
+    """Resolve `from_sae_lens`'s `profile=` argument.
 
-
-def _centroids(
-    projs: np.ndarray, cluster_per_feature: list[str]
-) -> dict[str, np.ndarray]:
-    out: dict[str, np.ndarray] = {}
-    for cluster in set(cluster_per_feature):
-        mask = np.array([c == cluster for c in cluster_per_feature])
-        out[cluster] = projs[mask].mean(axis=0)
-    return out
-
-
-def _variance_explained(
-    projs: np.ndarray,
-    centroids_by_cluster: dict[str, np.ndarray],
-    cluster_per_feature: list[str],
-) -> float:
-    overall_centroid = projs.mean(axis=0)
-    ss_total = float(np.sum((projs - overall_centroid) ** 2))
-    if ss_total < 1e-12:
-        return 1.0
-    ss_residual = 0.0
-    for i, c in enumerate(cluster_per_feature):
-        diff = projs[i] - centroids_by_cluster[c]
-        ss_residual += float(np.sum(diff ** 2))
-    return float(np.clip(1.0 - ss_residual / ss_total, 0.0, 1.0))
-
-
-def _gamma_via_cluster_pca(
-    projs: np.ndarray,
-    cluster_per_feature: list[str],
-    gamma_range: tuple[float, float],
-) -> list[float]:
-    """Per-cluster PCA on centered projections; γ for each feature is
-    its coefficient on the cluster's first PC, rescaled into
-    `gamma_range`. Singletons get γ = 0."""
-    lo, hi = gamma_range
-    n = len(cluster_per_feature)
-    raw = np.zeros(n, dtype=float)
-    for cluster in set(cluster_per_feature):
-        idx = [i for i, c in enumerate(cluster_per_feature) if c == cluster]
-        if len(idx) < 2:
-            continue
-        sub = projs[idx]
-        centered = sub - sub.mean(axis=0)
-        # Top right-singular vector = first principal component.
-        _, _, vt = np.linalg.svd(centered, full_matrices=False)
-        pc1 = vt[0]
-        coeffs = centered @ pc1
-        for k, val in zip(idx, coeffs):
-            raw[k] = float(val)
-    if not np.any(raw):
-        return raw.tolist()
-    abs_max = float(np.max(np.abs(raw)))
-    half = 0.5 * (hi - lo)
-    mid = 0.5 * (hi + lo)
-    scaled = raw / abs_max * half + mid
-    return scaled.tolist()
-
-
-def _tier_preservation(
-    projs: np.ndarray, dictionary: Dictionary
-) -> float | None:
-    """Pearson correlation between off-diagonal `|G|²` entries of the
-    projection-space cosine-overlap matrix and the analytic Polygram
-    Gram of the built `Dictionary` at φ=0. None when there are no
-    off-diagonals (N ≤ 1)."""
-    n = projs.shape[0]
-    if n <= 1:
-        return None
-    norms = np.linalg.norm(projs, axis=1, keepdims=True)
-    norms = np.where(norms == 0, 1.0, norms)
-    proj_unit = projs / norms
-    cos_overlap = np.abs(proj_unit @ proj_unit.T) ** 2
-
-    gram = np.abs(dictionary.gram()) ** 2
-
-    iu = np.triu_indices(n, k=1)
-    a = cos_overlap[iu]
-    b = gram[iu]
-    if np.std(a) < 1e-12 or np.std(b) < 1e-12:
-        return float("nan")
-    return float(np.corrcoef(a, b)[0, 1])
-
-
-def _kmeans(
-    points: np.ndarray, k: int, seed: int = 0, max_iter: int = 100
-) -> tuple[np.ndarray, list[int]]:
-    """Tiny Lloyd's-algorithm k-means in pure numpy with k-means++ init.
-
-    Returns `(assignments, empty_cluster_indices)`. Deterministic
-    given the seed.
+    Resolution order: explicit kwarg > ``cfg.profile`` (string) >
+    registry default (``"clustered"``). Strings are looked up against
+    the live `polygram.geometry` registry so third-party-registered
+    profiles work without any plumbing here.
     """
-    n = len(points)
-    if k <= 1:
-        return np.zeros(n, dtype=int), []
-    rng = np.random.default_rng(seed)
+    from polygram.geometry import (
+        GeometricProfile as _GeometricProfile,
+        get_profile,
+    )
 
-    # k-means++ init: first centroid uniform random; subsequent
-    # centroids weighted by D² to nearest existing centroid.
-    centroids = np.empty((k, points.shape[1]), dtype=points.dtype)
-    centroids[0] = points[rng.integers(0, n)]
-    for ci in range(1, k):
-        d2 = np.min(
-            np.sum((points[:, None, :] - centroids[None, :ci, :]) ** 2, axis=2),
-            axis=1,
-        )
-        total = d2.sum()
-        if total <= 0:
-            centroids[ci] = points[rng.integers(0, n)]
-            continue
-        probs = d2 / total
-        idx = int(rng.choice(n, p=probs))
-        centroids[ci] = points[idx]
-
-    assignments = np.full(n, -1, dtype=int)
-    for _ in range(max_iter):
-        dists = np.linalg.norm(points[:, None, :] - centroids[None, :, :], axis=2)
-        new_assignments = np.argmin(dists, axis=1)
-        if np.array_equal(new_assignments, assignments):
-            break
-        assignments = new_assignments
-        for ci in range(k):
-            mask = assignments == ci
-            if mask.any():
-                centroids[ci] = points[mask].mean(axis=0)
-
-    empties = [int(ci) for ci in range(k) if not (assignments == ci).any()]
-    return assignments, empties
+    if profile is None:
+        cfg_profile_name = getattr(cfg, "profile", None)
+        return get_profile(cfg_profile_name or "clustered")
+    if isinstance(profile, str):
+        return get_profile(profile)
+    if isinstance(profile, _GeometricProfile):
+        return profile
+    raise TypeError(
+        f"from_sae_lens: profile must be str | GeometricProfile | "
+        f"None; got {type(profile).__name__}"
+    )

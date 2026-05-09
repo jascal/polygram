@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.2.0 (unreleased)
+
+### Added
+
+- **`polygram.geometry` module** — named `GeometricProfile` registry
+  for SAE projection-space regimes. Two built-in profiles ship:
+  `clustered` (the v0.1.0 default — small dense LM SAEs at GPT-2-small
+  scale) and `uniform-sphere` (audio + large LM SAEs with
+  `d_model ≥ ~1K`, `n_features ≥ ~16K`). Empirically validated on a
+  five-SAE panel spanning Whisper, Qwen-Scope, and Llama-Scope; see
+  [`docs/research/sae-geometry-regimes.md`](docs/research/sae-geometry-regimes.md).
+- **`profile=` kwarg on `from_sae_lens`** — selects which
+  `GeometricProfile` governs knob assignment + fidelity. Resolution
+  order: per-field kwarg > `SAEImportConfig.profile` > registry
+  default (`clustered`). Omitting the kwarg is byte-for-byte identical
+  to passing `profile="clustered"` (locked in by a golden fixture).
+- **`SelectionReport.profile` and `SelectionReport.geometric_fidelity`** —
+  the active profile name and its headline scalar. The existing
+  `tier_preservation` field is retained but populated only by the
+  `clustered` profile (and any third-party profiles that opt to reuse
+  `TierPreservationFidelity`).
+- **`SAEImportConfig.profile`** — optional string field (default
+  `None`); resolved against the registry at `from_sae_lens` call time.
+- **`GeometricProfile`, `register_profile`, `get_profile`,
+  `available_profiles`, `clustered`, `uniform_sphere`** — re-exported
+  from the top-level `polygram` namespace.
+
+### Fixed
+
+- **bf16 slice path in `load_sae_safetensors(feature_ids=...)`** —
+  used to crash with `TypeError: data type 'bfloat16' not understood`
+  on bf16 checkpoints. Llama-Scope L0R surfaced this; modern LLM SAEs
+  ship bf16 by default. The slice path now reads bf16 row bytes
+  directly off disk for the common (non-transposed) case and falls
+  through to the eager bf16 conversion for the `decoder.weight`
+  PyTorch-orientation case. New `_safe_to_float32` helper centralises
+  the conversion so future loaders don't re-discover the quirk.
+
 ## 0.1.0 (2026-05-07)
 
 ### Added

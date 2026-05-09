@@ -201,7 +201,8 @@ programmatic API.
 `Dictionary` from a user-selected subset of SAE features and returns a
 `SelectionReport` describing how the lossy projection-vector → β
 collapse went. Cluster assignment precedence: explicit user override →
-parsed `"<cluster>/<name>"` labels → k-means on projection vectors.
+parsed `"<cluster>/<name>"` labels → the active profile's
+`KnobAssignment` strategy (k-means or PCA-axis depending on profile).
 
 ```python
 from polygram import from_sae_lens, load_toy_sae
@@ -210,26 +211,66 @@ records = load_toy_sae("tests/fixtures/toy_sae.json")
 # pick 4 features by id (≤8; the rung-1 MPS cap)
 dictionary, report = from_sae_lens(records, [0, 1, 4, 5])
 
-print(report.cluster_method)             # "from_labels" / "kmeans" / "user"
-print(report.beta_variance_explained)    # cluster-level fidelity stat
+print(report.profile)                    # "clustered" by default
+print(report.cluster_method)             # "from_labels" / "kmeans" / "user" / "pca_axis"
+print(report.beta_variance_explained)    # profile-defined fidelity stat
 print(report.reconstruction_error)       # per-feature distance to centroid
-print(report.tier_preservation)          # corr(projection-space cosines,
-                                         # analytic Polygram Gram) — None
-                                         # for n_selected ≤ 1
+print(report.geometric_fidelity)         # profile's headline scalar
+print(report.tier_preservation)          # only populated by `clustered`;
+                                         # None for other profiles
 ```
 
 `SelectionReport` surfaces three fidelity stats per call:
-`beta_variance_explained` (cluster-level), `reconstruction_error`
-(per-feature Euclidean distance from each projection vector to its
-assigned cluster centroid), and `tier_preservation` (Pearson
-correlation between off-diagonal `|G|²` of the projection-space
-cosine-overlap matrix and the analytic Polygram Gram of the built
-Dictionary).
+`beta_variance_explained` (defined per profile — cluster residual for
+`clustered`, top-1 PCA fraction for `uniform-sphere`),
+`reconstruction_error` (per-feature Euclidean distance from each
+projection vector to its assigned cluster centroid), and
+`geometric_fidelity` (profile-specific scalar — Pearson tier-
+preservation for `clustered`, rank-recall@k for `uniform-sphere`).
 
 Pass `assign_gamma=True` to derive each feature's γ from per-cluster
 PCA on the centered projection vectors (rescaled into
 `gamma_range`, default `(-0.25, 0.25)`); `report.gamma_method`
 records `"zero"` (default) or `"projection_pca"`.
+
+### Geometric profiles (`polygram.geometry`)
+
+`from_sae_lens` accepts a `profile=` kwarg selecting which geometric
+regime the SAE belongs to. Two built-in profiles ship:
+
+| profile | calibrated for | strategy | fidelity |
+|---|---|---|---|
+| `clustered` (default) | GPT-2-small-style SAEs (d_model ≤ 768, ≤24K features) | k=2 k-means + antipodal β | Pearson `tier_preservation` |
+| `uniform-sphere` | Whisper, Qwen-Scope, Llama-Scope, Gemma-Scope at width (d_model ≥ ~1K, ≥16K features) | k≥16 k-means + PCA-axis β | rank-recall@k |
+
+Pass the profile that matches your SAE's pedigree:
+
+```python
+# Small text SAE (GPT-2-small style)
+from_sae_lens(records, ids)                              # default = clustered
+from_sae_lens(records, ids, profile="clustered")          # explicit
+
+# Large LM SAE (Qwen-Scope, Llama-Scope, Gemma-Scope at width)
+# OR audio SAE (Whisper-style)
+from_sae_lens(records, ids, profile="uniform-sphere")
+```
+
+**Modality is not the selector — pedigree is.** Both audio SAEs and
+large-LM text SAEs sit in the `uniform-sphere` regime (verified on a
+five-SAE panel: Whisper × 2, Qwen-Scope, Llama-Scope L0R + L12R; see
+`docs/research/sae-geometry-regimes.md`). Calling `clustered` on a
+Qwen-Scope or Llama-Scope SAE silently degrades — the small-LM
+calibration doesn't transfer at scale.
+
+Profile resolution order: **per-field kwarg > `SAEImportConfig.profile`
+> registry default (`clustered`)**. So `n_clusters=4` always wins
+over the profile's default of 16; `profile="uniform-sphere"` always
+wins over a config-supplied `profile`. Omitting `profile=` is
+byte-for-byte identical to passing `profile="clustered"`.
+
+Third parties (sae-forge etc.) can register custom profiles via
+`polygram.register_profile(...)`. See `polygram.geometry` for the
+`KnobAssignment` and `GeometricFidelity` protocols.
 
 The bundled `tests/fixtures/toy_sae.json` is a 16-feature, 4-cluster,
 8-dim deterministic toy.
@@ -310,9 +351,14 @@ parameterized by `(α, β, γ, φ)`, with `phase_knobs=True` exposing a single
 means the structural floor `M − |V|` is exact and free to evaluate — `Cancellation`
 can certify how close a phase-search result is to the encoding-theoretic minimum
 without any optimizer calls. Tier-separation and co-firing rankings derived from
-`MPSRung1` transfer to real-model behaviour (Spearman ≥ 0.6 against behavioural
+`MPSRung1` transfer to real-model behaviour for the validated combo
+**`clustered` profile + `MPSRung1` encoding** (Spearman ≥ 0.6 against behavioural
 Jaccard at `blocks.10` on GPT-2 small; see
 [`docs/research/behavioural-scaleup-probe.md`](docs/research/behavioural-scaleup-probe.md)).
+Pairing `MPSRung1` with the `uniform-sphere` profile is provisional pending
+behavioural validation on Whisper / Qwen-Scope / Llama-Scope-style SAEs — the
+geometric primitives compose correctly but the calibration thresholds haven't been
+re-run on those host models yet.
 
 `HEA_Rung2` gives a richer θ tensor (`(|rotations|, depth, n_qubits)` per feature)
 with independent knobs for circuit depth, entangler topology, and rotation gate set
