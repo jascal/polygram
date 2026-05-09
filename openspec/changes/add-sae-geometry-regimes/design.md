@@ -5,30 +5,74 @@ geometric assumption into every call: features cluster into a
 small number of antipodal groups, β = ±0.5 spans the cluster
 axis, γ is a small in-cluster PCA perturbation, and Pearson
 correlation between projection cosines and Polygram Gram is the
-fidelity stat. That calibration is locked in for text SAEs by
-the §4.4 GPT-2-small spike and the resolved cross-encoding
-stability spike (per project memory).
+fidelity stat. That calibration is locked in for *small dense
+LM SAEs* — specifically GPT-2-small — by the §4.4 calibration
+and the resolved cross-encoding stability spike (per project
+memory).
 
-Phase-1 audio-SAE smoke probe (Whisper-tiny encoder.blocks.2
-TopK SAE on LibriSpeech and Whisper-large-v1 encoder.blocks.16
-TopK SAE on AudioSet — see `scratch/whisper_sae/` and
-`scratch/whisper_large_sae/`) showed audio SAE features sit on
-a near-uniform sphere: mean off-diagonal cosine ~0.000 ± 0.028,
-no recoverable 2-cluster structure, real clusters appearing
-only at k≈256. On these inputs the Pearson `tier_preservation`
-flips sign with selection strategy (-0.41 random, +0.27 cosine-
-clustered, -0.40 anti-clustered) and `encoding_suitability_score`
-saturates at ~1e-5 regardless of `n_clusters`. n_clusters
-sweeps confirmed the bottleneck is not k but the β = ±0.5
-binary spread itself: at k=8 (every feature its own cluster)
-`beta_var_explained` reaches 1.0 by construction yet
-`tier_preservation` collapses to noise.
+A three-SAE smoke probe established the calibration scope is
+narrower than originally framed:
+
+| SAE | n_features × d_model | decoder norm | cosine std | tier_pres random |
+|---|---|---|---|---|
+| Whisper-tiny enc.b2 (audio) | 6,144 × 384 | 1.020 ± 0.071 | 0.056 | -0.408 |
+| Whisper-large-v1 enc.b16 (audio) | 20,480 × 1,280 | 0.996 ± 0.043 | 0.028 | -0.000 |
+| Qwen-Scope L14 W32K (text) | 32,768 × 2,048 | 1.000 ± 0.000 | 0.035 | +0.297 |
+
+(See `scratch/whisper_sae/`, `scratch/whisper_large_sae/`,
+`scratch/qwen_scope/` for the raw artifacts and the conversation
+history for the methodology.)
+
+All three SAEs sit on a quasi-uniform sphere: mean off-diagonal
+cosine ≈ 0, decoder rows unit-norm (Qwen-Scope to floating-
+point precision; Whisper to ~3% std), real clusters appearing
+only at k≈256. On the audio SAEs the Pearson
+`tier_preservation` flips sign with selection strategy; on
+Qwen-Scope it stays positive but small (+0.30 random vs +0.37
+clustered) — slightly more recoverable structure than audio,
+but the same regime. `encoding_suitability_score` saturates at
+~1e-5 to 1e-4 across all three, regardless of `n_clusters` or
+layer choice. Cancellation efficiency hits 0.999 on the top-|V|
+pair across all three — a signature of polygram's k=2 binary
+β-spread hitting its structural floor immediately rather than
+evidence of a faithful encoding.
+
+The crucial reframing: **the calibration mismatch is not text-
+vs-audio.** Qwen-Scope is a text SAE, and it lands in the same
+regime as the audio SAEs, not the same regime as polygram's
+GPT-2-small calibration baseline. The empirical split runs
+along **scale + decoder normalization + training regime**:
+
+- Today's defaults match small dense LM SAEs (GPT-2-small d=768,
+  ≤24K features, dense ReLU / JumpReLU).
+- A second regime — TopK or strict-unit-norm decoders, large
+  width (≥16K features), large d_model (≥1K) — covers
+  audio SAEs and large LM SAEs alike.
 
 Downstream consumer sae-forge has meta-knowledge of each SAE's
-modality and trainer pedigree at orchestration time. Polygram
-doesn't need to *infer* the regime from projection geometry —
-it needs to *expose* named regimes that the consumer selects
-explicitly.
+pedigree at orchestration time. Polygram doesn't need to
+*infer* the regime from projection geometry — it needs to
+*expose* named regimes that the consumer selects explicitly.
+
+### Relationship to the stashed `add-qwen-scope-loader` work
+
+The earlier `spec/add-qwen-scope-loader` branch (stashed,
+unmerged) stalled on a separate concern: the **TopK fidelity
+ceiling**. Polygram caps Dictionaries at 8 features (rung-1 =
+3-qubit register); Qwen-Scope's TopK k is 50 or 100. A
+Dictionary built from Qwen-Scope features will always hold
+fewer features than k, so the TopK gate is structurally vacuous
+at the Dictionary level. The proposed `TopKMPSRung1` marker
+was provenance-only; the stash design called this out
+honestly.
+
+The Phase-1.5 Qwen-Scope probe surfaced an *additional*
+problem that loader would have hit: the `tier_preservation`-
+collapses-into-noise / suitability-score-saturates issue this
+change addresses. Two separate problems would have stacked.
+This change resolves the second; the TopK fidelity ceiling
+remains out of scope and is a candidate for a future
+`add-topk-fidelity` change after the encoding cap is lifted.
 
 ## Goals / Non-Goals
 
@@ -103,12 +147,41 @@ fields. That would silently change behaviour for callers who
 set `n_clusters=2` on a config and then later pass
 `profile="uniform-sphere"` — the explicit `2` should win.
 
-### `text-clustered` is the default, named, and observable
+### Profile names follow geometry, not modality
+
+Earlier drafts named the profiles `text-clustered` and
+`uniform-sphere`. The Qwen-Scope probe falsified the modality-
+flavoured naming: Qwen-Scope is a text SAE that lands in the
+uniform-sphere regime, not in the GPT-2-small regime. Calling
+the default `text-clustered` would invite future callers to
+pass it on Qwen-Scope / Gemma-Scope / Llama-Scope by analogy
+with "text", silently degrading.
+
+Renamed to `clustered` (the default, calibrated on small dense
+LM SAEs — GPT-2-small specifically) and `uniform-sphere` (the
+broader regime: audio + Qwen-Scope, plausibly other large LM
+SAEs). The names describe the *projection-space property the
+profile assumes*, not the source modality.
+
+Documented contract:
+
+- `clustered` is appropriate when the SAE has recoverable
+  small-k cluster structure visible in cosine geometry. The
+  empirical scope is GPT-2-small at ≤24K features.
+- `uniform-sphere` is appropriate when features sit on a near-
+  uniform sphere with cosine std ≤ ~0.06 and `tier_preservation`
+  is selection-driven noise. The empirical scope so far is
+  audio TopK SAEs + Qwen-Scope.
+- For SAEs outside both characterised regimes, register a
+  custom profile or fall back to `clustered` (fail loud rather
+  than silently mis-calibrate).
+
+### `clustered` is the default, named, and observable
 
 Three options for "what does omitting `profile=` mean":
 
-1. Resolve to `text-clustered` at call time and record
-   `report.profile = "text-clustered"`. **Chosen.**
+1. Resolve to `clustered` at call time and record
+   `report.profile = "clustered"`. **Chosen.**
 2. Leave `report.profile = None` when not passed.
 3. Resolve to a synthetic `"default"` alias.
 
@@ -116,8 +189,8 @@ Option 1 wins because consumers downstream (sae-forge,
 analysis tools) can branch unambiguously on the profile name
 without special-casing `None`. The cost is one concept's worth
 of "implicit default ≡ named default" mapping that has to be
-documented; the benefit is symmetry between the audio-SAE and
-text-SAE call sites.
+documented; the benefit is symmetry between the GPT-2-small
+and Qwen-Scope / audio call sites.
 
 ### β = `pca_axis` strategy for `uniform-sphere`
 
@@ -166,7 +239,7 @@ across the 4-to-8-feature operating range.
 `from_sae_lens` entry, against the live registry. This means a
 serialised config from polygram v0.1.x (no `profile` field at
 all) deserialises cleanly under v0.2 and resolves to
-text-clustered. It also means downstream packages that register
+clustered. It also means downstream packages that register
 custom profiles after import don't have to time their
 registration against config construction.
 
@@ -177,13 +250,13 @@ New package `polygram/geometry/`:
 ```
 polygram/geometry/
   __init__.py        # public API: GeometricProfile, register_profile,
-                     # get_profile, available_profiles, text_clustered,
+                     # get_profile, available_profiles, clustered,
                      # uniform_sphere
   profile.py         # GeometricProfile dataclass
   protocols.py       # KnobAssignment, GeometricFidelity protocols
   registry.py        # register/get/available; built-ins registered
                      # in __init__.py to avoid circular imports
-  text_clustered.py  # the v0.1.0-equivalent strategy + fidelity
+  clustered.py  # the v0.1.0-equivalent strategy + fidelity
   uniform_sphere.py  # the audio-calibrated strategy + fidelity
 ```
 
@@ -198,10 +271,10 @@ strategy dispatch).
 ## Risks / Trade-offs
 
 [Risk] **Default-equivalence regression**: extracting today's
-hardcoded path into a `text_clustered` strategy could subtly
+hardcoded path into a `clustered` strategy could subtly
 diverge (e.g. a different k-means seed flow, different float
 rounding in β spread). **Mitigation**: ship a frozen golden
-fixture (`tests/fixtures/golden_text_clustered.json`)
+fixture (`tests/fixtures/golden_clustered.json`)
 generated from the v0.1.0 baseline, and assert byte-equality of
 `Dictionary.features` and `SelectionReport` fields in a
 regression test. The spec scenario already names this fixture.
@@ -222,7 +295,7 @@ metric**. Keeping it for backwards-compat means callers who
 generic-dispatch on it might think the field is universally
 populated. **Mitigation**: spec is explicit that
 `tier_preservation` is the v0.1.0 Pearson and is `None` outside
-the text-clustered profile (and any opt-in third-party reuses).
+the clustered profile (and any opt-in third-party reuses).
 The new `geometric_fidelity` is the field consumers should
 read going forward; the README needs an updated note pointing
 to `geometric_fidelity` as the canonical fidelity stat.
@@ -234,7 +307,7 @@ calibration. **Mitigation**: the tasks file explicitly enumerates
 each doc surface; a single PR lands all of them.
 
 [Trade-off] **No automatic profile detection.** Consumers who
-forget to pass `profile=` get text-clustered output regardless
+forget to pass `profile=` get clustered output regardless
 of whether their SAE is text. On a Whisper SAE this manifests
 as a low `tier_preservation` and a saturating
 `encoding_suitability_score` — diagnosable, not silent failure,
@@ -250,13 +323,13 @@ threshold separates the regimes? does it generalise?).
    `profile=` reproduces v0.1.0 behaviour byte-for-byte.
 2. **Internal call sites** (`examples/`, `tests/`, CLI flows,
    `polygram analyze`) are updated in the same PR to either pass
-   `profile="text-clustered"` explicitly (where it documents
+   `profile="clustered"` explicitly (where it documents
    intent) or leave it implicit (where it's unimportant). No
    logic changes.
 3. **Downstream consumer (sae-forge)** lands a parallel change
    on its side: at SAE-record construction time, check the
    modality tag and pass
-   `profile=("uniform-sphere" if modality in {"audio"} else "text-clustered")`
+   `profile=("uniform-sphere" if modality in {"audio"} else "clustered")`
    into `from_sae_lens`. Out of scope for this polygram change;
    tracked as a sae-forge-side ticket.
 4. **CHANGELOG**: bump to 0.2.0 since the API surface grows
@@ -266,7 +339,7 @@ threshold separates the regimes? does it generalise?).
 
 Rollback: revert is safe — the public surface only adds new
 optional kwargs and new dataclass fields. Downstream code that
-read `tier_preservation` continues to work on text-clustered
+read `tier_preservation` continues to work on clustered
 output.
 
 ## Open Questions

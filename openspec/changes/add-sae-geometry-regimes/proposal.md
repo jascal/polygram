@@ -1,26 +1,48 @@
 ## Why
 
-Phase-1 audio-SAE probe (Whisper-tiny encoder.blocks.2 and
-Whisper-large-v1 encoder.blocks.16, both TopK SAEs) showed that
-audio SAE features sit in a quasi-uniform sphere — mean off-diag
-cosine ≈ 0, std ≈ 0.03–0.06, real clusters appearing only at
-k≈256. Polygram's current `from_sae_lens` defaults bake in the
-*opposite* assumption (k=2 binary clustering, β spread over
-`(-0.5, 0.5)`, Pearson `tier_preservation` as fidelity stat),
-which collapses on uniform-sphere geometries: `tier_preservation`
-flipped sign across feature-selection strategies (-0.41 random,
-+0.27 clustered, -0.40 anti-clustered) and
-`encoding_suitability_score` saturated around 1e-5 regardless of
-n_clusters or layer.
+A three-SAE smoke probe — Whisper-tiny `encoder.blocks.2` (TopK
+on LibriSpeech), Whisper-large-v1 `encoder.blocks.16` (TopK on
+AudioSet), and Qwen3-1.7B layer 14 (Qwen-Scope TopK W32K L0_50,
+text) — revealed that polygram's current `from_sae_lens`
+defaults are calibrated for one specific corner of SAE-space and
+collapse outside it.
 
-These defaults are correct for text SAEs — the GPT-2-small
-calibration and the resolved cross-encoding stability spike (per
-project memory) lock that in as the production baseline. The
-mismatch is that Polygram has *one* implicit geometric profile
-when there's now evidence of at least two distinct regimes, and
-downstream consumers (sae-forge today) have meta-knowledge of
-the SAE's modality and would benefit from selecting the
-appropriate profile explicitly.
+Findings (full numbers in
+`docs/research/sae-geometry-regimes.md`):
+
+- All three SAEs sit on a quasi-uniform sphere: mean
+  off-diagonal cosine ≈ 0, std 0.03–0.06, decoder rows unit-
+  norm (Qwen-Scope to floating-point precision, Whisper to
+  ~3% std).
+- Pearson `tier_preservation` flips sign across feature-
+  selection strategies on Whisper-tiny (-0.41 random / +0.27
+  clustered / -0.40 anti-clustered) — the metric is
+  selection-driven noise on uniform-sphere data, not a fidelity
+  signal. On Qwen-Scope it stays positive but small (+0.30).
+- `encoding_suitability_score` saturates at 1e-5 to 1e-4 on
+  all three, regardless of `n_clusters` or layer choice.
+- Cancellation efficiency hits 0.999 on the top-|V| pair across
+  all three — a signature of polygram's `k=2` binary β-spread
+  hitting its structural floor immediately rather than evidence
+  of a faithful encoding.
+
+The crucial reframing is that **the regime split is geometric,
+not modality-flavoured**. Audio SAEs and Qwen-Scope (a text SAE
+on a 1.7B-param LLM) sit in the same projection-space regime;
+the difference between them and polygram's calibration baseline
+isn't text-vs-audio but **scale + decoder normalization +
+training regime**. Today's defaults match small dense LM SAEs
+(GPT-2-small d=768, ≤24K features, dense ReLU / JumpReLU per
+the §4.4 calibration and the resolved cross-encoding stability
+spike). They mismatch large LM SAEs (Qwen-Scope, plausibly
+Gemma-Scope and Llama-Scope at width) the same way they
+mismatch audio SAEs.
+
+Polygram has *one* implicit geometric profile when there are at
+least two empirical regimes. Downstream consumers (sae-forge
+today, future image/video-SAE consumers later) have meta-
+knowledge of the SAE's pedigree at orchestration time and would
+benefit from selecting the appropriate profile explicitly.
 
 ## What Changes
 
@@ -28,27 +50,33 @@ appropriate profile explicitly.
   `KnobAssignment` strategy + a `GeometricFidelity` metric +
   recommended `from_sae_lens` defaults (`n_clusters`,
   `gamma_range`).
-- Ship two named profiles: `"text-clustered"` (the new default
-  alias for today's behaviour — k=2 k-means, β = ±0.5 antipodal
-  spread, Pearson `tier_preservation`) and `"uniform-sphere"`
-  (k≥16 k-means, β derived from PCA-axis coordinates rather than
-  cluster ordinal, rank-recall@k as fidelity).
+- Ship two named profiles, **named after projection-space
+  geometry rather than modality**: `"clustered"` (the new
+  default alias for today's behaviour — k=2 k-means, β = ±0.5
+  antipodal spread, Pearson `tier_preservation`; calibrated on
+  small dense LM SAEs, GPT-2-small specifically) and
+  `"uniform-sphere"` (k≥16 k-means, β derived from PCA-axis
+  coordinates rather than cluster ordinal, rank-recall@k as
+  fidelity; calibrated on the audio + Qwen-Scope evidence).
 - Add `from_sae_lens(..., profile: str | GeometricProfile | None =
-  None)`. `None` and `"text-clustered"` both resolve to today's
+  None)`. `None` and `"clustered"` both resolve to today's
   behaviour exactly (no observable change for existing callers).
 - Extend `SelectionReport` with a `profile: str` field and a
   `geometric_fidelity: float | None` field that records the
   profile's metric output. Retain `tier_preservation` as a
-  field; it stays populated for `text-clustered` and is `None`
+  field; it stays populated for `clustered` and is `None`
   for profiles that don't define a Pearson-style metric.
 - Expose a `polygram.geometry` module with the registry,
   `KnobAssignment` protocol, and `GeometricFidelity` protocol so
   third-party consumers (sae-forge) can register custom profiles
   without forking.
 - Document the consumer contract: callers that know the SAE's
-  modality (text/audio/image/video) SHOULD pass `profile=...`;
-  callers that don't get the text-clustered default and the
-  current behaviour.
+  pedigree (small text-LM SAE / large LM SAE / TopK audio SAE /
+  future image-video SAE collections) SHOULD pass `profile=...`;
+  callers that don't get the `clustered` default. Document
+  explicitly that the appropriate profile for **large LM SAEs
+  like Qwen-Scope is `uniform-sphere`, not `clustered`** —
+  modality alone is not a reliable selector.
 
 ## Capabilities
 
@@ -56,7 +84,7 @@ appropriate profile explicitly.
 - `geometry-regimes`: the `GeometricProfile` concept, the named
   profile registry, the `KnobAssignment` strategy protocol, and
   the `GeometricFidelity` metric protocol. Ships two built-in
-  profiles (`text-clustered`, `uniform-sphere`) and the
+  profiles (`clustered`, `uniform-sphere`) and the
   third-party registration API.
 
 ### Modified Capabilities
@@ -64,7 +92,7 @@ appropriate profile explicitly.
   selecting a `GeometricProfile`; `SelectionReport` gains
   `profile` and `geometric_fidelity` fields; the existing
   `tier_preservation` field is retained (populated by the
-  text-clustered profile, `None` for profiles that don't compute
+  clustered profile, `None` for profiles that don't compute
   a Pearson fidelity).
 
 ## Impact
@@ -80,8 +108,24 @@ appropriate profile explicitly.
   semantics. When `profile` is omitted, behaviour is byte-for-byte
   identical to v0.1.0.
 - Downstream: sae-forge can pass `profile="uniform-sphere"` for
-  audio SAEs. No change required for its existing text-SAE flows.
+  audio SAEs *and* for large LM SAEs (Qwen-Scope, plausibly
+  Gemma-Scope and Llama-Scope at width). Small dense LM SAEs
+  (GPT-2-small style) keep the `clustered` default. The
+  modality tag is *not* the selector; pedigree (size class +
+  training regime + decoder normalization) is.
+- Relationship to the stashed `add-qwen-scope-loader` work:
+  that change stalled on a separate concern (TopK fidelity
+  ceiling — Polygram's 8-feature cap < Qwen-Scope's k=50,
+  so the gate is structurally vacuous at the Dictionary level).
+  The Phase-1.5 Qwen-Scope probe surfaced an *additional*
+  problem the loader would have hit: even if `from_qwen_scope`
+  had landed, the resulting Dictionary would have collapsed
+  into noise on the `tier_preservation` / suitability-score
+  axes the same way audio SAEs do. This change addresses that
+  second problem directly; the TopK fidelity ceiling remains
+  out of scope here.
 - Out of scope (separate follow-ups): automatic profile detection
   from projection geometry; image/video profiles (no data yet);
-  raising the rung-1 8-feature cap; modifying
-  `encoding_suitability_score` to be profile-aware.
+  raising the rung-1 8-feature cap; resolving the TopK fidelity
+  ceiling; modifying `encoding_suitability_score` to be
+  profile-aware.

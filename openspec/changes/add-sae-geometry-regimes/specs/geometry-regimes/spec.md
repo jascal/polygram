@@ -5,7 +5,7 @@
 `polygram.geometry.GeometricProfile` SHALL be a frozen dataclass
 that bundles, for a single SAE geometric regime:
 
-- `name: str` — kebab-case identifier (e.g. `"text-clustered"`,
+- `name: str` — kebab-case identifier (e.g. `"clustered"`,
   `"uniform-sphere"`)
 - `knob_assignment: KnobAssignment` — a strategy object
   responsible for mapping selected projection vectors to
@@ -76,10 +76,10 @@ lower better) — direction is documented per strategy.
   single-feature dictionary (no off-diagonal pairs available)
 - **THEN** it returns `None` without raising
 
-### Requirement: text-clustered profile reproduces v0.1.0 defaults exactly
+### Requirement: clustered profile reproduces v0.1.0 defaults exactly
 
-`polygram.geometry.text_clustered()` SHALL return a
-`GeometricProfile(name="text-clustered", ...)` whose behaviour
+`polygram.geometry.clustered()` SHALL return a
+`GeometricProfile(name="clustered", ...)` whose behaviour
 is byte-for-byte identical to polygram v0.1.0's
 `from_sae_lens` k-means path:
 
@@ -98,25 +98,25 @@ This profile SHALL be the registry default, and SHALL be the
 profile selected when `from_sae_lens` is called without a
 `profile` argument.
 
-#### Scenario: text-clustered output matches v0.1.0 byte-for-byte
+#### Scenario: clustered output matches v0.1.0 byte-for-byte
 
 - **WHEN** `from_sae_lens(records, ids,
-  profile="text-clustered")` is called on the bundled toy SAE
+  profile="clustered")` is called on the bundled toy SAE
   fixture (4-feature subset)
 - **THEN** the returned `Dictionary.features`,
   `report.cluster_assignments`,
   `report.beta_variance_explained`, and
   `report.tier_preservation` are identical to the v0.1.0
   baseline (recorded in a frozen golden fixture under
-  `tests/fixtures/golden_text_clustered.json`)
+  `tests/fixtures/golden_clustered.json`)
 
-#### Scenario: omitting profile resolves to text-clustered
+#### Scenario: omitting profile resolves to clustered
 
 - **WHEN** `from_sae_lens(records, ids)` is called without a
   `profile` argument on the bundled toy SAE fixture
 - **THEN** the returned dictionary, report, and fidelity values
   are bit-equal to those returned by the same call with
-  `profile="text-clustered"`
+  `profile="clustered"`
 
 ### Requirement: uniform-sphere profile targets quasi-uniform feature geometries
 
@@ -170,7 +170,7 @@ explicitly).
 - `available_profiles() -> list[str]` — returns the sorted
   list of registered profile names
 
-The two built-in profiles (`"text-clustered"`,
+The two built-in profiles (`"clustered"`,
 `"uniform-sphere"`) SHALL be registered at import time of
 `polygram.geometry`. Third-party packages can register
 additional profiles (e.g. `"image-clip"`, `"video-vjepa"`) by
@@ -181,12 +181,12 @@ polygram.
 
 - **WHEN** `import polygram.geometry` runs
 - **THEN** `polygram.geometry.available_profiles()` returns at
-  minimum `["text-clustered", "uniform-sphere"]` (sorted)
+  minimum `["clustered", "uniform-sphere"]` (sorted)
 
 #### Scenario: duplicate registration is rejected
 
-- **WHEN** `register_profile(GeometricProfile(name="text-clustered", ...))`
+- **WHEN** `register_profile(GeometricProfile(name="clustered", ...))`
   is called after import
 - **THEN** `ValueError` is raised, the existing
-  `text-clustered` profile is unchanged, and the message names
+  `clustered` profile is unchanged, and the message names
   the conflicting key
