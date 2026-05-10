@@ -74,7 +74,7 @@ from polygram.sae_import import (
     load_toy_sae,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "BatchExperiment",
