@@ -42,8 +42,8 @@
 
 ## 8. Coordination
 
-- [ ] 8.1 After landing this change and cutting a polygram release, ping the sae-forge maintainer to bump the polygram floor in `pyproject.toml` (`polygram>=X.Y.Z` where X.Y.Z is the release containing this change)
-- [ ] 8.2 sae-forge resumes its parked `adaptive-regrow` work — controller scaffolding (`saeforge.basis.RegrowController` + `ForgePipeline.adaptive_regrow` knobs) lives on a stash on the impl branch, ready to thread through `ctx["regrow"]["top_k"] = effective_regrow_count`
+- [x] 8.1 After landing this change and cutting a polygram release, ping the sae-forge maintainer to bump the polygram floor in `pyproject.toml` (`polygram>=X.Y.Z` where X.Y.Z is the release containing this change)
+- [x] 8.2 sae-forge resumes its parked `adaptive-regrow` work — controller scaffolding (`saeforge.basis.RegrowController` + `ForgePipeline.adaptive_regrow` knobs) lives on a stash on the impl branch, ready to thread through `ctx["regrow"]["top_k"] = effective_regrow_count`
 
 ## 9. OpenSpec scaffolding
 
