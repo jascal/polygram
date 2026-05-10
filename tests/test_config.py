@@ -224,6 +224,21 @@ class TestRoundTrip:
         assert cfg2 == cfg
         assert isinstance(cfg2.prompts, tuple)
 
+    def test_regrow_top_k_round_trip(self):
+        cfg = RegrowConfig(model_name="pythia-160m", layer=4, top_k=3)
+        d = cfg.to_dict()
+        assert d["top_k"] == 3
+        cfg2 = RegrowConfig.from_dict(d)
+        assert cfg2 == cfg
+        assert cfg2.top_k == 3
+
+    def test_regrow_top_k_default_none_round_trip(self):
+        cfg = RegrowConfig(model_name="pythia-160m", layer=4)
+        d = cfg.to_dict()
+        assert d["top_k"] is None
+        cfg2 = RegrowConfig.from_dict(d)
+        assert cfg2.top_k is None
+
     def test_sae_import_round_trip(self):
         cfg = SAEImportConfig(assign_gamma=False, gamma_range=(-0.1, 0.5), n_clusters=5)
         d = cfg.to_dict()

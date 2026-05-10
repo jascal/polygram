@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **`RegrowConfig.top_k`** — optional cap on the per-call regrow
+  count. Default `None` preserves byte-equivalence with pre-change
+  behavior (every zeroed slot regrown). When set to a non-negative
+  integer, the regrower regrows only the first `top_k` zeroed slots
+  in plan order; remaining slots stay zero. `Regrower.from_compression_report`
+  also accepts a `top_k=` kwarg with the standard kwarg-wins-over-config
+  precedence. Selection is plan-order; richer strategies tracked
+  as `regrow-selection-strategies`. Unblocks sae-forge's
+  `adaptive-regrow` controller.
+
 ## 0.2.0 (2026-05-08)
 
 ### Added
