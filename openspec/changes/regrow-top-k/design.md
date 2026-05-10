@@ -156,6 +156,48 @@ sae-forge pulls it. Polygram does NOT need to know about
 sae-forge's controller, target sizes, or adaptive logic —
 those live downstream.
 
+## Downstream usage example (sae-forge adaptive-regrow)
+
+For context, here's how sae-forge consumes the new knob in its
+parked `adapt_and_regrow` composed action — illustrating that
+polygram exposes a single integer lever and the downstream
+caller does the policy:
+
+```python
+# saeforge/actions/__init__.py — sae-forge resumes from this
+# pattern once polygram>=X.Y.Z is available.
+def adapt_and_regrow(ctx: dict, payload: dict | None = None) -> dict:
+    if not ctx.get("adaptive_regrow"):
+        return perform_regrowth(ctx, payload)
+
+    # Cold-start fallback: no prior compression yet → use base count.
+    if not ctx.get("current_feature_count"):
+        return perform_regrowth(ctx, payload)
+
+    # 1. Controller picks the per-cycle count from polygram report data.
+    effective = RegrowController.next_count(
+        n_features_kept=ctx["current_feature_count"],
+        n_features_target=ctx["n_features_target"],
+        regrow_count=ctx["regrow_count"],
+        regrow_max=ctx["regrow_max"],
+        regrow_damping=ctx["regrow_damping"],
+    )
+
+    # 2. Thread it into the polygram-side regrow config via ctx.
+    ctx["effective_regrow_count"] = effective
+    ctx["regrow"]["top_k"] = effective  # ← THIS LINE is what this change unblocks
+
+    # 3. Existing perform_regrowth then constructs RegrowConfig.from_dict
+    #    against the updated ctx["regrow"]; polygram honors top_k via
+    #    the new lever.
+    return perform_regrowth(ctx, payload)
+```
+
+The clean cut is at the `ctx["regrow"]["top_k"] = effective`
+line: polygram is told *how many*, not *which ones* and not
+*why*. The controller logic, the target, the damping — all
+live in sae-forge. Polygram just executes the count.
+
 ## Risk: silently changing semantics for callers using strategy="residual_kmeans"
 
 Mitigated by the byte-equivalence test under `top_k=None`. If
