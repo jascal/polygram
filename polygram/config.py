@@ -358,6 +358,7 @@ class RegrowConfig(_ConfigMixin):
     prompts: tuple[str, ...] | None = None
     seed: int = 0
     n_init: int = 4
+    top_k: int | None = None
     device: str | None = None
 
     def __post_init__(self) -> None:
@@ -373,6 +374,11 @@ class RegrowConfig(_ConfigMixin):
         if int(self.n_init) < 1:
             raise ValueError(
                 f"RegrowConfig: n_init must be >= 1; got {self.n_init}"
+            )
+        if self.top_k is not None and int(self.top_k) < 0:
+            raise ValueError(
+                f"RegrowConfig: top_k must be None or a non-negative int; "
+                f"got top_k={self.top_k}"
             )
 
 

@@ -69,6 +69,36 @@ are generally deterministic; CUDA is not without explicit
 implications. The spec calls this out as a caveat rather than
 requiring users to make the call.
 
+## Capping regrowth with `top_k`
+
+`RegrowConfig.top_k` (and the matching `Regrower.from_compression_report(top_k=...)`
+kwarg) caps the number of zeroed slots regrown per call. Selection is
+plan order — the first `top_k` slots in `RegrowPlan.zeroed_input` order
+(ascending by feature id). Remaining zeroed slots stay zero in the
+output checkpoint.
+
+When to use it: an adaptive caller (e.g. sae-forge's `adaptive-regrow`
+controller) wants to drive a per-cycle growth count from external
+signals — current basis size vs target, damping schedule, etc. The
+controller computes "+N slots" and passes `top_k=N`; polygram
+executes the count without needing to know why.
+
+Guarantees:
+
+- `top_k=None` (the default) is byte-identical to the pre-change
+  behavior — every zeroed slot regrown. This is the load-bearing
+  acceptance gate; the test in `tests/compression/test_regrow_top_k.py`
+  pins it empirically.
+- `top_k=0` is a valid no-op: the output checkpoint equals the
+  source checkpoint, byte-for-byte.
+- `top_k >= len(zeroed)` is a no-op cap — equivalent to `top_k=None`.
+- `top_k < 0` is rejected at config / constructor `__post_init__`
+  with a `ValueError` naming the field and value.
+
+Selection strategies beyond plan order (by cluster size, by feature
+id, caller-supplied list) are deferred to a follow-up
+(`regrow-selection-strategies`) once a downstream consumer needs them.
+
 ## See also
 
 - [`compression-action-design.md`](compression-action-design.md) —

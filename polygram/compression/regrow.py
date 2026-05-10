@@ -101,6 +101,7 @@ class Regrower:
     model_name: str = "gpt2"
     layer: int = 10
     device: str | None = None
+    top_k: int | None = None
 
     # Cached plan + provenance, populated lazily.
     _cached_plan: RegrowPlan | None = field(
@@ -132,6 +133,11 @@ class Regrower:
         if int(self.n_init) < 1:
             raise ValueError(
                 f"Regrower: n_init must be >= 1; got {self.n_init}"
+            )
+        if self.top_k is not None and int(self.top_k) < 0:
+            raise ValueError(
+                f"Regrower: top_k must be None or a non-negative int; "
+                f"got top_k={self.top_k}"
             )
 
         # XOR on residual source
@@ -203,6 +209,7 @@ class Regrower:
         model_name: str | None = None,
         layer: int | None = None,
         device: str | None = None,
+        top_k: int | None = None,
         config: "RegrowConfig | None" = None,
     ) -> "Regrower":
         # Precedence: per-field kwarg (non-None) > config > error for
@@ -223,6 +230,8 @@ class Regrower:
                 layer = config.layer
             if device is None:
                 device = config.device
+            if top_k is None:
+                top_k = config.top_k
         # Required-field enforcement: when no config supplies them and no
         # per-field kwarg is given, raise a clear TypeError. The previous
         # ``model_name="gpt2"`` and ``layer=10`` defaults silently bound
@@ -262,6 +271,7 @@ class Regrower:
             model_name=model_name,
             layer=layer,
             device=device,
+            top_k=top_k,
         )
         object.__setattr__(
             instance,
@@ -295,6 +305,12 @@ class Regrower:
 
         residuals = self._resolve_residuals()
         zeroed_sorted = sorted(int(f) for f in self.zeroed)
+
+        # top_k cap: regrow only the first top_k zeroed slots in plan
+        # order. None (default) preserves byte-equivalence with the
+        # pre-change behavior; a value >= len(zeroed_sorted) is a no-op.
+        if self.top_k is not None and int(self.top_k) < len(zeroed_sorted):
+            zeroed_sorted = zeroed_sorted[: int(self.top_k)]
 
         if not zeroed_sorted:
             # Empty-zeroed-set is a no-op: empty plan.
