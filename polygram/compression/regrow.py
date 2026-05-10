@@ -309,8 +309,8 @@ class Regrower:
         # top_k cap: regrow only the first top_k zeroed slots in plan
         # order. None (default) preserves byte-equivalence with the
         # pre-change behavior; a value >= len(zeroed_sorted) is a no-op.
-        if self.top_k is not None and int(self.top_k) < len(zeroed_sorted):
-            zeroed_sorted = zeroed_sorted[: int(self.top_k)]
+        if self.top_k is not None and self.top_k < len(zeroed_sorted):
+            zeroed_sorted = zeroed_sorted[: self.top_k]
 
         if not zeroed_sorted:
             # Empty-zeroed-set is a no-op: empty plan.

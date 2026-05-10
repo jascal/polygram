@@ -73,8 +73,8 @@ requiring users to make the call.
 
 `RegrowConfig.top_k` (and the matching `Regrower.from_compression_report(top_k=...)`
 kwarg) caps the number of zeroed slots regrown per call. Selection is
-plan order — the first `top_k` slots in `RegrowPlan.zeroed_input` order
-(ascending by feature id). Remaining zeroed slots stay zero in the
+plan order — ascending by feature id, applied to the input zeroed set
+before the strategy runs. Remaining zeroed slots stay zero in the
 output checkpoint.
 
 When to use it: an adaptive caller (e.g. sae-forge's `adaptive-regrow`
