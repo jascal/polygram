@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Sequence
 if TYPE_CHECKING:
     from polygram.clustered_dictionary import ClusteredDictionary  # noqa: F401
     from polygram.config import EpochCompressionConfig  # noqa: F401
+    from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung4  # noqa: F401
 
 import numpy as np
 
@@ -102,6 +103,12 @@ class EpochCompressor:
     save_intermediate_reports: bool = False
     allow_layer_zero: bool = False
     config: "EpochCompressionConfig | None" = None
+    # The encoding plumbed through `ClusteredDictionary.from_compression_panels`
+    # and used to scale `_select_panels`'s panel-size cap. `None` resolves to
+    # `MPSRung1()` in `__post_init__` so the default behaviour is
+    # byte-identical to the pre-change pipeline (load-bearing — pinned by
+    # the differential regression test in tests/compression/).
+    encoding: "MPSRung1 | HEA_Rung2 | Rung3 | Rung4 | None" = None
 
     # Internal state populated during run()
     _zeroed: set[int] = field(default_factory=set, init=False, repr=False, compare=False)
@@ -203,6 +210,25 @@ class EpochCompressor:
                 "GPT-2 small (per docs/research/deeper-layer-ablation-"
                 "probe.md); use layer >= 5 (recommended: 10), or pass "
                 "allow_layer_zero=True"
+            )
+
+        # Resolve `encoding=None` to MPSRung1() — the pre-change implicit
+        # encoding. Deferred import keeps `polygram.compression.epoch`
+        # free of a module-level dependency on `polygram.encoding`.
+        if self.encoding is None:
+            from polygram.encoding import MPSRung1
+            self.encoding = MPSRung1()
+        if not isinstance(getattr(self.encoding, "max_features", None), int):
+            raise ValueError(
+                f"EpochCompressor: encoding must expose an integer "
+                f"`max_features` attribute; got "
+                f"encoding={self.encoding!r}"
+            )
+        if int(self.encoding.max_features) < 2:
+            raise ValueError(
+                f"EpochCompressor: encoding.max_features must be >= 2 "
+                f"(panels of size 1 are degenerate); got "
+                f"{self.encoding.max_features}"
             )
 
     # ----------------------------------------------------------------
@@ -316,6 +342,7 @@ class EpochCompressor:
                 n_visits_per_feature=int(self.n_visits_per_feature),
                 n_panels_max=int(self.n_panels_max),
                 coverage_target=float(self.coverage_target),
+                max_panel_size=int(self.encoding.max_features),
             )
             final_coverage = coverage
 
@@ -333,24 +360,15 @@ class EpochCompressor:
             # The block-↔-panel ordering is preserved by
             # `from_compression_panels` (blocks[k] from panels[k]),
             # which is the load-bearing invariant for byte-identical
-            # output. The encoding is hardcoded to MPSRung1() to
-            # match the pre-refactor implicit encoding; a future
-            # `epoch-compressor-configurable-encoding` change (issue
-            # #48) would plumb an `encoding=` constructor parameter
-            # through here.
+            # output.
             from polygram.clustered_dictionary import ClusteredDictionary
-            from polygram.encoding import MPSRung1 as _MPSRung1
 
             clustered = ClusteredDictionary.from_compression_panels(
                 panels=panels,
                 state_dict=current_state,
-                encoding=_MPSRung1(),
+                encoding=self.encoding,
                 name=f"{self.sae_checkpoint.stem.replace('-', '_').replace('.', '_')}_iter{iteration}",
             )
-            # TODO(issue #48): the MPSRung1() above is the implicit
-            # pre-refactor encoding. When EpochCompressor gains a
-            # configurable `encoding=` constructor parameter, query
-            # `self.encoding` here instead.
 
             # Defense-in-depth assertion of the panel↔block ordering
             # invariant — `from_compression_panels` constructs blocks
@@ -664,6 +682,7 @@ class EpochCompressor:
                     sae_checkpoint=self.sae_checkpoint,
                     layer=int(self.layer),
                     model_name=self.model_name,
+                    encoding=self.encoding,
                 )
             )
         return reports
@@ -794,6 +813,7 @@ def _select_panels(
     n_visits_per_feature: int,
     n_panels_max: int,
     coverage_target: float,
+    max_panel_size: int,
 ) -> tuple[list[Panel], float]:
     """Greedy seeded coverage panel selection per
     `add-compression-epoch/design.md` Decision 2.
@@ -801,6 +821,11 @@ def _select_panels(
     Returns the panel list and the achieved coverage fraction
     (`|pairs_covered ∩ S| / |S|`). When `S` is empty, coverage is 1.0
     by convention (nothing to cover, target trivially met).
+
+    `max_panel_size` caps the panel size at `max_panel_size` features
+    (anchor + `max_panel_size - 1` neighbours). Plumbed from
+    `EpochCompressor.encoding.max_features` so panel size scales with
+    the configured encoding's feature cap.
     """
     if eligible.size == 0:
         return [], 1.0
@@ -849,7 +874,7 @@ def _select_panels(
                 continue
             neighbours.append(fid)
             cosines.append(float(sims[int(idx)]))
-            if len(neighbours) >= 7:
+            if len(neighbours) >= max_panel_size - 1:
                 break
 
         if not neighbours and len(panels) == 0:
@@ -942,6 +967,7 @@ def _validate_panel_inline(
     sae_checkpoint: Path,
     layer: int,
     model_name: str,
+    encoding,
 ) -> ValidationReport:
     """Synthesize a ValidationReport for one panel without running
     the full BehaviouralValidator.validate() ablation pass.
@@ -986,6 +1012,7 @@ def _validate_panel_inline(
         dictionary, _ = from_sae_lens(
             records, feature_ids, assign_gamma=True,
             name=f"Panel{panel_id}",
+            encoding=encoding,
         )
     finally:
         tmp_path.unlink(missing_ok=True)

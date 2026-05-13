@@ -40,6 +40,7 @@ class TestPriorityOrder:
             n_visits_per_feature=4,
             n_panels_max=4,
             coverage_target=1.0,
+            max_panel_size=8,
         )
         # First anchor is the highest-priority feature.
         assert panels[0].anchor == 0
@@ -71,6 +72,7 @@ class TestSkipZeroed:
             n_visits_per_feature=2,
             n_panels_max=10,
             coverage_target=1.0,
+            max_panel_size=8,
         )
         for panel in panels:
             for fid in panel.feature_ids:
@@ -97,6 +99,7 @@ class TestSkipZeroed:
             n_visits_per_feature=1,
             n_panels_max=2,
             coverage_target=1.0,
+            max_panel_size=8,
         )
         anchors = [p.anchor for p in panels]
         assert 3 not in anchors
@@ -119,6 +122,7 @@ class TestVisitCap:
             n_visits_per_feature=2,
             n_panels_max=20,
             coverage_target=1.0,
+            max_panel_size=8,
         )
         visits: dict[int, int] = {}
         for panel in panels:
@@ -145,6 +149,7 @@ class TestCoverage:
             n_visits_per_feature=8,
             n_panels_max=100,
             coverage_target=0.95,
+            max_panel_size=8,
         )
         # Target met or n_panels_max reached.
         assert coverage >= 0.95 or len(panels) == 100
@@ -167,6 +172,7 @@ class TestCoverage:
             n_visits_per_feature=1,
             n_panels_max=2,
             coverage_target=0.95,
+            max_panel_size=8,
         )
         # Target trivially met.
         assert coverage == 1.0
@@ -185,11 +191,13 @@ class TestDeterminism:
             state_dict=state, eligible=eligible, priority=priority,
             cosine_pairs=cosine_pairs, zeroed=set(),
             n_visits_per_feature=2, n_panels_max=4, coverage_target=1.0,
+            max_panel_size=8,
         )
         panels_b, _ = _select_panels(
             state_dict=state, eligible=eligible, priority=priority,
             cosine_pairs=cosine_pairs, zeroed=set(),
             n_visits_per_feature=2, n_panels_max=4, coverage_target=1.0,
+            max_panel_size=8,
         )
         assert len(panels_a) == len(panels_b)
         for pa, pb in zip(panels_a, panels_b):
@@ -209,6 +217,7 @@ class TestPanelSize:
             state_dict=state, eligible=eligible, priority=priority,
             cosine_pairs=cosine_pairs, zeroed=set(),
             n_visits_per_feature=4, n_panels_max=2, coverage_target=1.0,
+            max_panel_size=8,
         )
         for panel in panels:
             assert len(panel.feature_ids) == 8
