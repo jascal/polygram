@@ -6,6 +6,8 @@
 
 The method's surface SHALL remain as shipped in `clustered-dictionary-analysis` (PR #44): `(panels, state_dict, encoding, *, name, cosine_threshold, feature_records)` accepting an iterable of `Panel`-shaped objects and producing a `ClusteredDictionary` whose `blocks` align element-wise with the input panels.
 
+The element-wise ordering guarantee (`blocks[k]` is constructed from `panels[k]` for every `k`) is the **load-bearing invariant** that lets `_validate_panels` and `_synthesize_validation_report` swap `list[Panel]` for `ClusteredDictionary` without touching their per-block iteration logic. This ordering SHALL be documented inline in `from_compression_panels`'s docstring (one-line note) so future readers don't have to infer it from this proposal.
+
 #### Scenario: block ordering aligns with panel ordering
 
 - **WHEN** `ClusteredDictionary.from_compression_panels(panels=..., ...)` is called on an ordered list of panels

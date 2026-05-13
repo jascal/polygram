@@ -26,19 +26,19 @@ deliberate scope *pivot* away from the original §7 framing.
 
 ### The pivot
 
+**Short version:** the two partition algorithms solve different
+problems (geometric clustering vs priority-budgeted panel selection);
+unifying them is the wrong shape. The right shape is to share the
+*data type* (`ClusteredDictionary`) without sharing the algorithm.
+
 The original §7 framing (unify the partition algorithms by extracting
 `_select_panels` into a `BlockFormation` strategy) was the wrong shape
-of integration. The cosine-BFS partition (`_form_blocks_cosine`) and
-the priority-driven seeded-coverage panel selection have **genuinely
-different goals**:
+of integration:
 
-- `_form_blocks_cosine` partitions ALL features into blocks for
-  SAE-scale analysis (every feature ends up in some block, no
-  priority, no visit budget — pure geometric clustering).
-- `_select_panels` SELECTS ≤K-feature panels for behavioural
-  validation under a visit budget, with priority-driven anchor
-  ordering and a coverage-target early stop. Not every feature ends
-  up in a panel.
+| Algorithm | Goal | Coverage | State |
+|---|---|---|---|
+| `_form_blocks_cosine` | Partition ALL features for SAE-scale analysis | Every feature ends up in some block | Stateless; pure geometric |
+| `_select_panels` | SELECT ≤K-feature panels for behavioural validation | Not every feature ends up in a panel | Priority-driven, visit-budgeted, coverage-targeted, anchor-only fallback |
 
 These aren't competing implementations of the same algorithm — they
 solve different problems. Trying to express them as one

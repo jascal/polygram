@@ -111,7 +111,13 @@ synth_report = _synthesize_validation_report(
 The encoding is hardcoded to `MPSRung1()` because the pre-refactor
 compression pipeline implicitly used the legacy 8-feature cap
 (matching `MPSRung1.max_features` after `per-encoding-feature-cap`
-ships). Future work can plumb a configurable encoding through.
+ships). A future change adding an `encoding=` constructor parameter
+to `EpochCompressor` would let callers opt into Rung3 / Rung4 / HEA-
+encoded compression at larger per-block sizes. That's deferred to a
+separate openspec change (`epoch-compressor-configurable-encoding`
+or similar) with its own design + differential regression. Pinning
+to `MPSRung1()` here is the minimum surgery that preserves
+byte-identity.
 
 **Decision 4 — The differential regression test is the load-bearing gate.**
 
@@ -130,6 +136,15 @@ Workflow:
 
 The bundled `toy_sae.json` is small (16 features × 8 d_model) so
 the test runs in <1 second.
+
+**Out of scope:** large-SAE timing is not pinned. The differential
+regression covers correctness (byte-identical `EpochResult` on a
+small fixture). It does **not** guarantee wall-clock parity at SAE
+scale; introducing a `ClusteredDictionary` per iteration adds some
+Python overhead, which on the bundled fixture is microseconds but
+on a 16k-feature SAE is non-zero. A timing-pinned regression on a
+real SAE fixture is a separate research-track concern, not a
+correctness gate.
 
 **Decision 5 — Do not introduce a new public API for the conversion.**
 
