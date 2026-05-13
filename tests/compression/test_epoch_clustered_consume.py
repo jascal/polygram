@@ -27,6 +27,7 @@ from polygram import EpochCompressor
 from tests.compression._clustered_fixture import (
     CANONICAL_PROMPTS,
     EPOCH_KWARGS,
+    EPOCH_KWARGS_MULTI_ITER,
     build_synth_sae,
     make_synth_prepass_patch,
 )
@@ -34,6 +35,9 @@ from tests.compression._clustered_fixture import (
 
 REFERENCE_PATH = (
     Path(__file__).parent / "data" / "epoch_result_reference.json"
+)
+REFERENCE_PATH_MULTI_ITER = (
+    Path(__file__).parent / "data" / "epoch_result_reference_multi_iter.json"
 )
 
 
@@ -192,3 +196,123 @@ def test_synthesize_validation_report_signature():
     assert params[0] == "clustered"
     assert params[1] == "block_reports"
     assert params[2] == "sae_checkpoint"
+
+
+# ---------------------------------------------------------------------------
+# Multi-iteration convergence regression
+# ---------------------------------------------------------------------------
+#
+# Reviewer's §7 follow-up on PR #51: extend the differential test to
+# exercise more iterations of the EpochCompressor loop. Same fixture
+# (synthetic SAE with engineered redundancy cluster at features 4-7),
+# `max_iterations=5` instead of 2. Forces the loop to walk through 5
+# iterations, progressively zeroing features each round and exercising
+# the iteration-loop semantics that the 2-iter fixture doesn't reach.
+
+
+def _run_refactored_epoch_multi_iter(tmp_path: Path) -> dict:
+    """Run the refactored pipeline on the multi-iter fixture and return
+    `EpochReport.to_json()` as a parsed dict."""
+    sae_path = build_synth_sae(tmp_path / "sae.safetensors")
+    epoch = EpochCompressor(
+        sae_checkpoint=sae_path,
+        prompts=CANONICAL_PROMPTS,
+        **EPOCH_KWARGS_MULTI_ITER,
+    )
+    with patch(
+        "polygram.compression.epoch._compute_firing_rates_and_residuals",
+        new=make_synth_prepass_patch(),
+    ):
+        out_path = tmp_path / "epoch_out.safetensors"
+        result = epoch.run(out_path)
+    return json.loads(result.report.to_json())
+
+
+def test_byte_identical_epoch_result_multi_iter_against_frozen_reference(tmp_path):
+    """Multi-iteration variant of the differential regression. Asserts
+    that the post-refactor pipeline produces the same iteration-loop
+    trajectory (per-iteration features zeroed, convergence state at
+    each step, final aggregate) as the frozen reference."""
+    reference = json.loads(REFERENCE_PATH_MULTI_ITER.read_text())
+    actual = _run_refactored_epoch_multi_iter(tmp_path)
+
+    ref_clean = _strip_non_deterministic(reference)
+    act_clean = _strip_non_deterministic(actual)
+
+    if ref_clean != act_clean:
+        import difflib
+
+        ref_pretty = json.dumps(ref_clean, indent=2, sort_keys=True)
+        act_pretty = json.dumps(act_clean, indent=2, sort_keys=True)
+        diff = "\n".join(
+            difflib.unified_diff(
+                ref_pretty.split("\n"),
+                act_pretty.split("\n"),
+                "reference",
+                "actual",
+                n=2,
+            )
+        )
+        raise AssertionError(
+            f"Multi-iter EpochResult drift detected — refactor or "
+            f"convergence logic has changed.\n\n{diff}"
+        )
+
+
+def test_multi_iter_runs_all_five_iterations(tmp_path):
+    """Sanity: the multi-iter fixture actually exercises 5 iterations
+    (not just 2). If the fixture's redundancy structure changes such
+    that the loop converges early, the fixture is no longer testing
+    what its name claims and this test will trip."""
+    actual = _run_refactored_epoch_multi_iter(tmp_path)
+    assert len(actual["iterations"]) == 5, (
+        f"multi-iter fixture should exercise 5 iterations; "
+        f"got {len(actual['iterations'])}"
+    )
+
+
+def test_multi_iter_progressive_zeroing(tmp_path):
+    """Each iteration zeros a non-empty set of features (the iteration
+    loop makes forward progress). Pins the "doesn't get stuck on the
+    same panel cluster forever" property."""
+    actual = _run_refactored_epoch_multi_iter(tmp_path)
+    for i, it in enumerate(actual["iterations"]):
+        # Allow the last iteration to zero nothing if it converged,
+        # but earlier iterations should make progress.
+        if i < len(actual["iterations"]) - 1:
+            assert len(it["features_zeroed_this_iteration"]) > 0, (
+                f"iteration {i} zeroed 0 features — loop not making progress"
+            )
+    # Total zeroed is the sum of per-iteration zeroed sets (no overlaps
+    # — once zeroed, a feature stays zeroed across iterations).
+    total = sum(
+        len(it["features_zeroed_this_iteration"]) for it in actual["iterations"]
+    )
+    assert total == actual["n_features_zeroed_total"], (
+        f"sum of per-iteration zeroed ({total}) != n_features_zeroed_total "
+        f"({actual['n_features_zeroed_total']})"
+    )
+
+
+def test_multi_iter_convergence_state_sequence(tmp_path):
+    """The convergence-state sequence is `continuing` for iterations
+    0..N-2 and a terminal state on iteration N-1. Pins the
+    iteration-loop's termination semantics."""
+    actual = _run_refactored_epoch_multi_iter(tmp_path)
+    terminal_states = {
+        "max_iterations",
+        "stable_clusters",
+        "quality_bound_breached",
+        "no_more_priority_candidates",
+    }
+    iterations = actual["iterations"]
+    for it in iterations[:-1]:
+        assert it["convergence_state"] == "continuing", (
+            f"iter {it['iteration']} should be 'continuing'; "
+            f"got {it['convergence_state']!r}"
+        )
+    final = iterations[-1]
+    assert final["convergence_state"] in terminal_states, (
+        f"final iteration's convergence_state {final['convergence_state']!r} "
+        f"not in known terminal set {terminal_states}"
+    )

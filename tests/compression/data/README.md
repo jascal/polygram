@@ -3,6 +3,21 @@
 Frozen reference artifacts for the `compression-consumes-clustered-dictionary`
 differential regression test.
 
+## `epoch_result_reference_multi_iter.json`
+
+Frozen `EpochReport.to_json()` output captured with
+`EPOCH_KWARGS_MULTI_ITER` from `tests/compression/_clustered_fixture.py`
+(`max_iterations=5`). Same synthetic SAE fixture as the default
+reference, but allows the iteration loop to run further — exercising
+progressive feature zeroing across 5 iterations and the
+`_REASON_MAX_ITERATIONS` termination path.
+
+The differential test
+(`tests/compression/test_epoch_clustered_consume.py::test_byte_identical_epoch_result_multi_iter_against_frozen_reference`)
+re-runs the same fixture on the current pipeline and asserts
+deterministic-field equality. Same exclusion rules as the default
+reference (wall_seconds, tempfile paths, validation_report_paths).
+
 ## `epoch_result_reference.json`
 
 Frozen `EpochReport.to_json()` output captured on the pre-refactor
