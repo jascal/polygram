@@ -383,6 +383,124 @@ class ClusteredDictionary:
         artifacts["manifest"] = manifest_path
         return artifacts
 
+    @classmethod
+    def from_compression_panels(
+        cls,
+        panels: Sequence,
+        state_dict: Mapping[str, "np.ndarray"],
+        encoding: "MPSRung1 | HEA_Rung2 | Rung3",
+        *,
+        name: str = "from_panels",
+        cosine_threshold: float = 0.3,
+        feature_records: Mapping[int, object] | None = None,
+    ) -> "ClusteredDictionary":
+        """Construct a `ClusteredDictionary` from
+        `polygram.compression.epoch._select_panels` output.
+
+        This is the forward-compatible shallow connection between the
+        clustered-dictionary primitive and the existing `EpochCompressor`
+        panel-selection logic. It takes an already-computed list of
+        `Panel` objects (with `anchor`, `feature_ids`, `cosines_to_anchor`
+        fields), builds one `Dictionary` block per panel, and computes
+        the cross-block adjacency from the panels' decoder vectors.
+
+        The classmethod does NOT alter `_select_panels`. A future
+        change can extract the priority-driven seeded-coverage
+        algorithm into a `BlockFormation` strategy and have
+        `_select_panels` wrap this — at which point the public API
+        of `from_compression_panels` stays stable and only its
+        implementation flips. The byte-identical regression check
+        (compression tests pass unchanged) holds today by
+        construction.
+
+        Parameters
+        ----------
+        panels:
+            Iterable of `Panel`-shaped objects with `anchor: int`,
+            `feature_ids: tuple[int, ...]`, and
+            `cosines_to_anchor: tuple[float, ...]` attributes.
+        state_dict:
+            SAE state dict supplying `W_dec` (the decoder matrix).
+            Cross-block cosines are computed from these rows.
+        encoding:
+            Shared encoding for every block.
+        name:
+            Identifier for the returned `ClusteredDictionary`.
+        cosine_threshold:
+            Threshold for cross-block edge inclusion. Defaults to 0.3
+            (same as `BlockFormation`'s default).
+        feature_records:
+            Optional `dict[int, SAEFeatureRecord]` used to populate
+            feature names / clusters from the SAE-import side. When
+            `None`, feature names are synthesised as `f{feature_id}`
+            and the cluster is the synthetic block name.
+        """
+        w_dec = state_dict["W_dec"]
+
+        feature_to_block: dict[int, tuple[int, int]] = {}
+        blocks: list[Dictionary] = []
+        for block_idx, panel in enumerate(panels):
+            anchor = int(getattr(panel, "anchor"))
+            members = tuple(int(f) for f in getattr(panel, "feature_ids"))
+            cluster_name = f"{name}_b{block_idx}"
+            feats: list[Feature] = []
+            for local_idx, fid in enumerate(members):
+                if feature_records is not None and fid in feature_records:
+                    record = feature_records[fid]
+                    feat_name = getattr(record, "name", f"f{fid}")
+                else:
+                    feat_name = f"f{fid}"
+                feats.append(
+                    Feature(name=feat_name, cluster=cluster_name, beta=0.0)
+                )
+                feature_to_block[fid] = (block_idx, local_idx)
+            blocks.append(
+                Dictionary(
+                    name=cluster_name,
+                    features=feats,
+                    hierarchy={cluster_name: [f.name for f in feats]},
+                    encoding=encoding,
+                )
+            )
+
+        # Cross-block adjacency: pairs of feature IDs whose blocks
+        # differ and whose decoder-vector cosine exceeds threshold.
+        # We only consider pairs where both endpoints landed in some
+        # panel (features outside any panel aren't part of the
+        # clustered dictionary).
+        all_feature_ids = np.array(sorted(feature_to_block), dtype=np.int64)
+        cross_block_pairs: dict[CrossBlockKey, float] = {}
+        if all_feature_ids.size >= 2:
+            cosine_pairs = compute_cosine_pair_graph(
+                w_dec,
+                threshold=cosine_threshold,
+                indices=all_feature_ids,
+            )
+            norms = np.linalg.norm(w_dec, axis=1, keepdims=True)
+            norms = np.where(norms < 1e-12, 1.0, norms)
+            for i, j in cosine_pairs:
+                bi, fi = feature_to_block[int(i)]
+                bj, fj = feature_to_block[int(j)]
+                if bi == bj:
+                    continue
+                if bi > bj:
+                    bi, bj = bj, bi
+                    fi, fj = fj, fi
+                v_i = w_dec[int(i)] / norms[int(i), 0]
+                v_j = w_dec[int(j)] / norms[int(j), 0]
+                cos = float(np.dot(v_i, v_j))
+                cross_block_pairs[(bi, fi, bj, fj)] = cos
+
+        return cls(
+            name=name,
+            blocks=blocks,
+            cross_block_pairs=cross_block_pairs,
+            block_formation=BlockFormation(
+                strategy="user_declared",
+                cosine_threshold=cosine_threshold,
+            ),
+        )
+
     def cross_block_redundant_pairs(
         self, threshold: float = 0.7
     ) -> "CrossBlockRedundancyReport":

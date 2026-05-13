@@ -1048,3 +1048,108 @@ class TestClusteredEmitQorca:
         cd.emit_qorca(tmp_path)
         manifest = json.loads((tmp_path / "manifest.json").read_text())
         assert manifest["cross_block_edges"] == []
+
+
+# ---------------------------------------------------------------------------
+# §7 — EpochCompressor connection (shallow): from_compression_panels
+# ---------------------------------------------------------------------------
+
+
+class TestClusteredFromCompressionPanels:
+    """Shallow forward-compatible connection between EpochCompressor's
+    `_select_panels` output and the ClusteredDictionary primitive.
+
+    The deep behaviour-preserving refactor (extracting the priority-
+    driven seeded coverage algorithm into a BlockFormation strategy
+    so `_select_panels` becomes a thin wrapper) is deferred to a
+    follow-up change. This API exists so callers can consume the
+    clustered view today without that refactor."""
+
+    def _make_panel(self, anchor, feature_ids, cosines):
+        # Lightweight Panel stand-in matching the
+        # polygram.compression.epoch_report.Panel surface used here.
+        from polygram.compression.epoch_report import Panel
+
+        return Panel(
+            panel_id=0,
+            anchor=anchor,
+            feature_ids=tuple(feature_ids),
+            cosines_to_anchor=tuple(cosines),
+        )
+
+    def test_constructs_one_block_per_panel(self):
+        # Two panels of 3 features each → 2 blocks.
+        panels = [
+            self._make_panel(anchor=0, feature_ids=(0, 1, 2), cosines=(0.9, 0.85)),
+            self._make_panel(anchor=10, feature_ids=(10, 11, 12), cosines=(0.92, 0.81)),
+        ]
+        state_dict = {"W_dec": np.eye(20, 8, dtype=np.float32)}
+        cd = ClusteredDictionary.from_compression_panels(
+            panels, state_dict, MPSRung1(), name="from_panels_test"
+        )
+        assert cd.n_blocks == 2
+        assert cd.n_features == 6
+        # Block 0 has features f0, f1, f2; block 1 has f10, f11, f12.
+        block_0_names = sorted(f.name for f in cd.blocks[0].features)
+        assert block_0_names == ["f0", "f1", "f2"]
+
+    def test_cross_block_edges_above_threshold(self):
+        # Plant a cross-block similarity: feature 0 in panel A and
+        # feature 10 in panel B share decoder direction.
+        panels = [
+            self._make_panel(anchor=0, feature_ids=(0, 1), cosines=(0.5,)),
+            self._make_panel(anchor=10, feature_ids=(10, 11), cosines=(0.5,)),
+        ]
+        w_dec = np.zeros((20, 4), dtype=np.float32)
+        w_dec[0] = [1, 0, 0, 0]
+        w_dec[1] = [0, 1, 0, 0]
+        w_dec[10] = [1, 0, 0, 0]  # ← identical to feature 0
+        w_dec[11] = [0, 0, 1, 0]
+        cd = ClusteredDictionary.from_compression_panels(
+            panels,
+            {"W_dec": w_dec},
+            MPSRung1(),
+            name="planted",
+            cosine_threshold=0.5,
+        )
+        # Cross-block edge between block 0 feature 0 and block 1 feature 0.
+        assert (0, 0, 1, 0) in cd.cross_block_pairs
+        assert cd.cross_block_pairs[(0, 0, 1, 0)] == pytest.approx(1.0)
+
+    def test_works_with_real_select_panels_output(self):
+        # End-to-end: run _select_panels on a synthetic SAE state +
+        # eligible set, take the panels, build a ClusteredDictionary.
+        # Verifies the panel object's interface matches the API
+        # contract.
+        from polygram.compression.epoch import (
+            _compute_cosine_graph,
+            _select_panels,
+        )
+
+        rng = np.random.default_rng(0)
+        n_features = 16
+        d_model = 8
+        w_dec = rng.standard_normal((n_features, d_model)).astype(np.float32)
+        state_dict = {"W_dec": w_dec}
+        eligible = np.arange(n_features, dtype=np.int64)
+        priority = np.ones(n_features, dtype=np.float32)
+        cosine_pairs = _compute_cosine_graph(w_dec, eligible, threshold=0.3)
+        panels, _coverage = _select_panels(
+            state_dict=state_dict,
+            eligible=eligible,
+            priority=priority,
+            cosine_pairs=cosine_pairs,
+            zeroed=set(),
+            n_visits_per_feature=1,
+            n_panels_max=4,
+            coverage_target=0.5,
+        )
+        if not panels:
+            pytest.skip("no panels produced for the synthetic fixture")
+        cd = ClusteredDictionary.from_compression_panels(
+            panels, state_dict, MPSRung1(), name="real_panels"
+        )
+        assert cd.n_blocks == len(panels)
+        # Each block's feature count matches its panel's member count.
+        for block, panel in zip(cd.blocks, panels):
+            assert len(block.features) == len(panel.feature_ids)
