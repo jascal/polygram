@@ -75,11 +75,15 @@ def main(argv: list[str] | None = None) -> int:
     s = np.linalg.svd(gram, compute_uv=False)
     s_max = float(s.max()) if s.size else 0.0
     rank_at_1e_12 = int(np.sum(s > 1e-12 * s_max))
-    rank_at_1e_9 = int(np.sum(s > 1e-9 * s_max))
+    # numpy.linalg.matrix_rank — one-liner effective rank using an
+    # absolute tolerance derived from σ_max. Equivalent in practice to
+    # the manual sum above; surfaced for readers who want the standard
+    # numpy idiom.
+    effective_rank = int(np.linalg.matrix_rank(gram, tol=1e-9 * s_max))
 
     print(f"\ngram shape: {gram.shape}")
     print(f"  rank @ 1e-12 rel: {rank_at_1e_12}")
-    print(f"  rank @ 1e-9  rel: {rank_at_1e_9}")
+    print(f"  effective rank (np.linalg.matrix_rank): {effective_rank}")
     print(f"  σ_max: {s_max:.4e}")
     print(f"  σ_min nonzero: {s[s > 1e-15].min():.4e}")
 

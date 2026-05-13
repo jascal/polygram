@@ -462,6 +462,9 @@ class Regrower:
         # populated slots (most interesting for inspection); fall back
         # to the first `cap` feature ids when there are no populated
         # slots.
+        # When Regrower gains a configurable encoding (issue #48),
+        # this should query the supplied encoding's max_features
+        # rather than hardcoding MPSRung1.
         from polygram.encoding import MPSRung1 as _MPSRung1
 
         rebuild_cap = int(_MPSRung1.max_features)

@@ -405,6 +405,9 @@ class Compressor:
         # on the full plan.clusters[*].zeroed list — the rebuilt
         # Dictionary is a debugging aid covering the lowest-fid
         # `cap` features, not a complete enumeration of the SAE.
+        # When Compressor gains a configurable encoding (issue #48),
+        # this should query the supplied encoding's max_features
+        # rather than hardcoding MPSRung1.
         from polygram.encoding import MPSRung1 as _MPSRung1
 
         rebuild_cap = int(_MPSRung1.max_features)

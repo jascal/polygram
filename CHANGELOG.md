@@ -4,19 +4,19 @@
 
 ### Added
 
-- **Per-encoding feature cap.** Each encoding class declares a
-  `max_features` attribute matching its reachable Hilbert-space
-  dimension: `MPSRung1.max_features = 8`, `Rung3.max_features = 16`
-  (corrected from the previous universal 8 cap; see
-  `docs/research/rung3-rank-bound.md` for the empirical basis),
-  `HEA_Rung2.max_features = 2 ** n_qubits` (scales with the existing
-  `n_qubits` knob). `from_sae_lens` and `BehaviouralValidator` now
-  query the encoding's cap rather than the
-  `MAX_FEATURES_PER_DICTIONARY` module constant. The constant is
-  retained as a back-compat alias at the `MPSRung1` value (8). The
-  error message names the encoding and suggests larger-cap
-  alternatives. **`Rung3` users can now load 9-16 features**
-  without hitting the cap.
+- **`encoding.max_features` per-encoding cap** — each encoding class
+  declares a `max_features` attribute matching its reachable
+  Hilbert-space dimension: `MPSRung1.max_features = 8`,
+  `Rung3.max_features = 16` (corrected from the previous universal
+  8 cap; see `docs/research/rung3-rank-bound.md` for the empirical
+  basis), `HEA_Rung2.max_features = 2 ** n_qubits` (scales with the
+  existing `n_qubits` knob). `from_sae_lens` and
+  `BehaviouralValidator` now query the encoding's cap rather than
+  the `MAX_FEATURES_PER_DICTIONARY` module constant. The constant
+  is retained as a back-compat alias at the `MPSRung1` value (8).
+  The error message names the encoding and suggests larger-cap
+  alternatives. **`Rung3` users can now load 9–16 features** without
+  hitting the cap.
 
 - **`polygram.clustered_dictionary` module** (renamed from
   `polygram.clustered` to avoid a namespace collision with the
