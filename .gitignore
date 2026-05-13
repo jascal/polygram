@@ -17,3 +17,4 @@ htmlcov/
 examples/output/
 scratch/
 .claude/scheduled_tasks.lock
+spikes/

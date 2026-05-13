@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`polygram.clustered` module** — `ClusteredDictionary` primitive
+  for SAE-scale analyses. Holds a list of `Dictionary` blocks (each
+  ≤ `encoding.max_features`) plus a sparse cross-block adjacency.
+  Block formation via cosine clustering (default), user-declared
+  hierarchy, or reserved co-firing API.
+  `ClusteredDictionary.gram()` returns a `BlockSparseGram` (per-block
+  dense Gram + sparse cross-block edges).
+  `cross_block_redundant_pairs(threshold)` surfaces high-cosine
+  pairs spanning cluster boundaries with a
+  `CrossBlockRedundancyReport`.
+  `emit_qorca(output_dir)` writes one verifiable `.q.orca.md` per
+  block plus a `manifest.json` describing the topology.
+  Killer-experiment fixture confirms recall = 1.0 vs flat baseline on
+  a real GPT-2-small SAE at N=2k and N=8k; speedup story reframed
+  per `docs/research/clustered-dictionary-recall-vs-flat.md`.
+- **`from_sae_lens(..., clustered=True, block_formation=...)`** —
+  opt-in clustered loader path returning a `ClusteredDictionary`
+  instead of a single `Dictionary`. Default `clustered=False`
+  preserves byte-identical behaviour.
+- **`SelectionReport.{n_blocks, mean_block_size, n_cross_block_edges}`** —
+  per-clustering stats populated when the clustered loader is used.
+- **`compute_cosine_pair_graph`** in `polygram.clustered` — public
+  helper extracted from `polygram.compression.epoch._compute_cosine_graph`.
+  The epoch-side function continues to call it as a thin wrapper
+  (back-compat preserved; all existing compression tests pass
+  unchanged).
+
 ## 0.3.0 (2026-05-10)
 
 ### Added

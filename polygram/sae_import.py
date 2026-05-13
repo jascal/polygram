@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from polygram.clustered_dictionary import (  # noqa: F401
+        BlockFormation,
+        ClusteredDictionary,
+    )
     from polygram.config import SAEImportConfig  # noqa: F401
     from polygram.geometry import GeometricProfile  # noqa: F401
 
@@ -288,6 +292,12 @@ class SelectionReport:
     warnings: list[str] = field(default_factory=list)
     profile: str = "clustered"
     geometric_fidelity: float | None = None
+    # Clustered-import stats (populated only when `from_sae_lens` is
+    # called with `clustered=True`; `None` for the single-Dictionary
+    # path). See `polygram.clustered_dictionary.ClusteredDictionary`.
+    n_blocks: int | None = None
+    mean_block_size: float | None = None
+    n_cross_block_edges: int | None = None
 
 
 def _detect_decoder_key(
@@ -551,7 +561,9 @@ def from_sae_lens(
     gamma_range: tuple[float, float] | None = None,
     config: "SAEImportConfig | None" = None,
     profile: "str | GeometricProfile | None" = None,
-) -> tuple[Dictionary, SelectionReport]:
+    clustered: bool = False,
+    block_formation: "BlockFormation | None" = None,
+) -> tuple["Dictionary | ClusteredDictionary", SelectionReport]:
     """Build a `Dictionary` from an explicit subset of SAE features.
 
     Cluster assignment precedence:
@@ -604,12 +616,13 @@ def from_sae_lens(
             n_clusters = cfg.n_clusters
         elif resolved_profile.default_n_clusters is not None:
             n_clusters = resolved_profile.default_n_clusters
-    if len(feature_ids) > MAX_FEATURES_PER_DICTIONARY:
+    if not clustered and len(feature_ids) > MAX_FEATURES_PER_DICTIONARY:
         raise ValueError(
             f"selected {len(feature_ids)} features, but Polygram's "
             f"rung-1 MPS encoding caps a Dictionary at "
             f"{MAX_FEATURES_PER_DICTIONARY} features. Pick a smaller "
-            f"subset."
+            f"subset, or pass `clustered=True` to build a "
+            f"`ClusteredDictionary` instead."
         )
     if len(feature_ids) == 0:
         raise ValueError("feature_ids is empty; nothing to import")
@@ -754,6 +767,36 @@ def from_sae_lens(
     else:
         tier_preservation = None
 
+    n_blocks_stat: int | None = None
+    mean_block_size_stat: float | None = None
+    n_cross_block_edges_stat: int | None = None
+
+    if clustered:
+        from polygram.clustered_dictionary import (
+            BlockFormation,
+            build_clustered_dictionary,
+        )
+
+        bf = block_formation or BlockFormation(strategy="cosine")
+        if bf.strategy == "user_declared":
+            bf_hierarchy = hierarchy
+        else:
+            bf_hierarchy = None
+        clustered_dict = build_clustered_dictionary(
+            name=name,
+            features=features,
+            decoder_vectors=projs,
+            encoding=encoding or MPSRung1(),
+            block_formation=bf,
+            hierarchy=bf_hierarchy,
+        )
+        n_blocks_stat = clustered_dict.n_blocks
+        mean_block_size_stat = clustered_dict.mean_block_size
+        n_cross_block_edges_stat = clustered_dict.n_cross_block_edges
+        result: "Dictionary | ClusteredDictionary" = clustered_dict
+    else:
+        result = dictionary
+
     report = SelectionReport(
         n_input_features=n_features_input,
         n_selected=len(selected),
@@ -766,8 +809,11 @@ def from_sae_lens(
         warnings=warnings,
         profile=resolved_profile.name,
         geometric_fidelity=geometric_fidelity,
+        n_blocks=n_blocks_stat,
+        mean_block_size=mean_block_size_stat,
+        n_cross_block_edges=n_cross_block_edges_stat,
     )
-    return dictionary, report
+    return result, report
 
 
 def _label_has_cluster_prefix(label: str | None) -> bool:

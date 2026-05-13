@@ -253,3 +253,77 @@ class TestSAEImportConfigPassthrough:
         d, _ = from_sae_lens(records, [0, 1, 4, 5], config=cfg)
         for f in d.features:
             assert -0.1 - 1e-12 <= f.gamma <= 0.1 + 1e-12
+
+
+# ---------------------------------------------------------------------------
+# §6 — Clustered loader path (clustered-dictionary-analysis)
+# ---------------------------------------------------------------------------
+
+
+class TestFromSaeLensClustered:
+    def test_default_clustered_false_returns_dictionary(self):
+        # Backwards-compatible: omitting `clustered` returns a
+        # `Dictionary`, not a `ClusteredDictionary`.
+        from polygram.dictionary import Dictionary
+
+        records = load_toy_sae(FIXTURE)
+        result, report = from_sae_lens(records, [0, 1, 4, 5])
+        assert isinstance(result, Dictionary)
+        assert report.n_blocks is None
+        assert report.mean_block_size is None
+        assert report.n_cross_block_edges is None
+
+    def test_clustered_true_returns_clustered_dictionary(self):
+        from polygram.clustered_dictionary import ClusteredDictionary
+
+        records = load_toy_sae(FIXTURE)
+        # 16 features (more than the legacy 8-cap) — clustered path
+        # accepts.
+        result, report = from_sae_lens(
+            records, list(range(16)), clustered=True
+        )
+        assert isinstance(result, ClusteredDictionary)
+        assert report.n_blocks is not None
+        assert report.mean_block_size is not None
+        assert report.n_cross_block_edges is not None
+        assert report.n_blocks == result.n_blocks
+        assert report.mean_block_size == result.mean_block_size
+        assert report.n_cross_block_edges == result.n_cross_block_edges
+
+    def test_clustered_true_skips_8_cap(self):
+        # Without clustered=True, 16 features raises. With it, no raise.
+        records = load_toy_sae(FIXTURE)
+        with pytest.raises(ValueError, match="caps a Dictionary"):
+            from_sae_lens(records, list(range(16)))
+        # Same call with clustered=True succeeds.
+        _result, _report = from_sae_lens(
+            records, list(range(16)), clustered=True
+        )
+
+    def test_clustered_block_size_respects_encoding_cap(self):
+        # Default block_formation.block_size_max=None → uses encoding's
+        # max_features (legacy 8). 16 features → at least 2 blocks.
+        records = load_toy_sae(FIXTURE)
+        result, _report = from_sae_lens(
+            records, list(range(16)), clustered=True
+        )
+        for block in result.blocks:
+            assert len(block.features) <= 8
+
+    def test_clustered_with_custom_block_formation(self):
+        from polygram.clustered_dictionary import BlockFormation
+
+        records = load_toy_sae(FIXTURE)
+        bf = BlockFormation(
+            strategy="cosine", cosine_threshold=0.5, block_size_max=4
+        )
+        result, _report = from_sae_lens(
+            records, list(range(16)), clustered=True, block_formation=bf
+        )
+        for block in result.blocks:
+            assert len(block.features) <= 4
+
+    def test_clustered_error_message_points_to_clustered(self):
+        records = load_toy_sae(FIXTURE)
+        with pytest.raises(ValueError, match="clustered=True"):
+            from_sae_lens(records, list(range(16)))
