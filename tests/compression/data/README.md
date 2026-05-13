@@ -13,10 +13,19 @@ progressive feature zeroing across 5 iterations and the
 `_REASON_MAX_ITERATIONS` termination path.
 
 The differential test
-(`tests/compression/test_epoch_clustered_consume.py::test_byte_identical_epoch_result_multi_iter_against_frozen_reference`)
+(`tests/compression/test_epoch_clustered_consume.py::test_multi_iter_epoch_result_matches_frozen_reference`)
 re-runs the same fixture on the current pipeline and asserts
-deterministic-field equality. Same exclusion rules as the default
-reference (wall_seconds, tempfile paths, validation_report_paths).
+structural equality plus per-float numerical tolerance
+(`math.isclose(rel_tol=1e-5, abs_tol=1e-8)`). Unlike the 2-iter
+reference, this one does NOT enforce byte-identity on float fields:
+with 5 iterations of accumulating FP ops, the JSON repr of
+last-decimal-place values drifts by a single ULP between the
+reference-capture host (macOS) and the CI host (Linux). The 2-iter
+test pins byte-identity for the load-bearing refactor invariant;
+this one pins convergence *semantics* (iteration count, per-iteration
+features zeroed, convergence states, integer counters) and
+approximate numerics. Same exclusion rules as the default reference
+(wall_seconds, tempfile paths, validation_report_paths).
 
 ## `epoch_result_reference.json`
 
