@@ -291,6 +291,98 @@ class ClusteredDictionary:
         """Average features-per-block; useful for `SelectionReport`."""
         return self.n_features / self.n_blocks
 
+    def emit_qorca(self, output_dir) -> dict[str, "Path"]:
+        """Write one `.q.orca.md` per block plus a `manifest.json`
+        describing the block topology and cross-block adjacency.
+
+        Each per-block `.q.orca.md` is independently round-trippable
+        through Q-OrCA's verifier. The manifest captures the block
+        structure so downstream consumers (analysis pipelines,
+        documentation) can reconstruct the clustered topology without
+        re-parsing every machine.
+
+        Returns a dict mapping artifact IDs to their written `Path`:
+
+        - `"<block_id>"` for each block's machine.
+        - `"manifest"` for `manifest.json`.
+
+        The manifest schema:
+
+        ```json
+        {
+          "name": "<cd.name>",
+          "n_features": <int>,
+          "encoding": "<encoding class name>",
+          "blocks": [
+            {
+              "id": "<block.name>",
+              "machine": "<relative path>",
+              "features": [{"name": "<f.name>", "cluster": "<f.cluster>"}, ...]
+            },
+            ...
+          ],
+          "cross_block_edges": [
+            {
+              "from": ["<block_i.name>", "<feat_i.name>"],
+              "to":   ["<block_j.name>", "<feat_j.name>"],
+              "cosine": <float>
+            },
+            ...
+          ],
+          "block_formation": {"strategy": "...", "cosine_threshold": ...}
+        }
+        ```
+        """
+        import json
+        from pathlib import Path
+
+        from polygram.emit import write_qorca
+
+        out_dir = Path(output_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        artifacts: dict[str, Path] = {}
+
+        machine_paths: dict[int, str] = {}  # block_idx → relative path
+        for block_idx, block in enumerate(self.blocks):
+            machine_path = out_dir / f"{block.name}.q.orca.md"
+            write_qorca(block, machine_path)
+            artifacts[block.name] = machine_path
+            machine_paths[block_idx] = machine_path.name
+
+        manifest = {
+            "name": self.name,
+            "n_features": self.n_features,
+            "encoding": type(self.encoding).__name__,
+            "blocks": [
+                {
+                    "id": block.name,
+                    "machine": machine_paths[block_idx],
+                    "features": [
+                        {"name": f.name, "cluster": f.cluster}
+                        for f in block.features
+                    ],
+                }
+                for block_idx, block in enumerate(self.blocks)
+            ],
+            "cross_block_edges": [
+                {
+                    "from": [self.blocks[bi].name, self.blocks[bi].features[fi].name],
+                    "to": [self.blocks[bj].name, self.blocks[bj].features[fj].name],
+                    "cosine": float(cosine),
+                }
+                for (bi, fi, bj, fj), cosine in self.cross_block_pairs.items()
+            ],
+            "block_formation": {
+                "strategy": self.block_formation.strategy,
+                "cosine_threshold": self.block_formation.cosine_threshold,
+                "block_size_max": self.block_formation.block_size_max,
+            },
+        }
+        manifest_path = out_dir / "manifest.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2))
+        artifacts["manifest"] = manifest_path
+        return artifacts
+
     def cross_block_redundant_pairs(
         self, threshold: float = 0.7
     ) -> "CrossBlockRedundancyReport":

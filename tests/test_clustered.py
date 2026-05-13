@@ -970,3 +970,81 @@ class TestCrossBlockRedundantPairs:
         assert report.pairs == []
         assert report.coverage == {}
         assert report.n_total_cross_block_edges == 0
+
+
+# ---------------------------------------------------------------------------
+# §8 — Per-block Q-OrCA emission
+# ---------------------------------------------------------------------------
+
+
+class TestClusteredEmitQorca:
+    def test_emits_per_block_machines_and_manifest(self, tmp_path):
+        cd = ClusteredDictionary(
+            name="emit_test",
+            blocks=[_block("alpha", 2), _block("beta", 2)],
+        )
+        artifacts = cd.emit_qorca(tmp_path)
+        # Expect one entry per block + manifest.
+        assert "manifest" in artifacts
+        assert "alpha" in artifacts
+        assert "beta" in artifacts
+        # Files exist on disk.
+        assert artifacts["alpha"].is_file()
+        assert artifacts["beta"].is_file()
+        assert artifacts["manifest"].is_file()
+        # Block machine filenames follow the convention.
+        assert artifacts["alpha"].name == "alpha.q.orca.md"
+        assert artifacts["beta"].name == "beta.q.orca.md"
+
+    def test_manifest_schema_fields_present(self, tmp_path):
+        import json
+
+        cd = ClusteredDictionary(
+            name="schema_test",
+            blocks=[_block("alpha", 2), _block("beta", 2)],
+            cross_block_pairs={(0, 0, 1, 1): 0.6},
+        )
+        cd.emit_qorca(tmp_path)
+        manifest = json.loads((tmp_path / "manifest.json").read_text())
+        assert manifest["name"] == "schema_test"
+        assert manifest["n_features"] == 4
+        assert manifest["encoding"] == "MPSRung1"
+        assert len(manifest["blocks"]) == 2
+        # Block records carry the right fields.
+        b0 = manifest["blocks"][0]
+        assert b0["id"] == "alpha"
+        assert b0["machine"] == "alpha.q.orca.md"
+        assert len(b0["features"]) == 2
+        assert b0["features"][0] == {"name": "alpha_f0", "cluster": "alpha"}
+        # Cross-block edge captured.
+        assert len(manifest["cross_block_edges"]) == 1
+        edge = manifest["cross_block_edges"][0]
+        assert edge["from"] == ["alpha", "alpha_f0"]
+        assert edge["to"] == ["beta", "beta_f1"]
+        assert edge["cosine"] == pytest.approx(0.6)
+        # Block formation captured.
+        assert manifest["block_formation"]["strategy"] == "user_declared"
+
+    def test_per_block_machines_are_well_formed(self, tmp_path):
+        # Each per-block .q.orca.md should at minimum carry the block's
+        # name as a machine declaration. We don't run the full Q-OrCA
+        # verifier here (that's covered by the existing write_qorca
+        # tests on Dictionary); we just smoke-check the file shape.
+        cd = ClusteredDictionary(
+            name="wellformed",
+            blocks=[_block("alpha", 2)],
+        )
+        artifacts = cd.emit_qorca(tmp_path)
+        text = artifacts["alpha"].read_text()
+        assert "# machine alpha" in text or "machine alpha" in text
+
+    def test_empty_cross_block_edges_produces_empty_list(self, tmp_path):
+        import json
+
+        cd = ClusteredDictionary(
+            name="no_edges",
+            blocks=[_block("alpha", 2), _block("beta", 2)],
+        )
+        cd.emit_qorca(tmp_path)
+        manifest = json.loads((tmp_path / "manifest.json").read_text())
+        assert manifest["cross_block_edges"] == []
