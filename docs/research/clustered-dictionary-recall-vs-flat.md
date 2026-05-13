@@ -1,5 +1,17 @@
 # Clustered-dictionary recall vs flat baseline
 
+**Bottom line:** clustering catches every flat-baseline redundant
+pair (**recall = 1.000** at N=2k and N=8k on real GPT-2-small SAE
+features). Wall-clock speedup is inverse (0.5×) on pure-cosine
+workloads at moderate N, because BLAS makes the flat path very
+fast and Python-side block construction dominates. The value
+proposition is **structural** — enabling quantum-encoded analyses
+at SAE scale past the per-encoding feature cap — not raw cosine
+speedup. The "100× speedup" target from the proposal applies in
+**expensive-per-pair** regimes (e.g., behavioural-validation
+forward passes at ~1 ms/pair) where the N² wall is the binding
+constraint.
+
 > Research-track note recording the §9 killer experiment from the
 > `clustered-dictionary-analysis` openspec change. Reproducible via
 > `python examples/clustered_dictionary_walkthrough.py --sae <sae.safetensors> --n-features <N>`.

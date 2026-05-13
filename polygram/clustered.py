@@ -1,7 +1,5 @@
 """`ClusteredDictionary` — block-decomposed dictionary for SAE-scale analyses.
 
-Implements §1 of `openspec/changes/clustered-dictionary-analysis/tasks.md`.
-
 The single-`Dictionary` primitives (`Dictionary.gram`, `Cancellation`,
 `BehaviouralValidator`, Q-OrCA emission) cap a dictionary at its
 encoding's Hilbert-space dimension — 8 features for `MPSRung1`, 16 for
@@ -12,10 +10,25 @@ sparse cross-block adjacency, so block-local analyses delegate to the
 existing primitives and cross-block analyses use encoding-agnostic
 direct decoder-vector overlaps.
 
-This module ships the data structures and validation. The §2-§5 work
-(block-formation strategies, `BlockSparseGram`,
-`cross_block_redundant_pairs`, `from_sae_lens(... clustered=True)`)
-layers on top in follow-up commits.
+**Two resolutions, two units.** Intra-block Gram entries are
+**quantum-encoded** complex state overlaps (from each block's
+`Dictionary.gram()` analytic path). Cross-block entries are **direct
+decoder-vector inner products** — encoding-agnostic, real-valued
+(lifted to complex with zero imaginary part for uniform handling).
+Callers that conflate the two regions should think twice; the
+canonical access patterns surface them separately
+(`BlockSparseGram.block_diagonal()` vs
+`BlockSparseGram.cross_block_entries()`).
+
+Most-common entry point:
+
+    from polygram import from_sae_lens
+    cd, report = from_sae_lens(records, feature_ids=list(range(64)), clustered=True)
+    bsg = cd.gram()                              # block-sparse Gram
+    cd.cross_block_redundant_pairs(0.7)          # high-cosine cross-block pairs
+    cd.emit_qorca(output_dir)                    # per-block .q.orca.md + manifest
+
+For explicit construction outside the loader, use `build_clustered_dictionary`.
 """
 
 from __future__ import annotations
@@ -404,6 +417,13 @@ class ClusteredDictionary:
         fields), builds one `Dictionary` block per panel, and computes
         the cross-block adjacency from the panels' decoder vectors.
 
+        **Ordering invariant:** ``blocks[k]`` is constructed from
+        ``panels[k]`` for every ``k``. This element-wise ordering is
+        load-bearing — downstream consumers (`_validate_panels`,
+        `_synthesize_validation_report` once `compression-consumes-clustered-dictionary`
+        lands) rely on it to iterate `clustered.blocks` and the
+        original `panels` list interchangeably.
+
         The classmethod does NOT alter `_select_panels`. A future
         change can extract the priority-driven seeded-coverage
         algorithm into a `BlockFormation` strategy and have
@@ -412,6 +432,13 @@ class ClusteredDictionary:
         implementation flips. The byte-identical regression check
         (compression tests pass unchanged) holds today by
         construction.
+
+        TODO: when the deferred `compression-seeded` BlockFormation
+        strategy lands (see `openspec/changes/compression-consumes-clustered-dictionary/`
+        and the discussion in `clustered-dictionary-analysis/tasks.md`
+        §7), this method's body can be reimplemented as a call to
+        `build_clustered_dictionary(... , block_formation=BlockFormation(strategy="compression_seeded", ...))`
+        without changing this method's signature.
 
         Parameters
         ----------
