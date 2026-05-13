@@ -347,6 +347,21 @@ class EpochCompressor:
                 encoding=_MPSRung1(),
                 name=f"{self.sae_checkpoint.stem.replace('-', '_').replace('.', '_')}_iter{iteration}",
             )
+            # TODO(issue #48): the MPSRung1() above is the implicit
+            # pre-refactor encoding. When EpochCompressor gains a
+            # configurable `encoding=` constructor parameter, query
+            # `self.encoding` here instead.
+
+            # Defense-in-depth assertion of the panel↔block ordering
+            # invariant — `from_compression_panels` constructs blocks
+            # 1:1 from panels in order. If this ever drifts (e.g., a
+            # future filter step in the converter), the byte-identical
+            # contract breaks here rather than silently in downstream
+            # validation.
+            assert len(clustered.blocks) == len(panels), (
+                f"panel↔block ordering drift: "
+                f"{len(panels)} panels → {len(clustered.blocks)} blocks"
+            )
 
             # Run validator on each block; collect per-block reports.
             per_panel_reports = self._validate_panels(
@@ -1104,6 +1119,15 @@ def _synthesize_validation_report(
     # parameter and move on. Kept on the signature so the call sites
     # in EpochCompressor.run can pass `clustered` uniformly with the
     # `_validate_panels` call.
+    #
+    # Reserved for future cross-block consumers: per-block topology
+    # for cross-block redundancy aggregation (see
+    # `ClusteredDictionary.cross_block_redundant_pairs`), per-block
+    # tier-separation invariant checks, and any aggregation that
+    # needs to know which features sit in the same block vs which
+    # span block boundaries. None of those are wired today; the
+    # underscore-assignment is the explicit "intentionally unused"
+    # marker until they are.
     _ = clustered
     per_panel_reports = block_reports
     by_pair: dict[tuple[int, int], list[CandidatePair]] = defaultdict(list)
