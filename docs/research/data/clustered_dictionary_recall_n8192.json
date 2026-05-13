@@ -1,0 +1,25 @@
+{
+  "fixture": "scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors",
+  "n_total_features": 24576,
+  "n_subset_features": 8192,
+  "d_model": 768,
+  "seed": 0,
+  "block_size": 8,
+  "cosine_threshold": 0.3,
+  "redundancy_threshold": 0.7,
+  "flat": {
+    "n_pairs": 202,
+    "wall_seconds": 5.966260058339685
+  },
+  "clustered": {
+    "n_pairs": 202,
+    "wall_seconds": 12.380670989863575,
+    "n_blocks": 1783,
+    "mean_block_size": 4.594503645541223,
+    "n_cross_block_edges_total": 51863,
+    "n_cross_block_redundant": 133
+  },
+  "recall": 1.0,
+  "precision": 1.0,
+  "speedup": 0.48190118800705073
+}
