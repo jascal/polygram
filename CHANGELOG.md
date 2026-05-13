@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`EpochCompressor(encoding=...)`** — new constructor parameter
+  (defaults to `MPSRung1()`) plumbs the configured encoding through
+  the compression pipeline. Compression runs can now opt into Rung3
+  (K=16) / Rung4 (K=32) / HEA_Rung2 (K=2^n_qubits) to exploit the
+  larger per-encoding feature caps. The internal `_select_panels`
+  neighbour cap now scales as `encoding.max_features - 1` (was
+  hardcoded 7). Byte-identical behaviour preserved at the
+  `MPSRung1()` default — load-bearing differential regression
+  (`test_byte_identical_epoch_result_against_frozen_reference`)
+  passes unchanged. Closes issue #48.
 - **`Rung4` encoding** — new 5-qubit encoding with a **product**
   amplitude branch on qubits 3 and 4: two independent single-qubit
   amps (vs Rung3's Bell-pattern entangled amp). Per-feature Hilbert

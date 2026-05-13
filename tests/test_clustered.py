@@ -1175,6 +1175,7 @@ class TestClusteredFromCompressionPanels:
             n_visits_per_feature=1,
             n_panels_max=4,
             coverage_target=0.5,
+            max_panel_size=8,
         )
         if not panels:
             pytest.skip("no panels produced for the synthetic fixture")

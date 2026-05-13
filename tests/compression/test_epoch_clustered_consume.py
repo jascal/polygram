@@ -92,6 +92,25 @@ def _run_refactored_epoch(tmp_path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _run_refactored_epoch_with_encoding(tmp_path: Path, encoding) -> dict:
+    """Variant of `_run_refactored_epoch` that constructs the
+    `EpochCompressor` with an explicit `encoding=` argument."""
+    sae_path = build_synth_sae(tmp_path / "sae.safetensors")
+    epoch = EpochCompressor(
+        sae_checkpoint=sae_path,
+        prompts=CANONICAL_PROMPTS,
+        encoding=encoding,
+        **EPOCH_KWARGS,
+    )
+    with patch(
+        "polygram.compression.epoch._compute_firing_rates_and_residuals",
+        new=make_synth_prepass_patch(),
+    ):
+        out_path = tmp_path / "epoch_out.safetensors"
+        result = epoch.run(out_path)
+    return json.loads(result.report.to_json())
+
+
 def test_byte_identical_epoch_result_against_frozen_reference(tmp_path):
     """The load-bearing regression test for
     `compression-consumes-clustered-dictionary`. Re-runs the
@@ -181,6 +200,44 @@ def test_validate_panels_signature_takes_clustered_kwarg():
     sig = inspect.signature(EpochCompressor._validate_panels)
     assert "clustered" in sig.parameters
     assert "panels" not in sig.parameters
+
+
+def test_explicit_mpsrung1_byte_identical_against_frozen_reference(tmp_path):
+    """Pins the `encoding=None → MPSRung1()` resolution path. Passing
+    `encoding=MPSRung1()` explicitly must produce a byte-identical
+    `EpochResult` to the default (`encoding=None`) — same frozen
+    reference, same deterministic-field-equality check.
+
+    If this test ever drifts, the `__post_init__` resolution of
+    `encoding=None` has changed in a way that affects compression
+    output."""
+    from polygram.encoding import MPSRung1
+
+    reference = json.loads(REFERENCE_PATH.read_text())
+    actual = _run_refactored_epoch_with_encoding(tmp_path, MPSRung1())
+
+    ref_clean = _strip_non_deterministic(reference)
+    act_clean = _strip_non_deterministic(actual)
+
+    if ref_clean != act_clean:
+        import difflib
+
+        ref_pretty = json.dumps(ref_clean, indent=2, sort_keys=True)
+        act_pretty = json.dumps(act_clean, indent=2, sort_keys=True)
+        diff = "\n".join(
+            difflib.unified_diff(
+                ref_pretty.split("\n"),
+                act_pretty.split("\n"),
+                "reference",
+                "actual (explicit MPSRung1)",
+                n=2,
+            )
+        )
+        raise AssertionError(
+            f"Explicit encoding=MPSRung1() drifted from default-resolution "
+            f"path. The None-to-MPSRung1 resolution in __post_init__ "
+            f"must produce byte-identical output to the default.\n\n{diff}"
+        )
 
 
 def test_synthesize_validation_report_signature():
