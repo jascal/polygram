@@ -24,8 +24,9 @@ The cap is sharp and algebraic, not soft / numerical:
 works, but Rung3's contribution to the headroom story is 8 → 16
 (2×), not 8 → 32 (4×). Path to a real 32: either Rung4 with a
 generalized amp branch that reaches the full 2-qubit subspace, or
-extend MPSRung1 to 4 qubits (which forces q-orca's safe-Rz matcher
-extension).
+extend MPSRung1 to 4 qubits (no q-orca change required — q-orca's
+`compute_concept_gram_mps` already handles arbitrary `n` qubits at
+χ=2; see "Path-to-32" below).
 
 ## The math
 
@@ -138,8 +139,21 @@ than adding a new one.
 
 A third path: extend `MPSRung1` to 4 qubits (full Hilbert dim 16),
 no amp branch. Gives 16 directly, with a cleaner Q-OrCA emit shape.
-Forces q-orca's safe-Rz matcher to lift its 3-qubit / χ=2 pin per
-the `MPSRung1` docstring.
+
+The polygram `MPSRung1` docstring previously suggested this would
+force a q-orca change, but a closer read of
+`q_orca/compiler/concept_gram_mps.py` shows the pinning is on
+`bond_dim` (χ=2), not on `n_qubits`: `infer_qubit_count` resolves the
+qubit count from the machine's `qubits = [q0, q1, …]` context list
+generically, and `_parse_staircase_effect` accepts arbitrary-length
+CNOT staircases. So a 4-qubit MPSRung1 staircase at χ=2 needs **no
+q-orca change** — only polygram-side updates to `_state.py` (raise
+`N_QUBITS`) and `_qorca_emit.py` (emit a 4-qubit staircase). The
+cross-repo coordination claim in the original "MPSRung1 to 4 qubits
+would change q-orca's safe-Rz matcher pinning" framing is incorrect.
+Cross-repo work IS needed for a true χ>2 extension (multi-CNOT KAK
+per rung, transfer-matrix contraction in
+`compute_concept_gram_mps`), but that's a different proposal.
 
 Recommended order if Stage 1 wants to push past 16:
 
@@ -150,8 +164,11 @@ Recommended order if Stage 1 wants to push past 16:
    No qubit-count change; Q-OrCA emit shape is unchanged at the
    register level (still 5 qubits) but the action signature needs
    two extra knobs on the amp branch.
-3. **Deferred:** 4-qubit `MPSRung1`. Cross-repo coordination with
-   q-orca-lang; sized as its own change.
+3. **Deferred:** 4-qubit `MPSRung1`. Polygram-side only (raise
+   `N_QUBITS` in `_state.py`, extend `_qorca_emit.py` to the longer
+   staircase); q-orca's `compute_concept_gram_mps` already supports
+   arbitrary `n` at χ=2. A genuinely cross-repo change is only
+   required for χ>2 MPS (rung-2+ in the literal MPS sense).
 
 Real-SAE scale (N ≫ 32) is a Stage 3 / clustered-dictionary
 problem regardless of how this resolves — see the broader

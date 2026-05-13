@@ -43,10 +43,13 @@ Total cap: 8 · 4 = 32.
 **Non-Goals:**
 - Generalising to a Schmidt-form 6-knob amp branch with entanglement
   between q3 and q4 (deferred — would be a hypothetical Rung5).
-- Lifting q-orca-lang's safe-Rz matcher pin. Rung4 keeps the MPS-side
-  pin and only changes the amp branch.
+- Lifting q-orca-lang's `bond_dim = 2` pin in
+  `compute_concept_gram_mps`. Rung4 stays at χ=2 (one CNOT per
+  staircase step) and only changes the amp branch on q3–q4.
 - Changing `MPSRung1` or `Rung3`. Both stay.
-- A 4-qubit MPSRung1 extension — separate cross-repo change.
+- A 4-qubit MPSRung1 extension. Polygram-side-only when it lands
+  (q-orca already supports arbitrary `n` at χ=2 via
+  `infer_qubit_count`), but still a separate change.
 - Default-on Rung4 in `Dictionary.encoding` — opt-in only, same as
   Rung3.
 
@@ -126,8 +129,12 @@ Rung3 emits a Bell-pattern amp branch with a CNOT between q3 and q4
 (plus per-feature θ and ψ rotations). Rung4 emits two independent
 single-qubit preparations on q3 and q4 — no CNOT between them. The
 action signature carries 4 amp knobs per feature instead of 2; the
-register stays at 5 qubits. q-orca's safe-Rz matcher pins q0–q2 / χ=2
-and is agnostic to the q3–q4 amp shape, so no q-orca-lang work is
+register stays at 5 qubits. q-orca's MPS Gram helper
+(`compute_concept_gram_mps`) pins `bond_dim = 2` but accepts
+arbitrary `n_qubits` and accepts `Rz` knobs anywhere in the
+staircase; since Rung4 keeps χ=2 and only changes the q3–q4 amp
+shape (which the helper treats as part of the parametric action
+effect, not as a structural constraint), no q-orca-lang work is
 expected.
 
 Verification: round-trip a 2-feature Rung4 dictionary through the
