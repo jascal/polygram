@@ -327,3 +327,65 @@ class TestFromSaeLensClustered:
         records = load_toy_sae(FIXTURE)
         with pytest.raises(ValueError, match="clustered=True"):
             from_sae_lens(records, list(range(16)))
+
+
+# ---------------------------------------------------------------------------
+# Per-encoding-feature-cap (loader side)
+# ---------------------------------------------------------------------------
+
+
+class TestPerEncodingFeatureCapLoader:
+    def test_mpsrung1_eight_features_still_loads(self):
+        # The pre-change happy path: 8 features against MPSRung1 (the
+        # default encoding). Should be byte-identical to before.
+        records = load_toy_sae(FIXTURE)
+        d, report = from_sae_lens(records, [0, 1, 2, 3, 4, 5, 6, 7])
+        assert len(d.features) == 8
+        assert report.n_selected == 8
+
+    def test_rung3_twelve_features_now_loads(self):
+        # 12 features against Rung3 was previously rejected by the
+        # uniform 8-cap. Now accepted (Rung3.max_features == 16).
+        from polygram.encoding import Rung3
+
+        records = load_toy_sae(FIXTURE)
+        # 12 features at indices 0..11 (the toy fixture has 16).
+        d, _report = from_sae_lens(
+            records, list(range(12)), encoding=Rung3()
+        )
+        assert len(d.features) == 12
+
+    def test_rung3_seventeen_features_raises_with_encoding_name(self):
+        # 17 against Rung3 (cap 16). The toy fixture only has 16
+        # features so we need to fake a record set. Just exercise the
+        # cap check directly via from_sae_lens.
+        from polygram.encoding import Rung3
+
+        records = load_toy_sae(FIXTURE)
+        # The fixture only has 16 features; we'd need 17 to trip the
+        # cap. The cap check fires BEFORE record-id validation, so we
+        # can pass 17 ids (the 16 real ones plus a duplicate) — the
+        # ValueError surfaces from the cap path, not from id lookup.
+        ids = list(range(16)) + [0]  # 17 entries, last is a dup
+        # The duplicate would normally cause other validation issues,
+        # so we test the cap raises FIRST.
+        with pytest.raises(ValueError) as exc_info:
+            from_sae_lens(records, ids, encoding=Rung3())
+        msg = str(exc_info.value)
+        # Error names the encoding and its cap.
+        assert "Rung3" in msg
+        assert "16" in msg
+
+    def test_mpsrung1_nine_features_raises_with_encoding_name(self):
+        records = load_toy_sae(FIXTURE)
+        with pytest.raises(ValueError) as exc_info:
+            from_sae_lens(records, list(range(9)))
+        msg = str(exc_info.value)
+        assert "MPSRung1" in msg
+        assert "8" in msg
+
+    def test_error_message_suggests_clustered_path(self):
+        records = load_toy_sae(FIXTURE)
+        with pytest.raises(ValueError) as exc_info:
+            from_sae_lens(records, list(range(9)))
+        assert "clustered=True" in str(exc_info.value)

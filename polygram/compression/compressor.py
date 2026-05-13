@@ -396,16 +396,24 @@ class Compressor:
             scale_compression_ratio=scale_compression_ratio,
         )
 
-        # Polygram's rung-1 MPS encoding caps a Dictionary at 8
-        # features (MAX_FEATURES_PER_DICTIONARY in sae_import.py).
-        # For single-panel use, plan.feature_ids ≤ 8 by validator
+        # MPSRung1 caps a Dictionary at `MPSRung1.max_features` (= 8).
+        # For single-panel use, plan.feature_ids ≤ cap by validator
         # contract. For the EpochCompressor's synthetic multi-panel
         # report, the union of every panel's feature_ids can be much
-        # larger; cap the Dictionary rebuild to the first 8. The
-        # zeroing already happened on the full plan.clusters[*].zeroed
-        # list — the rebuilt Dictionary is a debugging aid covering
-        # the lowest-fid 8, not a complete enumeration of the SAE.
-        feature_ids = list(plan.feature_ids[:min(8, len(plan.feature_ids))])
+        # larger; cap the Dictionary rebuild to the first
+        # `MPSRung1.max_features` ids. The zeroing already happened
+        # on the full plan.clusters[*].zeroed list — the rebuilt
+        # Dictionary is a debugging aid covering the lowest-fid
+        # `cap` features, not a complete enumeration of the SAE.
+        # When Compressor gains a configurable encoding (issue #48),
+        # this should query the supplied encoding's max_features
+        # rather than hardcoding MPSRung1.
+        from polygram.encoding import MPSRung1 as _MPSRung1
+
+        rebuild_cap = int(_MPSRung1.max_features)
+        feature_ids = list(
+            plan.feature_ids[: min(rebuild_cap, len(plan.feature_ids))]
+        )
         records = load_sae_safetensors(str(out_path), feature_ids=feature_ids)
         rebuilt_dictionary, _selection_report = from_sae_lens(
             records,

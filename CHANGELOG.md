@@ -4,8 +4,25 @@
 
 ### Added
 
-- **`polygram.clustered` module** — `ClusteredDictionary` primitive
-  for SAE-scale analyses. Holds a list of `Dictionary` blocks (each
+- **`encoding.max_features` per-encoding cap** — each encoding class
+  declares a `max_features` attribute matching its reachable
+  Hilbert-space dimension: `MPSRung1.max_features = 8`,
+  `Rung3.max_features = 16` (corrected from the previous universal
+  8 cap; see `docs/research/rung3-rank-bound.md` for the empirical
+  basis), `HEA_Rung2.max_features = 2 ** n_qubits` (scales with the
+  existing `n_qubits` knob). `from_sae_lens` and
+  `BehaviouralValidator` now query the encoding's cap rather than
+  the `MAX_FEATURES_PER_DICTIONARY` module constant. The constant
+  is retained as a back-compat alias at the `MPSRung1` value (8).
+  The error message names the encoding and suggests larger-cap
+  alternatives. **`Rung3` users can now load 9–16 features** without
+  hitting the cap.
+
+- **`polygram.clustered_dictionary` module** (renamed from
+  `polygram.clustered` to avoid a namespace collision with the
+  geometry-registered `clustered` factory) — `ClusteredDictionary`
+  primitive for SAE-scale analyses. Holds a list of `Dictionary`
+  blocks (each
   ≤ `encoding.max_features`) plus a sparse cross-block adjacency.
   Block formation via cosine clustering (default), user-declared
   hierarchy, or reserved co-firing API.
@@ -25,7 +42,7 @@
   preserves byte-identical behaviour.
 - **`SelectionReport.{n_blocks, mean_block_size, n_cross_block_edges}`** —
   per-clustering stats populated when the clustered loader is used.
-- **`compute_cosine_pair_graph`** in `polygram.clustered` — public
+- **`compute_cosine_pair_graph`** in `polygram.clustered_dictionary` — public
   helper extracted from `polygram.compression.epoch._compute_cosine_graph`.
   The epoch-side function continues to call it as a thin wrapper
   (back-compat preserved; all existing compression tests pass

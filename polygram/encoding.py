@@ -1,7 +1,15 @@
-"""Encoding markers — config tags that downstream emitters dispatch on."""
+"""Encoding markers — config tags that downstream emitters dispatch on.
+
+Each encoding declares its `max_features` cap — the maximum number of
+linearly-independent features the encoding's state space can hold.
+Loaders and validators query this attribute rather than a hardcoded
+constant. See `docs/research/rung3-rank-bound.md` for the empirical
+basis of the per-encoding values.
+"""
 
 import math
 from dataclasses import dataclass
+from typing import ClassVar
 
 
 _HEA_VALID_ROTATIONS = ("Rx", "Ry", "Rz")
@@ -20,10 +28,16 @@ class MPSRung1:
 
     on a 3-qubit register. v0 supports `bond_dim=2` only — the
     safe-`Rz` matcher in q-orca >= 0.7.1 is fixed at χ=2.
+
+    The per-encoding feature cap is `dim(C^8) = 8` — every additional
+    feature past 8 is forced to live in a linear combination of the
+    existing 8 (rank-deficient Gram).
     """
 
     bond_dim: int = 2
     phase_knobs: bool = True
+
+    max_features: ClassVar[int] = 8
 
     def __post_init__(self) -> None:
         if self.bond_dim != 2:
@@ -88,6 +102,13 @@ class HEA_Rung2:
         """Expected shape of a per-feature θ tensor: ``(|rotations|, depth, n_qubits)``."""
         return (len(self.rotations), self.depth, self.n_qubits)
 
+    @property
+    def max_features(self) -> int:
+        """Per-encoding feature cap: ``2 ** n_qubits`` (full Hilbert dim
+        of the qubit register). Scales with the existing ``n_qubits``
+        knob, no per-encoding constant needed."""
+        return 2 ** self.n_qubits
+
 
 # Default values for the rung-3 amplitude branch — chosen so the branch
 # reduces to identity overlap (factor = 1) when *both* paired features hold
@@ -117,9 +138,19 @@ class Rung3:
     (φ, θ_amp, ψ_aux) optimization breaks below the
     ``MPSRung1.structural_floor`` of ``M − |V|`` on real GPT-2-small SAE
     pairs.
+
+    The per-encoding feature cap is **16**, not 32. The amp branch's
+    parameterization ``|amp(θ, ψ)⟩ = cos(θ)|00⟩ + e^(iψ) sin(θ)|11⟩``
+    is restricted to the 2-dim subspace ``span{|00⟩, |11⟩}`` of the
+    2-qubit Hilbert space; ``|01⟩`` and ``|10⟩`` are structurally
+    unreachable. Total: ``C^8 ⊗ C^2 = C^16``. See
+    ``docs/research/rung3-rank-bound.md`` for the empirical confirmation
+    (sharp algebraic limit at N=16 across two seeds).
     """
 
     bond_dim: int = 2
+
+    max_features: ClassVar[int] = 16
 
     def __post_init__(self) -> None:
         if self.bond_dim != 2:

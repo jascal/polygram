@@ -68,3 +68,41 @@ class TestHEARung2:
         c = HEA_Rung2(depth=3)
         assert a == b
         assert a != c
+
+
+# ---------------------------------------------------------------------------
+# Per-encoding-feature-cap
+# ---------------------------------------------------------------------------
+
+
+class TestPerEncodingFeatureCap:
+    """Each encoding declares `max_features` matching its reachable
+    Hilbert-space dimension. See `docs/research/rung3-rank-bound.md`
+    for the empirical basis."""
+
+    def test_mpsrung1_cap_is_eight(self):
+        from polygram.encoding import MPSRung1
+
+        assert MPSRung1.max_features == 8
+        assert MPSRung1().max_features == 8
+
+    def test_rung3_cap_is_sixteen(self):
+        from polygram.encoding import Rung3
+
+        assert Rung3.max_features == 16
+        assert Rung3().max_features == 16
+
+    def test_hea_cap_scales_with_n_qubits(self):
+        from polygram.encoding import HEA_Rung2
+
+        assert HEA_Rung2(depth=1, n_qubits=3).max_features == 8
+        assert HEA_Rung2(depth=1, n_qubits=4).max_features == 16
+        assert HEA_Rung2(depth=1, n_qubits=5).max_features == 32
+        assert HEA_Rung2(depth=2, n_qubits=10).max_features == 1024
+
+    def test_back_compat_constant_matches_mpsrung1(self):
+        from polygram.encoding import MPSRung1
+        from polygram.sae_import import MAX_FEATURES_PER_DICTIONARY
+
+        assert MAX_FEATURES_PER_DICTIONARY == MPSRung1.max_features
+        assert MAX_FEATURES_PER_DICTIONARY == 8

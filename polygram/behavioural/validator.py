@@ -49,10 +49,7 @@ from polygram.behavioural.runtime import (
     _spearman,
 )
 from polygram.dictionary import Dictionary
-from polygram.sae_import import (
-    MAX_FEATURES_PER_DICTIONARY,
-    load_sae_safetensors,
-)
+from polygram.sae_import import load_sae_safetensors
 
 SCHEMA_VERSION = 1
 
@@ -135,12 +132,14 @@ class BehaviouralValidator:
                 f"BehaviouralValidator.feature_ids: length {n_ids} "
                 f"does not match dictionary.features length {n_dict}"
             )
-        if n_ids > MAX_FEATURES_PER_DICTIONARY:
+        encoding_cap = int(self.dictionary.encoding.max_features)
+        if n_ids > encoding_cap:
             raise ValueError(
                 f"BehaviouralValidator.feature_ids: {n_ids} exceeds "
-                f"MAX_FEATURES_PER_DICTIONARY="
-                f"{MAX_FEATURES_PER_DICTIONARY} (rung-1 MPS encoding "
-                f"cap from polygram/sae_import.py:23)"
+                f"{type(self.dictionary.encoding).__name__}.max_features="
+                f"{encoding_cap}. Either reduce the feature subset, "
+                f"switch the dictionary to an encoding with a larger "
+                f"cap, or build a `ClusteredDictionary` instead."
             )
 
         for name, value in (

@@ -338,6 +338,18 @@ def test_rung3_viability_spike_smoke(capsys, tmp_path):
     assert "rung3_viability_spike:" in out
 
 
+def test_sae_import_rung3_n16_smoke(capsys):
+    """Smoke test: importing 16 features against `Rung3` works on the
+    bundled toy fixture (per-encoding-feature-cap change). Confirms
+    Rung3.max_features == 16 and the gram round-trips."""
+    from examples.sae_import_rung3_n16 import main
+
+    main([])
+    out = capsys.readouterr().out
+    assert "max_features: 16" in out
+    assert "dictionary.features: 16" in out
+
+
 def test_decoder_gram_validity_smoke(capsys):
     """Smoke test: the decoder-gram validity spike script runs end-to-end
     on the toy fixture. Skips the real-SAE branch (which needs a 144MB
