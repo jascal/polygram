@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Changed (Internal — no observable behaviour drift)
+
+- **`EpochCompressor.run` consumes `ClusteredDictionary` internally** —
+  `_validate_panels` and `_synthesize_validation_report` now take a
+  `ClusteredDictionary` as their primary panel data structure
+  (renamed from `panels: list[Panel]`). `EpochCompressor.run` builds
+  the clustered view per iteration via
+  `ClusteredDictionary.from_compression_panels` and threads it
+  through. The pre-refactor `_select_panels` algorithm is
+  **untouched**; the per-iteration `EpochResult` is bit-identical
+  to the pre-refactor output (modulo `wall_seconds` + tempfile
+  paths) on the deterministic fixture, gated by
+  `tests/compression/test_epoch_clustered_consume.py` against the
+  frozen reference at
+  `tests/compression/data/epoch_result_reference.json`. The
+  encoding stays implicit `MPSRung1()` at the call site; future
+  work (issue #48) would plumb a configurable encoding through.
+
 ### Added
 
 - **`encoding.max_features` per-encoding cap** — each encoding class
