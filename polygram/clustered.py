@@ -21,10 +21,13 @@ layers on top in follow-up commits.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections import defaultdict
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
-from polygram.dictionary import Dictionary
+import numpy as np
+
+from polygram.dictionary import Dictionary, Feature
 from polygram.encoding import HEA_Rung2, MPSRung1, Rung3
 
 # Fallback when per-encoding-feature-cap (PR #42) hasn't shipped — the
@@ -287,3 +290,393 @@ class ClusteredDictionary:
     def mean_block_size(self) -> float:
         """Average features-per-block; useful for `SelectionReport`."""
         return self.n_features / self.n_blocks
+
+
+# ===========================================================================
+# §2 — Block-formation strategies
+# ===========================================================================
+
+
+def compute_cosine_pair_graph(
+    decoder_vectors: np.ndarray,
+    *,
+    threshold: float,
+    indices: np.ndarray | None = None,
+) -> set[tuple[int, int]]:
+    """Return the set of `(i, j)` pairs (i < j) whose decoder-vector
+    cosine similarity equals or exceeds `threshold`.
+
+    When `indices` is `None`, pairs index into `decoder_vectors` directly
+    (local indices in `[0, N)`). When `indices` is supplied (a 1-D array
+    of feature IDs), pairs are reported in terms of `indices` values
+    so callers can map subsetted local indices back to global IDs. This
+    second mode is what `polygram.compression.epoch._compute_cosine_graph`
+    used before this function was extracted; the call site there now
+    delegates to this helper with `indices=eligible`.
+
+    For large row counts, the cosine matrix is computed in chunks of
+    1024 rows to cap memory.
+    """
+    if indices is not None:
+        if indices.size < 2:
+            return set()
+        rows = decoder_vectors[indices].astype(np.float32, copy=False)
+        report_ids = indices
+    else:
+        if decoder_vectors.shape[0] < 2:
+            return set()
+        rows = decoder_vectors.astype(np.float32, copy=False)
+        report_ids = np.arange(rows.shape[0], dtype=np.int64)
+
+    norms = np.linalg.norm(rows, axis=1, keepdims=True)
+    norms = np.where(norms < 1e-12, 1.0, norms)
+    unit = rows / norms
+
+    out: set[tuple[int, int]] = set()
+    n = unit.shape[0]
+    chunk = 1024 if n > 1024 else n
+    for start in range(0, n, chunk):
+        end = min(start + chunk, n)
+        sims = unit[start:end] @ unit.T
+        for local_i in range(end - start):
+            global_i = start + local_i
+            for global_j in range(global_i + 1, n):
+                if sims[local_i, global_j] >= threshold:
+                    out.add((int(report_ids[global_i]), int(report_ids[global_j])))
+    return out
+
+
+def _resolve_block_size_max(
+    encoding: object, override: int | None
+) -> int:
+    """Resolve the per-block cap: caller's override > encoding's
+    `max_features` > legacy 8."""
+    if override is not None:
+        return int(override)
+    return _encoding_max_features(encoding)
+
+
+def _form_blocks_cosine(
+    features: list[Feature],
+    decoder_vectors: np.ndarray,
+    block_size_max: int,
+    cosine_threshold: float,
+) -> list[list[int]]:
+    """Greedy single-linkage BFS clustering with a size cap.
+
+    Builds the cosine pair graph at the supplied threshold, then for
+    each unassigned feature in input order picks it as a seed and
+    grows a block by BFS over its high-cosine neighbours until either
+    the block reaches `block_size_max` or the neighbour frontier
+    exhausts. Features without close neighbours land in singleton
+    blocks. Determinism is preserved by sorted neighbour iteration.
+
+    Returns a list of blocks, each a list of feature indices into the
+    input `features` list. Every feature appears in exactly one block.
+    """
+    n = len(features)
+    if n == 0:
+        return []
+    cosine_pairs = compute_cosine_pair_graph(
+        decoder_vectors, threshold=cosine_threshold
+    )
+    adj: dict[int, set[int]] = defaultdict(set)
+    for i, j in cosine_pairs:
+        adj[i].add(j)
+        adj[j].add(i)
+
+    assigned: set[int] = set()
+    blocks: list[list[int]] = []
+
+    for seed in range(n):
+        if seed in assigned:
+            continue
+        block = [seed]
+        assigned.add(seed)
+        frontier = [seed]
+        while frontier and len(block) < block_size_max:
+            next_frontier: list[int] = []
+            for feat in frontier:
+                if len(block) >= block_size_max:
+                    break
+                for neighbour in sorted(adj[feat]):
+                    if neighbour in assigned:
+                        continue
+                    if len(block) >= block_size_max:
+                        break
+                    block.append(neighbour)
+                    assigned.add(neighbour)
+                    next_frontier.append(neighbour)
+            frontier = next_frontier
+        blocks.append(block)
+
+    return blocks
+
+
+def _form_blocks_user_declared(
+    features: list[Feature],
+    hierarchy: Mapping[str, Sequence[str]],
+    block_size_max: int,
+) -> list[list[int]]:
+    """Respect the supplied hierarchy, splitting any cluster larger
+    than `block_size_max` into multiple blocks of size ≤ K.
+
+    Cluster iteration order follows the dict's insertion order so the
+    result is deterministic for a given input.
+
+    Returns a list of blocks (each a list of feature indices into the
+    input `features` list). Every feature mentioned in the hierarchy
+    appears in exactly one block; features not in the hierarchy raise
+    a `ValueError`.
+    """
+    name_to_idx = {f.name: i for i, f in enumerate(features)}
+    seen: set[str] = set()
+    blocks: list[list[int]] = []
+    for cluster, member_names in hierarchy.items():
+        cluster_indices: list[int] = []
+        for n in member_names:
+            if n in seen:
+                raise ValueError(
+                    f"user_declared block formation: feature {n!r} appears "
+                    f"in multiple clusters in the supplied hierarchy"
+                )
+            if n not in name_to_idx:
+                raise ValueError(
+                    f"user_declared block formation: hierarchy cluster "
+                    f"{cluster!r} references unknown feature {n!r}"
+                )
+            seen.add(n)
+            cluster_indices.append(name_to_idx[n])
+        # Split clusters exceeding block_size_max into multiple blocks.
+        for i in range(0, len(cluster_indices), block_size_max):
+            blocks.append(cluster_indices[i : i + block_size_max])
+
+    unplaced = [f.name for f in features if f.name not in seen]
+    if unplaced:
+        raise ValueError(
+            f"user_declared block formation: features not assigned to any "
+            f"cluster in the supplied hierarchy: {unplaced[:5]}"
+            + (f" (+{len(unplaced) - 5} more)" if len(unplaced) > 5 else "")
+        )
+    return blocks
+
+
+def _form_blocks_co_firing(
+    features: list[Feature],
+    decoder_vectors: np.ndarray,
+    activation_traces: np.ndarray,
+    block_size_max: int,
+    co_firing_threshold: float,
+) -> list[list[int]]:
+    """Co-firing similarity-based block formation.
+
+    Currently a NotImplementedError stub. The API is reserved so callers
+    can plumb the strategy through `BlockFormation` and the §9 killer
+    experiment can pivot to co-firing if cosine clustering's redundancy
+    recall is below target. The implementation will follow once a
+    consumer needs it (likely as a Jaccard / Pearson similarity on
+    binarised activation traces).
+    """
+    raise NotImplementedError(
+        "co_firing block formation is not yet implemented. The "
+        "BlockFormation API accepts strategy='co_firing' so the strategy "
+        "is reachable for downstream plumbing, but the algorithm itself "
+        "will follow once the §9 killer experiment demonstrates cosine "
+        "clustering's recall falls below target. Use strategy='cosine' "
+        "or strategy='user_declared' in the meantime."
+    )
+
+
+def _compute_cross_block_edges(
+    block_indices: list[list[int]],
+    decoder_vectors: np.ndarray,
+    cosine_threshold: float,
+) -> dict[CrossBlockKey, float]:
+    """Compute the sparse cross-block adjacency from the block partition
+    plus the full decoder-vector array.
+
+    For each pair of features `(i, j)` in different blocks with cosine
+    similarity ≥ `cosine_threshold`, emit an entry keyed by
+    `(block_i_idx, feat_i_local_idx, block_j_idx, feat_j_local_idx)`
+    where `feat_i_local_idx` is the position of feature `i` within
+    its own block. The block ordering invariant `block_i_idx <
+    block_j_idx` is enforced by sorting the (block_i, block_j) pair.
+    """
+    # Build global → (block_idx, local_idx) lookup.
+    feat_to_block: dict[int, tuple[int, int]] = {}
+    for block_idx, indices in enumerate(block_indices):
+        for local_idx, feat_idx in enumerate(indices):
+            feat_to_block[feat_idx] = (block_idx, local_idx)
+
+    cosine_pairs = compute_cosine_pair_graph(
+        decoder_vectors, threshold=cosine_threshold
+    )
+    edges: dict[CrossBlockKey, float] = {}
+    # Recompute cosines for the surviving pairs to populate the edge
+    # weight; cheap because cosine_pairs is already filtered.
+    norms = np.linalg.norm(decoder_vectors, axis=1, keepdims=True)
+    norms = np.where(norms < 1e-12, 1.0, norms)
+    unit = decoder_vectors / norms
+
+    for i, j in cosine_pairs:
+        bi, fi = feat_to_block[i]
+        bj, fj = feat_to_block[j]
+        if bi == bj:
+            continue  # intra-block edges live in the per-block dense gram
+        # Canonicalise: smaller block index first.
+        if bi > bj:
+            bi, bj = bj, bi
+            fi, fj = fj, fi
+        cos = float(unit[i] @ unit[j])
+        edges[(bi, fi, bj, fj)] = cos
+    return edges
+
+
+def build_clustered_dictionary(
+    name: str,
+    features: list[Feature],
+    decoder_vectors: np.ndarray,
+    encoding: MPSRung1 | HEA_Rung2 | Rung3,
+    block_formation: BlockFormation,
+    *,
+    hierarchy: Mapping[str, Sequence[str]] | None = None,
+    activation_traces: np.ndarray | None = None,
+) -> ClusteredDictionary:
+    """Top-level entry point: turn an SAE's feature set into a
+    `ClusteredDictionary`.
+
+    Dispatches on `block_formation.strategy`:
+
+    - `"cosine"`: greedy single-linkage on the decoder-vector cosine
+      pair graph with size cap. No extra inputs required beyond
+      `decoder_vectors`.
+    - `"co_firing"`: Jaccard / Pearson similarity on activation
+      traces. Requires `activation_traces`. Currently raises
+      `NotImplementedError` (the API is reserved).
+    - `"user_declared"`: respect the supplied `hierarchy`, splitting
+      any cluster exceeding the per-block cap into multiple blocks.
+      Requires `hierarchy`.
+
+    Cross-block edges (the `cross_block_pairs` field of the returned
+    `ClusteredDictionary`) are always populated from the
+    decoder-vector cosine graph — encoding-agnostic, threshold from
+    `block_formation.cosine_threshold`.
+
+    Parameters
+    ----------
+    name:
+        Identifier for the resulting `ClusteredDictionary`.
+    features:
+        Per-feature carriers (name, cluster, angle knobs). The order
+        of `features` defines the global feature index space.
+    decoder_vectors:
+        `(n_features, d_model)` decoder-direction matrix. Must satisfy
+        `decoder_vectors.shape[0] == len(features)`.
+    encoding:
+        Shared encoding for every block.
+    block_formation:
+        Strategy + parameters.
+    hierarchy:
+        Required when `strategy="user_declared"`; ignored otherwise.
+    activation_traces:
+        Required when `strategy="co_firing"`; ignored otherwise.
+    """
+    n_features = len(features)
+    if decoder_vectors.shape[0] != n_features:
+        raise ValueError(
+            f"build_clustered_dictionary: decoder_vectors first axis "
+            f"({decoder_vectors.shape[0]}) must equal len(features) "
+            f"({n_features})"
+        )
+    if n_features == 0:
+        raise ValueError(
+            "build_clustered_dictionary: features must be non-empty"
+        )
+
+    cap = _resolve_block_size_max(encoding, block_formation.block_size_max)
+
+    if block_formation.strategy == "cosine":
+        block_indices = _form_blocks_cosine(
+            features, decoder_vectors, cap, block_formation.cosine_threshold
+        )
+    elif block_formation.strategy == "co_firing":
+        if activation_traces is None:
+            raise ValueError(
+                "build_clustered_dictionary: strategy='co_firing' requires "
+                "`activation_traces` (got None)"
+            )
+        block_indices = _form_blocks_co_firing(
+            features,
+            decoder_vectors,
+            activation_traces,
+            cap,
+            block_formation.cosine_threshold,
+        )
+    elif block_formation.strategy == "user_declared":
+        if hierarchy is None:
+            raise ValueError(
+                "build_clustered_dictionary: strategy='user_declared' "
+                "requires `hierarchy` (got None)"
+            )
+        block_indices = _form_blocks_user_declared(features, hierarchy, cap)
+    else:  # pragma: no cover — covered by BlockFormation's own validation
+        raise ValueError(
+            f"build_clustered_dictionary: unknown strategy "
+            f"{block_formation.strategy!r}"
+        )
+
+    blocks = _materialise_blocks(
+        name, features, block_indices, encoding, block_formation, hierarchy
+    )
+    cross_block_pairs = _compute_cross_block_edges(
+        block_indices, decoder_vectors, block_formation.cosine_threshold
+    )
+    return ClusteredDictionary(
+        name=name,
+        blocks=blocks,
+        cross_block_pairs=cross_block_pairs,
+        block_formation=block_formation,
+    )
+
+
+def _materialise_blocks(
+    parent_name: str,
+    features: list[Feature],
+    block_indices: list[list[int]],
+    encoding: MPSRung1 | HEA_Rung2 | Rung3,
+    block_formation: BlockFormation,
+    hierarchy: Mapping[str, Sequence[str]] | None,
+) -> list[Dictionary]:
+    """Construct one `Dictionary` per block from the partition.
+
+    For `strategy="user_declared"` blocks preserve the supplied
+    hierarchy's cluster names. For the other strategies each block is
+    a single synthetic cluster named `<parent_name>_b<idx>`.
+    """
+    blocks: list[Dictionary] = []
+    for block_idx, indices in enumerate(block_indices):
+        block_feats = [features[i] for i in indices]
+        block_name = f"{parent_name}_b{block_idx}"
+        if block_formation.strategy == "user_declared" and hierarchy is not None:
+            # Preserve original Feature.cluster values; rebuild hierarchy
+            # restricted to this block's members.
+            block_hierarchy: dict[str, list[str]] = defaultdict(list)
+            for f in block_feats:
+                block_hierarchy[f.cluster].append(f.name)
+            block_hierarchy_resolved: dict[str, list[str]] = dict(block_hierarchy)
+        else:
+            # Synthesise a single cluster for the block. Rewrite each
+            # feature's `cluster` field to match so Dictionary's
+            # hierarchy invariant holds.
+            cluster = block_name
+            block_feats = [replace(f, cluster=cluster) for f in block_feats]
+            block_hierarchy_resolved = {cluster: [f.name for f in block_feats]}
+        blocks.append(
+            Dictionary(
+                name=block_name,
+                features=block_feats,
+                hierarchy=block_hierarchy_resolved,
+                encoding=encoding,
+            )
+        )
+    return blocks

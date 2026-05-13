@@ -705,30 +705,18 @@ def _compute_cosine_graph(
     """Return the set of `(i, j)` pairs (i < j, both in `eligible`)
     with `cos(W_dec[i], W_dec[j]) >= threshold`.
 
-    For large eligible sets, computes the cosine matrix in chunks to
-    cap memory.
+    Thin wrapper that delegates to `polygram.clustered.compute_cosine_pair_graph`
+    with `indices=eligible`. Pair tuples are reported in terms of the
+    global feature IDs carried in `eligible`. Behaviour-preserving over
+    the pre-extraction implementation; the underlying algorithm now
+    lives in `polygram/clustered.py` so block-formation strategies can
+    share it.
     """
-    if eligible.size < 2:
-        return set()
+    from polygram.clustered import compute_cosine_pair_graph
 
-    rows = w_dec[eligible].astype(np.float32, copy=False)
-    norms = np.linalg.norm(rows, axis=1, keepdims=True)
-    norms = np.where(norms < 1e-12, 1.0, norms)
-    unit = rows / norms
-
-    out: set[tuple[int, int]] = set()
-    n = unit.shape[0]
-    chunk = 1024 if n > 1024 else n
-    for start in range(0, n, chunk):
-        end = min(start + chunk, n)
-        sims = unit[start:end] @ unit.T                     # (chunk, n)
-        # We only want i < j, so mask the upper triangle relative to start:
-        for local_i in range(end - start):
-            global_i = start + local_i
-            for global_j in range(global_i + 1, n):
-                if sims[local_i, global_j] >= threshold:
-                    out.add((int(eligible[global_i]), int(eligible[global_j])))
-    return out
+    return compute_cosine_pair_graph(
+        w_dec, threshold=threshold, indices=eligible
+    )
 
 
 # ============================================================================
