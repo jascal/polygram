@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+### Added
+
+- **`Rung4` encoding** — new 5-qubit encoding with a **product**
+  amplitude branch on qubits 3 and 4: two independent single-qubit
+  amps (vs Rung3's Bell-pattern entangled amp). Per-feature Hilbert
+  dim **32** (vs Rung3's 16, MPSRung1's 8) — empirically verified
+  by `examples/rung4_rank_verification.py` (rank-32 saturation at
+  N ∈ {32, 40} across two seeds). Adds `polygram.encoding.Rung4`,
+  `Rung4State`, `rung4_amp_overlap`, `rung4_amp_overlap_squared`,
+  plus the shared `_single_qubit_overlap` helper (Rung3 now
+  delegates to it; behaviour unchanged). `Feature` gains two new
+  fields `theta_amp_b` and `psi_amp_b` (default 0.0; Rung3 ignores
+  them); `Dictionary.gram()` dispatches Rung4 through the same
+  elementwise-product factorisation as Rung3 with the product-amp
+  formula. **Default-knob Rung4 reduces to MPSRung1-equivalent gram**
+  on the same (α, β, γ, φ).
+- **`Cancellation(encoding="rung4")`** — 6-knob canonical joint
+  optimiser (`[a.phi, b.phi, b.theta_amp, b.psi_aux, b.theta_amp_b,
+  b.psi_amp_b]`). 4D outer grid over feature B's product-amp knobs +
+  inner 2-φ MPS-equivalent grid + scipy Nelder-Mead refine, mirroring
+  the Rung3 pipeline shape. `min_amp_overlap` constraint applies to
+  `rung4_amp_overlap_squared`. `structural_floor` reduces to the
+  MPS-phase-only floor of (α, β, γ) — the baseline the optimiser
+  tries to break.
+- **Q-OrCA emit awareness for Rung4** — emitted `.q.orca.md` machine
+  is the same MPS-substrate that Rung3 emits today (the amp branch
+  lives in the analytic `Dictionary.gram()` path, not in q-orca);
+  the markdown header now explicitly labels the encoding
+  (`rung-4 MPS-substrate`) and notes where the amp factor lives.
+  Default-knob Rung4 round-trips through q-orca's
+  `compute_concept_gram_mps` to the same gram as the analytic path
+  (verified at 1e-10).
+- **`examples/rung4_rank_verification.py`** — reproducible probe
+  confirming Rung4's 32-feature ceiling; default sweep
+  N ∈ {4, 8, 16, 24, 32, 40} across two seeds.
+  `docs/research/data/rung4_rank_verification.json` is the
+  committed artifact.
+
+### Deferred (follow-up PR)
+
+- **Rung4 viability spike** (§7 of `add-rung4-encoding-mvp/tasks.md`)
+  is deferred to a research-track follow-up PR. The methodology
+  mirrors `examples/rung3_viability_spike.py`'s A/B/C/D bucket
+  analysis on a real GPT-2-small SAE; the result decides whether
+  Rung4 becomes the default encoding or stays opt-in like Rung3.
+
 ### Changed (Internal — no observable behaviour drift)
 
 - **`EpochCompressor.run` consumes `ClusteredDictionary` internally** —

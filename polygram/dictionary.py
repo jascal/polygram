@@ -13,8 +13,12 @@ from polygram.encoding import (
     MPSRung1,
     RUNG3_DEFAULT_PSI_AUX,
     RUNG3_DEFAULT_THETA_AMP,
+    RUNG4_DEFAULT_PSI_AMP_B,
+    RUNG4_DEFAULT_THETA_AMP_B,
     Rung3,
+    Rung4,
     rung3_amp_overlap,
+    rung4_amp_overlap,
 )
 
 
@@ -43,6 +47,13 @@ class Feature:
     theta: np.ndarray | None = None
     theta_amp: float = RUNG3_DEFAULT_THETA_AMP
     psi_aux: float = RUNG3_DEFAULT_PSI_AUX
+    # Rung4 q4 single-qubit amp knobs. Defaults (0.0, 0.0) make each
+    # single-qubit amp factor reduce to ⟨0|0⟩ = 1 under Rung4's
+    # product-amp interpretation. Rung3 ignores these fields — its
+    # amp branch lives entirely on the (theta_amp, psi_aux) pair.
+    # Field-level default values preserve Rung3 gram bit-for-bit.
+    theta_amp_b: float = RUNG4_DEFAULT_THETA_AMP_B
+    psi_amp_b: float = RUNG4_DEFAULT_PSI_AMP_B
 
 
 def _default_hea_theta(feature: Feature, encoding: HEA_Rung2) -> np.ndarray:
@@ -82,7 +93,11 @@ def _default_hea_theta(feature: Feature, encoding: HEA_Rung2) -> np.ndarray:
 
 _VALID_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _KNOB_PHI_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.phi$")
+# Order matters: `.theta_amp_b` must be tried BEFORE `.theta_amp`
+# because the latter's regex matches the prefix of the former.
+_KNOB_THETA_AMP_B_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.theta_amp_b$")
 _KNOB_THETA_AMP_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.theta_amp$")
+_KNOB_PSI_AMP_B_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.psi_amp_b$")
 _KNOB_PSI_AUX_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.psi_aux$")
 _KNOB_THETA_RE = re.compile(
     r"^([A-Za-z_][A-Za-z0-9_]*)\.theta\[(\d+),(\d+),(\d+)\]$"
@@ -93,9 +108,17 @@ def _parse_knob_path(path: str) -> tuple[str, str, tuple[int, int, int] | None]:
     m = _KNOB_PHI_RE.match(path)
     if m:
         return m.group(1), "phi", None
+    # Try the Rung4 q4-amp knobs first (longer match) so they don't
+    # collide with the Rung3 q3-amp prefixes.
+    m = _KNOB_THETA_AMP_B_RE.match(path)
+    if m:
+        return m.group(1), "theta_amp_b", None
     m = _KNOB_THETA_AMP_RE.match(path)
     if m:
         return m.group(1), "theta_amp", None
+    m = _KNOB_PSI_AMP_B_RE.match(path)
+    if m:
+        return m.group(1), "psi_amp_b", None
     m = _KNOB_PSI_AUX_RE.match(path)
     if m:
         return m.group(1), "psi_aux", None
@@ -267,6 +290,10 @@ class Dictionary:
                 new_features[idx] = replace(feature, theta_amp=float(value))
             elif kind == "psi_aux":
                 new_features[idx] = replace(feature, psi_aux=float(value))
+            elif kind == "theta_amp_b":
+                new_features[idx] = replace(feature, theta_amp_b=float(value))
+            elif kind == "psi_amp_b":
+                new_features[idx] = replace(feature, psi_amp_b=float(value))
             else:
                 base = (
                     feature.theta.copy()
@@ -289,8 +316,28 @@ class Dictionary:
         the new ``## encoding`` + ``## theta`` machine layout. ``Rung3``
         composes the MPSRung1-equivalent gram on (α, β, γ, φ) with the
         per-pair amplitude-branch overlap factor (analytic, closed form
-        per ``polygram.encoding.rung3_amp_overlap_squared``).
+        per ``polygram.encoding.rung3_amp_overlap_squared``). ``Rung4``
+        uses the same elementwise-product factorisation pattern with
+        the product-amp ``rung4_amp_overlap`` (two independent
+        single-qubit overlaps on q3 and q4).
         """
+        if isinstance(self.encoding, Rung4):
+            mps_dict = replace(self, encoding=MPSRung1())
+            mps_gram = mps_dict.gram()
+            n = len(self.features)
+            amp_factor = np.ones((n, n), dtype=complex)
+            for i in range(n):
+                fi = self.features[i]
+                for j in range(n):
+                    fj = self.features[j]
+                    amp_factor[i, j] = rung4_amp_overlap(
+                        fi.theta_amp, fi.psi_aux,
+                        fi.theta_amp_b, fi.psi_amp_b,
+                        fj.theta_amp, fj.psi_aux,
+                        fj.theta_amp_b, fj.psi_amp_b,
+                    )
+            return mps_gram.astype(complex) * amp_factor
+
         if isinstance(self.encoding, Rung3):
             mps_dict = replace(self, encoding=MPSRung1())
             mps_gram = mps_dict.gram()

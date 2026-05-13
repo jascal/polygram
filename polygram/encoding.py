@@ -185,6 +185,30 @@ def rung3_amp_overlap_squared(
     )
 
 
+def _single_qubit_overlap(
+    theta_a: float, psi_a: float, theta_b: float, psi_b: float
+) -> complex:
+    """Analytic complex overlap of two states parameterised as
+    ``cos(θ)|0⟩ + e^(iψ) sin(θ)|1⟩`` (a Schmidt-style single-qubit
+    family — note the *full* angle θ, not the Bloch half-angle θ/2).
+
+        ⟨u_a | u_b⟩ = cos(θ_a) cos(θ_b)
+                      + e^(i(ψ_b − ψ_a)) sin(θ_a) sin(θ_b).
+
+    Shared building block for Rung3's amp-branch overlap (which uses
+    this exact formula on the |00⟩/|11⟩ subspace, with θ as the
+    Schmidt angle) and Rung4's product amp branch (which uses two
+    independent invocations, one per qubit factor).
+    """
+    ca, sa = math.cos(theta_a), math.sin(theta_a)
+    cb, sb = math.cos(theta_b), math.sin(theta_b)
+    delta = psi_b - psi_a
+    return complex(
+        ca * cb + sa * sb * math.cos(delta),
+        sa * sb * math.sin(delta),
+    )
+
+
 def rung3_amp_overlap(
     theta_a: float, psi_a: float, theta_b: float, psi_b: float
 ) -> complex:
@@ -198,14 +222,13 @@ def rung3_amp_overlap(
     The complex form is what ``Dictionary.gram()`` multiplies into
     the MPS overlap path so that ``np.abs(gram)**2`` factorizes
     correctly into ``|⟨mps|mps⟩|² · |⟨amp|amp⟩|²``.
+
+    Numerically identical to the inlined pre-Rung4 implementation;
+    the body now delegates to ``_single_qubit_overlap`` which Rung4
+    also consumes (its product amp branch is two independent
+    single-qubit overlaps).
     """
-    ca, sa = math.cos(theta_a), math.sin(theta_a)
-    cb, sb = math.cos(theta_b), math.sin(theta_b)
-    delta = psi_b - psi_a
-    return complex(
-        ca * cb + sa * sb * math.cos(delta),
-        sa * sb * math.sin(delta),
-    )
+    return _single_qubit_overlap(theta_a, psi_a, theta_b, psi_b)
 
 
 @dataclass(frozen=True)
@@ -251,4 +274,178 @@ class Rung3State:
             phi=phi,
             theta_amp=theta_amp,
             psi_aux=psi_aux,
+        )
+
+
+# Default values for the Rung4 product amplitude branch — both
+# single-qubit amps at |0⟩ make each overlap factor = 1, so the
+# Rung4 gram with all features at defaults equals the MPSRung1-
+# equivalent gram on the same (α, β, γ, φ).
+RUNG4_DEFAULT_THETA_AMP = 0.0
+RUNG4_DEFAULT_PSI_AUX = 0.0
+RUNG4_DEFAULT_THETA_AMP_B = 0.0
+RUNG4_DEFAULT_PSI_AMP_B = 0.0
+
+
+@dataclass(frozen=True)
+class Rung4:
+    """Rung-4 encoding: MPSRung1 on qubits 0–2 plus a **product**
+    amplitude branch on qubits 3 and 4 (two independent single-qubit
+    amps; no entanglement between q3 and q4, unlike Rung3's Bell-
+    pattern amp).
+
+    Each feature's amp state factorises as
+
+        |amp(θ_a, ψ_a, θ_b, ψ_b)⟩
+            = (cos(θ_a)|0⟩ + e^(iψ_a) sin(θ_a)|1⟩)_{q3}
+              ⊗ (cos(θ_b)|0⟩ + e^(iψ_b) sin(θ_b)|1⟩)_{q4}
+
+    where each single-qubit factor's parameter family linearly spans
+    its C². The product spans the full ``C^2 ⊗ C^2 = C^4`` amp
+    subspace (vs Rung3's restricted 2-dim ``span{|00⟩, |11⟩}``), so
+    the Rung4 per-feature Hilbert dim is ``8 · 4 = 32`` — twice
+    Rung3's, four times MPSRung1's.
+
+    **Default knobs** are ``theta_amp = theta_amp_b = 0`` and
+    ``psi_aux = psi_amp_b = 0`` for every feature; each single-qubit
+    amp reduces to ``|0⟩`` and the amp overlap factor equals 1, so a
+    default-knob Rung4 dictionary's gram matches the MPSRung1-
+    equivalent gram on the same (α, β, γ, φ). This mirrors Rung3's
+    "default reduces to MPS" property at a different fixed point.
+
+    The amp parameterization uses *full* angles (not the Bloch
+    half-angle convention) to match Rung3's existing conventions —
+    both encodings consume the shared ``_single_qubit_overlap``
+    helper.
+
+    See ``docs/research/rung3-rank-bound.md`` for the dimensional
+    analysis that motivates this design.
+    """
+
+    bond_dim: int = 2
+
+    max_features: ClassVar[int] = 32
+
+    def __post_init__(self) -> None:
+        if self.bond_dim != 2:
+            raise ValueError(
+                f"Rung4.bond_dim must be 2 (rung-1 / χ=2 only in v0); "
+                f"got {self.bond_dim}"
+            )
+
+
+def rung4_amp_overlap(
+    theta_a3: float,
+    psi_a3: float,
+    theta_a4: float,
+    psi_a4: float,
+    theta_b3: float,
+    psi_b3: float,
+    theta_b4: float,
+    psi_b4: float,
+) -> complex:
+    """Analytic complex ``⟨amp_a|amp_b⟩`` for the Rung4 product amp.
+
+    Product of two independent single-qubit overlaps — one for the
+    q3 amp factor, one for q4:
+
+        ⟨amp_a|amp_b⟩ = ⟨u_a | u_b⟩_{q3} · ⟨v_a | v_b⟩_{q4}
+
+    where each factor is a ``_single_qubit_overlap`` evaluation.
+    """
+    return _single_qubit_overlap(
+        theta_a3, psi_a3, theta_b3, psi_b3
+    ) * _single_qubit_overlap(
+        theta_a4, psi_a4, theta_b4, psi_b4
+    )
+
+
+def rung4_amp_overlap_squared(
+    theta_a3: float,
+    psi_a3: float,
+    theta_a4: float,
+    psi_a4: float,
+    theta_b3: float,
+    psi_b3: float,
+    theta_b4: float,
+    psi_b4: float,
+) -> float:
+    """``|⟨amp_a|amp_b⟩|²`` for the Rung4 product amp.
+
+    Equivalent to ``abs(rung4_amp_overlap(...)) ** 2`` and also to
+    the product of the two single-qubit *squared* overlaps. Either
+    form is mathematically identical; we compute via the complex
+    product for floating-point stability with `abs(complex)`.
+    """
+    z = rung4_amp_overlap(
+        theta_a3, psi_a3, theta_a4, psi_a4,
+        theta_b3, psi_b3, theta_b4, psi_b4,
+    )
+    return float(abs(z) ** 2)
+
+
+@dataclass(frozen=True)
+class Rung4State:
+    """Per-feature Rung4 state — parallel to ``Rung3State``.
+
+    Carries the MPSRung1-on-qubits-0–2 knobs (α, β, γ, φ) plus the
+    Rung4 product amp's four per-feature knobs:
+
+    - ``theta_amp``, ``psi_aux`` — q3 single-qubit amp (reuses the
+      Rung3-shipped ``Feature.theta_amp`` / ``Feature.psi_aux``
+      fields).
+    - ``theta_amp_b``, ``psi_amp_b`` — q4 single-qubit amp (Rung4's
+      additions to ``Feature``).
+
+    Not part of ``Dictionary``'s persisted shape; constructed on
+    demand by ``Dictionary.gram()``'s Rung4 dispatch and by the
+    cancellation primitive's joint optimiser.
+    """
+
+    alpha: float
+    beta: float
+    gamma: float
+    phi: float
+    theta_amp: float = RUNG4_DEFAULT_THETA_AMP
+    psi_aux: float = RUNG4_DEFAULT_PSI_AUX
+    theta_amp_b: float = RUNG4_DEFAULT_THETA_AMP_B
+    psi_amp_b: float = RUNG4_DEFAULT_PSI_AMP_B
+
+    def amp_overlap_squared(self, other: "Rung4State") -> float:
+        """Analytic ``|⟨amp_self|amp_other⟩|²`` for the Rung4 amp branch."""
+        return rung4_amp_overlap_squared(
+            self.theta_amp,
+            self.psi_aux,
+            self.theta_amp_b,
+            self.psi_amp_b,
+            other.theta_amp,
+            other.psi_aux,
+            other.theta_amp_b,
+            other.psi_amp_b,
+        )
+
+    @classmethod
+    def from_mps_knobs(
+        cls,
+        alpha: float,
+        beta: float,
+        gamma: float,
+        phi: float,
+        *,
+        theta_amp: float = RUNG4_DEFAULT_THETA_AMP,
+        psi_aux: float = RUNG4_DEFAULT_PSI_AUX,
+        theta_amp_b: float = RUNG4_DEFAULT_THETA_AMP_B,
+        psi_amp_b: float = RUNG4_DEFAULT_PSI_AMP_B,
+    ) -> "Rung4State":
+        """Construct a Rung4 state from MPSRung1-equivalent knobs plus
+        the product amp's four default knobs."""
+        return cls(
+            alpha=alpha,
+            beta=beta,
+            gamma=gamma,
+            phi=phi,
+            theta_amp=theta_amp,
+            psi_aux=psi_aux,
+            theta_amp_b=theta_amp_b,
+            psi_amp_b=psi_amp_b,
         )

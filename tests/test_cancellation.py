@@ -819,7 +819,9 @@ class TestRung3Cancellation:
             hierarchy={"ca": ["a"], "cb": ["b"]},
             encoding=MPSRung1(),
         )
-        with pytest.raises(ValueError, match="only meaningful for encoding='rung3'"):
+        # post-Rung4: min_amp_overlap is meaningful for rung3 OR rung4
+        # encodings; rejected on MPS / HEA.
+        with pytest.raises(ValueError, match="only meaningful for "):
             Cancellation(
                 dictionary=d, target_pair=("a", "b"),
                 min_amp_overlap=0.5,
@@ -889,3 +891,158 @@ class TestCancellationConfigPassthrough:
             config=cfg,
         )
         assert canc.optimize == {"method": "grid", "max_steps": 7}
+
+
+# ---------------------------------------------------------------------------
+# Rung4 cancellation (add-rung4-encoding-mvp §5)
+# ---------------------------------------------------------------------------
+
+
+class TestRung4Cancellation:
+    @staticmethod
+    def _rung4_pair(
+        beta_a: float = -0.5, beta_b: float = 0.5, alpha_b: float = 0.0
+    ) -> Dictionary:
+        from polygram.encoding import Rung4
+
+        return Dictionary(
+            name="Rung4Pair",
+            features=[
+                Feature("a", "ca", beta=beta_a, phi=0.3),
+                Feature("b", "cb", beta=beta_b, alpha=alpha_b, phi=0.7),
+            ],
+            hierarchy={"ca": ["a"], "cb": ["b"]},
+            encoding=Rung4(),
+        )
+
+    def test_canonical_six_knob_list(self):
+        # Rung4 cancellation auto-builds the 6-knob canonical list.
+        d = self._rung4_pair()
+        canc = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            grid_outer=(2, 2),
+        )
+        assert canc.encoding == "rung4"
+        assert canc.knobs == [
+            "a.phi", "b.phi",
+            "b.theta_amp", "b.psi_aux",
+            "b.theta_amp_b", "b.psi_amp_b",
+        ]
+
+    def test_custom_knob_list_rejected(self):
+        d = self._rung4_pair()
+        with pytest.raises(ValueError, match="canonical 6-knob list"):
+            Cancellation(
+                dictionary=d,
+                target_pair=("a", "b"),
+                encoding="rung4",
+                knobs=["a.phi", "b.phi"],  # too few
+            )
+
+    def test_rung4_dispatch_requires_rung4_dict(self):
+        from polygram import Rung3
+
+        d_r3 = Dictionary(
+            name="r3",
+            features=[
+                Feature("a", "ca", beta=-0.5),
+                Feature("b", "cb", beta=0.5),
+            ],
+            hierarchy={"ca": ["a"], "cb": ["b"]},
+            encoding=Rung3(),
+        )
+        with pytest.raises(ValueError, match="encoding='rung4'.*requires"):
+            Cancellation(
+                dictionary=d_r3,
+                target_pair=("a", "b"),
+                encoding="rung4",
+            )
+
+    def test_cancellation_rung4_smoke(self):
+        """Synthesize a tiny Rung4 dictionary, run the joint optimizer,
+        confirm fields populate and structural_floor matches MPS-equivalent.
+        """
+        pytest.importorskip("scipy")
+        from polygram import MPSRung1
+
+        d = self._rung4_pair()
+        canc = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            grid_outer=(2, 2),  # 2^4 = 16 outer cells — fast
+            optimize={"method": "grid", "max_steps": 8},
+        )
+        assert canc.encoding == "rung4"
+        result = canc.run()
+
+        # result is a CancellationResult with the new fields populated.
+        assert result.method == "rung4_joint"
+        assert "b.theta_amp_b" in result.optimized_knobs
+        assert "b.psi_amp_b" in result.optimized_knobs
+        assert result.cancellation_efficiency is None or (
+            0.0 <= result.cancellation_efficiency <= 1.0
+        )
+
+        # Structural floor matches the MPS-equivalent on (α, β, γ).
+        from dataclasses import replace
+        mps_dict = replace(d, encoding=MPSRung1())
+        mps_canc = Cancellation(
+            dictionary=mps_dict,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+        )
+        assert result.structural_floor == pytest.approx(
+            mps_canc.structural_floor(), abs=1e-9
+        )
+
+    def test_cancellation_rung4_lowers_overlap(self):
+        pytest.importorskip("scipy")
+        d = self._rung4_pair()
+        canc = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            grid_outer=(2, 2),
+            optimize={"method": "grid", "max_steps": 8},
+        )
+        result = canc.run()
+        # The joint optimizer should not INCREASE the overlap. With a
+        # 4D outer grid + scipy refine, we expect at-or-below the
+        # before value.
+        assert result.after_overlap <= result.before_overlap + 1e-9
+
+    def test_min_amp_overlap_constraint_active(self):
+        """With min_amp_overlap > 0, the optimizer must respect the
+        constraint — at the chosen optimum the amp factor satisfies
+        the bound (or the feasible set was empty and we fell back to
+        unconstrained)."""
+        pytest.importorskip("scipy")
+        from polygram.encoding import rung4_amp_overlap_squared
+
+        d = self._rung4_pair()
+        canc = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            grid_outer=(2, 2),
+            optimize={"method": "grid", "max_steps": 4},
+            min_amp_overlap=0.3,
+        )
+        result = canc.run()
+        # Compute the amp factor at the chosen optimum.
+        a_feat = d.features[0]
+        amp_sq = rung4_amp_overlap_squared(
+            a_feat.theta_amp, a_feat.psi_aux,
+            a_feat.theta_amp_b, a_feat.psi_amp_b,
+            result.optimized_knobs["b.theta_amp"],
+            result.optimized_knobs["b.psi_aux"],
+            result.optimized_knobs["b.theta_amp_b"],
+            result.optimized_knobs["b.psi_amp_b"],
+        )
+        # Either constraint respected, or we fell back to unconstrained.
+        feasible_pool_existed = result.feasible_count > 0
+        if feasible_pool_existed:
+            assert amp_sq >= 0.3 - 1e-9, f"amp_sq={amp_sq} < 0.3"

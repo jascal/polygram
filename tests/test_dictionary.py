@@ -357,3 +357,119 @@ class TestClusterKnob:
         assert d2.feature("b").theta is not None
         # Drift may be small but nonzero; do NOT assert equality.
         _ = abs(after[i_a, i_b] - before[i_a, i_b])
+
+
+# ---------------------------------------------------------------------------
+# Rung4 gram dispatch (add-rung4-encoding-mvp §3)
+# ---------------------------------------------------------------------------
+
+
+class TestRung4GramDispatch:
+    def _two_feature_dict(self, *, encoding, alpha=(-0.5, 0.5),
+                          theta_amp=(0.0, 0.0), psi_aux=(0.0, 0.0),
+                          theta_amp_b=(0.0, 0.0), psi_amp_b=(0.0, 0.0)):
+        from polygram import Dictionary, Feature
+
+        feats = [
+            Feature(
+                name=f"f{i}",
+                cluster="g",
+                beta=alpha[i],
+                theta_amp=theta_amp[i],
+                psi_aux=psi_aux[i],
+                theta_amp_b=theta_amp_b[i],
+                psi_amp_b=psi_amp_b[i],
+            )
+            for i in (0, 1)
+        ]
+        return Dictionary(
+            name="dict",
+            features=feats,
+            hierarchy={"g": [f.name for f in feats]},
+            encoding=encoding,
+        )
+
+    def test_default_knobs_match_mpsrung1_gram(self):
+        # Rung4 with all amp knobs at 0 produces a gram identical to
+        # MPSRung1 on the same (α, β, γ, φ). This is the load-bearing
+        # "default reduces to MPS" invariant.
+        import numpy as np
+
+        from polygram.encoding import MPSRung1, Rung4
+
+        d_mps = self._two_feature_dict(encoding=MPSRung1())
+        d_r4 = self._two_feature_dict(encoding=Rung4())
+        g_mps = d_mps.gram()
+        g_r4 = d_r4.gram()
+        np.testing.assert_allclose(g_r4, g_mps, atol=1e-12)
+
+    def test_nondefault_q3_amp_knobs_change_gram(self):
+        import numpy as np
+
+        from polygram.encoding import MPSRung1, Rung4
+
+        d_mps = self._two_feature_dict(encoding=MPSRung1())
+        d_r4 = self._two_feature_dict(
+            encoding=Rung4(),
+            theta_amp=(0.3, 0.7),
+            psi_aux=(0.1, 0.4),
+        )
+        g_mps = d_mps.gram()
+        g_r4 = d_r4.gram()
+        # On-diagonal still 1 (state normalised).
+        np.testing.assert_allclose(np.abs(g_r4.diagonal()), 1.0, atol=1e-12)
+        # Off-diagonal differs from MPS path.
+        assert not np.allclose(g_r4, g_mps, atol=1e-9)
+
+    def test_nondefault_q4_amp_knobs_change_gram(self):
+        import numpy as np
+
+        from polygram.encoding import MPSRung1, Rung4
+
+        d_mps = self._two_feature_dict(encoding=MPSRung1())
+        # Only q4 amp knobs vary; q3 amp stays at default.
+        d_r4 = self._two_feature_dict(
+            encoding=Rung4(),
+            theta_amp_b=(0.3, 0.7),
+            psi_amp_b=(0.1, 0.4),
+        )
+        g_mps = d_mps.gram()
+        g_r4 = d_r4.gram()
+        np.testing.assert_allclose(np.abs(g_r4.diagonal()), 1.0, atol=1e-12)
+        assert not np.allclose(g_r4, g_mps, atol=1e-9)
+
+    def test_q3_q4_factorise(self):
+        # The Rung4 amp factor for a pair (i, j) equals
+        # _single_qubit_overlap(q3_i, q3_j) * _single_qubit_overlap(q4_i, q4_j).
+        # We verify this end-to-end: the gram[i,j] / mps_gram[i,j]
+        # should equal the product of the two single-qubit overlaps.
+        import numpy as np
+
+        from polygram.encoding import (
+            _single_qubit_overlap,
+            MPSRung1,
+            Rung4,
+        )
+
+        # Pick non-default knobs on BOTH q3 and q4 to exercise both
+        # factors.
+        d_mps = self._two_feature_dict(encoding=MPSRung1())
+        d_r4 = self._two_feature_dict(
+            encoding=Rung4(),
+            theta_amp=(0.3, 0.5),
+            psi_aux=(0.1, 0.2),
+            theta_amp_b=(0.4, 0.6),
+            psi_amp_b=(0.3, 0.7),
+        )
+        g_mps = d_mps.gram()
+        g_r4 = d_r4.gram()
+        # Off-diagonal entry (0, 1).
+        expected_factor = (
+            _single_qubit_overlap(0.3, 0.1, 0.5, 0.2)
+            * _single_qubit_overlap(0.4, 0.3, 0.6, 0.7)
+        )
+        # gram_r4[i,j] = gram_mps[i,j] * amp_factor[i,j]
+        observed_factor = g_r4[0, 1] / g_mps[0, 1]
+        np.testing.assert_allclose(
+            observed_factor, expected_factor, atol=1e-12
+        )
