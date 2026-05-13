@@ -2,7 +2,7 @@
 
 ### Requirement: `from_compression_panels` is the production conversion point for `EpochCompressor`
 
-`polygram.clustered.ClusteredDictionary.from_compression_panels` SHALL serve as the production conversion from `_select_panels`'s output (`list[Panel]`) to a `ClusteredDictionary` view, both for downstream callers and for `EpochCompressor.run`'s internal pipeline.
+`polygram.clustered_dictionary.ClusteredDictionary.from_compression_panels` SHALL serve as the production conversion from `_select_panels`'s output (`list[Panel]`) to a `ClusteredDictionary` view, both for downstream callers and for `EpochCompressor.run`'s internal pipeline.
 
 The method's surface SHALL remain as shipped in `clustered-dictionary-analysis` (PR #44): `(panels, state_dict, encoding, *, name, cosine_threshold, feature_records)` accepting an iterable of `Panel`-shaped objects and producing a `ClusteredDictionary` whose `blocks` align element-wise with the input panels.
 
