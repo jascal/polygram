@@ -10,7 +10,6 @@ from polygram.clustered import (
     BlockFormation,
     BlockSparseGram,
     ClusteredDictionary,
-    CrossBlockRedundancyPair,
     CrossBlockRedundancyReport,
     build_clustered_dictionary,
     compute_cosine_pair_graph,

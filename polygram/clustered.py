@@ -38,6 +38,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
+from pathlib import Path
+
 import numpy as np
 
 from polygram.dictionary import Dictionary, Feature
@@ -304,7 +306,7 @@ class ClusteredDictionary:
         """Average features-per-block; useful for `SelectionReport`."""
         return self.n_features / self.n_blocks
 
-    def emit_qorca(self, output_dir) -> dict[str, "Path"]:
+    def emit_qorca(self, output_dir) -> dict[str, Path]:
         """Write one `.q.orca.md` per block plus a `manifest.json`
         describing the block topology and cross-block adjacency.
 
@@ -467,7 +469,10 @@ class ClusteredDictionary:
         feature_to_block: dict[int, tuple[int, int]] = {}
         blocks: list[Dictionary] = []
         for block_idx, panel in enumerate(panels):
-            anchor = int(getattr(panel, "anchor"))
+            # `panel.anchor` is read but unused for block construction
+            # (the anchor is just the panel-internal seed); the block
+            # carries the same members regardless of which feature
+            # was the seed.
             members = tuple(int(f) for f in getattr(panel, "feature_ids"))
             cluster_name = f"{name}_b{block_idx}"
             feats: list[Feature] = []
