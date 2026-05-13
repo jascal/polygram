@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
+    from polygram.clustered_dictionary import ClusteredDictionary  # noqa: F401
     from polygram.config import EpochCompressionConfig  # noqa: F401
 
 import numpy as np
@@ -325,18 +326,40 @@ class EpochCompressor:
                     convergence_reason = _REASON_STABLE_CLUSTERS
                 break
 
-            # Run validator on each panel; collect per-panel reports.
-            per_panel_reports = self._validate_panels(
+            # Build the ClusteredDictionary view of the panels — the
+            # data type that `_validate_panels` and
+            # `_synthesize_validation_report` consume after the
+            # `compression-consumes-clustered-dictionary` refactor.
+            # The block-↔-panel ordering is preserved by
+            # `from_compression_panels` (blocks[k] from panels[k]),
+            # which is the load-bearing invariant for byte-identical
+            # output. The encoding is hardcoded to MPSRung1() to
+            # match the pre-refactor implicit encoding; a future
+            # `epoch-compressor-configurable-encoding` change (issue
+            # #48) would plumb an `encoding=` constructor parameter
+            # through here.
+            from polygram.clustered_dictionary import ClusteredDictionary
+            from polygram.encoding import MPSRung1 as _MPSRung1
+
+            clustered = ClusteredDictionary.from_compression_panels(
                 panels=panels,
+                state_dict=current_state,
+                encoding=_MPSRung1(),
+                name=f"{self.sae_checkpoint.stem.replace('-', '_').replace('.', '_')}_iter{iteration}",
+            )
+
+            # Run validator on each block; collect per-block reports.
+            per_panel_reports = self._validate_panels(
+                clustered=clustered,
                 state_dict=current_state,
                 residuals=residuals,
                 firing_rates=firing_rates,
                 n_tokens=n_tokens,
             )
 
-            # Synthesize the cross-panel ValidationReport.
+            # Synthesize the cross-block ValidationReport.
             synth_report = _synthesize_validation_report(
-                panels, per_panel_reports, self.sae_checkpoint
+                clustered, per_panel_reports, self.sae_checkpoint
             )
 
             confirmed_count = len(synth_report.confirmed)
@@ -565,7 +588,7 @@ class EpochCompressor:
     def _validate_panels(
         self,
         *,
-        panels: list[Panel],
+        clustered: "ClusteredDictionary",
         state_dict: dict[str, np.ndarray],
         residuals: np.ndarray,
         firing_rates: np.ndarray,
@@ -576,6 +599,17 @@ class EpochCompressor:
         validator's per-feature ablation pass and synthesize a
         ValidationReport directly from the predict-stage Polygram
         overlap and the cached firing patterns.
+
+        Consumes a `ClusteredDictionary` (one block per panel, in panel
+        order — `ClusteredDictionary.from_compression_panels` is the
+        production constructor and preserves the ordering invariant).
+        Per-block validation work is byte-identical to the pre-refactor
+        per-panel work: feature_ids are recovered from each block's
+        feature names (each `Feature.name` is `f<fid>`), and the
+        synthesized panel_id equals the enumeration index of the block
+        in `clustered.blocks` (matching the pre-refactor invariant
+        `panel.panel_id == index_in_panels_list` produced by
+        `_select_panels`).
 
         This is a deliberate optimization on `BehaviouralValidator.run()`:
         in epoch context, we run many panels over the same residuals,
@@ -588,10 +622,21 @@ class EpochCompressor:
         AND n_both_fire >= min_both_fire`).
         """
         reports: list[ValidationReport] = []
-        for panel in panels:
+        for block_idx, block in enumerate(clustered.blocks):
+            # Recover the original feature ids from the synthesized
+            # block-feature names. `from_compression_panels` names each
+            # feature `f<fid>` where `<fid>` is the original SAE feature
+            # id from the panel's `feature_ids` tuple. The ordering
+            # within `block.features` matches the panel's
+            # `feature_ids` ordering (sorted ascending, per
+            # `_select_panels`'s `members_sorted`).
+            feature_ids = [
+                int(f.name[1:]) for f in block.features
+            ]
             reports.append(
                 _validate_panel_inline(
-                    panel,
+                    block_idx,
+                    feature_ids,
                     state_dict=state_dict,
                     residuals=residuals,
                     firing_rates=firing_rates,
@@ -869,7 +914,8 @@ def _select_panels(
 
 
 def _validate_panel_inline(
-    panel: Panel,
+    panel_id: int,
+    feature_ids: Sequence[int],
     *,
     state_dict: dict[str, np.ndarray],
     residuals: np.ndarray,
@@ -898,7 +944,7 @@ def _validate_panel_inline(
     )
     from polygram.sae_import import from_sae_lens, load_sae_safetensors
 
-    feature_ids = list(panel.feature_ids)
+    feature_ids = list(feature_ids)
 
     # Build the panel's Dictionary via from_sae_lens — operates on
     # the current state_dict, but from_sae_lens loads from disk. The
@@ -924,7 +970,7 @@ def _validate_panel_inline(
         records = load_sae_safetensors(str(tmp_path), feature_ids=feature_ids)
         dictionary, _ = from_sae_lens(
             records, feature_ids, assign_gamma=True,
-            name=f"Panel{panel.panel_id}",
+            name=f"Panel{panel_id}",
         )
     finally:
         tmp_path.unlink(missing_ok=True)
@@ -1014,7 +1060,7 @@ def _validate_panel_inline(
     )
     return ValidationReport(
         schema_version=1,
-        dictionary_name=f"Panel{panel.panel_id}",
+        dictionary_name=f"Panel{panel_id}",
         model_name=model_name,
         layer=int(layer),
         n_prompts=1,
@@ -1036,14 +1082,30 @@ def _validate_panel_inline(
 
 
 def _synthesize_validation_report(
-    panels: list[Panel],
-    per_panel_reports: list[ValidationReport],
+    clustered: "ClusteredDictionary",
+    block_reports: list[ValidationReport],
     sae_checkpoint: Path,
 ) -> ValidationReport:
     """Per `design.md` Decision 3: union confirmed pairs; max-aggregate
     panel-composition-dependent fields; sum-aggregate counts (under
     determinism invariant they're identical across panels containing
-    the pair)."""
+    the pair).
+
+    Consumes a `ClusteredDictionary` (one block per panel, ordered)
+    and the parallel list of per-block `ValidationReport`s produced
+    by `_validate_panels`. The body reads only `block_reports` —
+    `clustered` is passed for API uniformity and for future
+    consumers that may need block metadata (e.g., per-block topology
+    in cross-block redundancy aggregation), but is currently unused
+    inside this function. The aggregation logic is byte-identical to
+    the pre-refactor implementation."""
+    # `clustered` carries the panel→block mapping; the synthesis body
+    # operates on `block_reports` only, so we just acknowledge the
+    # parameter and move on. Kept on the signature so the call sites
+    # in EpochCompressor.run can pass `clustered` uniformly with the
+    # `_validate_panels` call.
+    _ = clustered
+    per_panel_reports = block_reports
     by_pair: dict[tuple[int, int], list[CandidatePair]] = defaultdict(list)
     feature_ids_union: set[int] = set()
 
