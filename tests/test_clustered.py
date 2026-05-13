@@ -8,7 +8,10 @@ import pytest
 
 from polygram.clustered import (
     BlockFormation,
+    BlockSparseGram,
     ClusteredDictionary,
+    CrossBlockRedundancyPair,
+    CrossBlockRedundancyReport,
     build_clustered_dictionary,
     compute_cosine_pair_graph,
 )
@@ -595,3 +598,375 @@ class TestCoFiringReserved:
                     strategy="co_firing", firing_corpus=["prompt"]
                 ),
             )
+
+
+# ---------------------------------------------------------------------------
+# §3 — BlockSparseGram
+# ---------------------------------------------------------------------------
+
+
+class TestBlockSparseGramConstruction:
+    def test_minimal_two_block(self):
+        g0 = np.array([[1.0 + 0j, 0.5], [0.5, 1.0]], dtype=complex)
+        g1 = np.array([[1.0 + 0j, 0.3], [0.3, 1.0]], dtype=complex)
+        bsg = BlockSparseGram(
+            block_grams=[g0, g1],
+            cross_block_edges={(0, 0, 1, 0): 0.42},
+        )
+        assert bsg.n_blocks == 2
+        assert bsg.shape == (4, 4)
+
+    def test_empty_block_grams_raises(self):
+        with pytest.raises(ValueError, match="block_grams must be non-empty"):
+            BlockSparseGram(block_grams=[])
+
+    def test_non_square_block_gram_raises(self):
+        with pytest.raises(ValueError, match="must be a square 2-D array"):
+            BlockSparseGram(block_grams=[np.zeros((3, 4), dtype=complex)])
+
+    def test_cross_block_key_canonical_ordering_enforced(self):
+        g0 = np.zeros((2, 2), dtype=complex)
+        g1 = np.zeros((2, 2), dtype=complex)
+        # bi > bj violates canonical 0 <= bi < bj invariant.
+        with pytest.raises(ValueError, match="canonical block ordering"):
+            BlockSparseGram(
+                block_grams=[g0, g1],
+                cross_block_edges={(1, 0, 0, 0): 0.5},
+            )
+
+    def test_cross_block_key_out_of_range_feat_raises(self):
+        g0 = np.zeros((2, 2), dtype=complex)
+        g1 = np.zeros((2, 2), dtype=complex)
+        with pytest.raises(ValueError, match="feat_j_local_idx=5 out of range"):
+            BlockSparseGram(
+                block_grams=[g0, g1],
+                cross_block_edges={(0, 0, 1, 5): 0.5},
+            )
+
+
+class TestBlockSparseGramShapeAndDensity:
+    def test_shape_sums_block_sizes(self):
+        g0 = np.zeros((3, 3), dtype=complex)
+        g1 = np.zeros((5, 5), dtype=complex)
+        g2 = np.zeros((2, 2), dtype=complex)
+        bsg = BlockSparseGram(block_grams=[g0, g1, g2])
+        assert bsg.shape == (10, 10)
+
+    def test_density_zero_when_no_cross_block_edges(self):
+        g0 = np.zeros((3, 3), dtype=complex)
+        g1 = np.zeros((3, 3), dtype=complex)
+        bsg = BlockSparseGram(block_grams=[g0, g1])
+        assert bsg.density == 0.0
+
+    def test_density_with_edges(self):
+        # 2 blocks of size 2 each → N=4, total cells 16, block-diagonal
+        # cells 4+4=8, off-block cells 8. With 1 edge (covering both
+        # halves of the dense form = 2 cells), density = 2/8 = 0.25.
+        g0 = np.zeros((2, 2), dtype=complex)
+        g1 = np.zeros((2, 2), dtype=complex)
+        bsg = BlockSparseGram(
+            block_grams=[g0, g1],
+            cross_block_edges={(0, 0, 1, 0): 0.5},
+        )
+        assert bsg.density == pytest.approx(0.25)
+
+    def test_density_zero_when_single_block(self):
+        # 1 block → no off-block region; density gracefully returns 0.
+        g0 = np.zeros((3, 3), dtype=complex)
+        bsg = BlockSparseGram(block_grams=[g0])
+        assert bsg.density == 0.0
+
+
+class TestBlockSparseGramIteration:
+    def test_block_diagonal_returns_per_block(self):
+        g0 = np.array([[1.0 + 0j, 0.5], [0.5, 1.0]], dtype=complex)
+        g1 = np.array([[1.0 + 0j]], dtype=complex)
+        bsg = BlockSparseGram(block_grams=[g0, g1])
+        diag = bsg.block_diagonal()
+        assert len(diag) == 2
+        np.testing.assert_array_equal(diag[0], g0)
+        np.testing.assert_array_equal(diag[1], g1)
+
+    def test_entries_iterates_all_nonzero(self):
+        g0 = np.array([[1.0 + 0j, 0.5], [0.5, 1.0]], dtype=complex)
+        g1 = np.array([[1.0 + 0j]], dtype=complex)
+        bsg = BlockSparseGram(
+            block_grams=[g0, g1],
+            cross_block_edges={(0, 0, 1, 0): 0.42 + 0j},
+        )
+        entries = list(bsg.entries())
+        # 4 block-diagonal entries (g0 is 2x2 → 4 cells, g1 is 1x1 → 1 cell) + 1 cross = 6
+        assert len(entries) == 5 + 1
+
+    def test_cross_block_entries_uses_global_coords(self):
+        g0 = np.zeros((2, 2), dtype=complex)
+        g1 = np.zeros((3, 3), dtype=complex)
+        bsg = BlockSparseGram(
+            block_grams=[g0, g1],
+            cross_block_edges={(0, 1, 1, 2): 0.7 + 0j},
+        )
+        edges = list(bsg.cross_block_entries())
+        assert len(edges) == 1
+        gi, gj, v = edges[0]
+        # global_i = offsets[0] + 1 = 0 + 1 = 1; global_j = offsets[1] + 2 = 2 + 2 = 4
+        assert (gi, gj) == (1, 4)
+        assert v == 0.7 + 0j
+
+    def test_cross_block_entries_canonical_ordering(self):
+        g0 = np.zeros((2, 2), dtype=complex)
+        g1 = np.zeros((2, 2), dtype=complex)
+        bsg = BlockSparseGram(
+            block_grams=[g0, g1],
+            cross_block_edges={(0, 0, 1, 1): 0.5 + 0j},
+        )
+        for gi, gj, _ in bsg.cross_block_entries():
+            assert gi < gj
+
+
+class TestBlockSparseGramToDense:
+    def test_block_diagonal_copied(self):
+        g0 = np.array([[1.0 + 0j, 0.5], [0.5, 1.0]], dtype=complex)
+        g1 = np.array([[1.0 + 0j, 0.3], [0.3, 1.0]], dtype=complex)
+        bsg = BlockSparseGram(block_grams=[g0, g1])
+        dense = bsg.to_dense()
+        assert dense.shape == (4, 4)
+        np.testing.assert_array_equal(dense[:2, :2], g0)
+        np.testing.assert_array_equal(dense[2:, 2:], g1)
+        # Off-block regions are zero (no edges supplied).
+        np.testing.assert_array_equal(dense[:2, 2:], np.zeros((2, 2), dtype=complex))
+        np.testing.assert_array_equal(dense[2:, :2], np.zeros((2, 2), dtype=complex))
+
+    def test_cross_block_edges_placed_both_triangles(self):
+        g0 = np.zeros((2, 2), dtype=complex)
+        g1 = np.zeros((2, 2), dtype=complex)
+        bsg = BlockSparseGram(
+            block_grams=[g0, g1],
+            cross_block_edges={(0, 0, 1, 1): 0.42 + 0j},
+        )
+        dense = bsg.to_dense()
+        # global_i = 0, global_j = 2 + 1 = 3
+        assert dense[0, 3] == 0.42 + 0j
+        assert dense[3, 0] == 0.42 + 0j  # real value's conjugate equals itself
+
+    def test_dense_hermitian_with_complex_edge(self):
+        g0 = np.array([[1.0 + 0j, 0.5j], [-0.5j, 1.0]], dtype=complex)  # Hermitian
+        g1 = np.array([[1.0 + 0j]], dtype=complex)
+        bsg = BlockSparseGram(
+            block_grams=[g0, g1],
+            cross_block_edges={(0, 0, 1, 0): 0.5 + 0.3j},
+        )
+        dense = bsg.to_dense()
+        assert np.allclose(dense, dense.conj().T, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# §4 — ClusteredDictionary.gram()
+# ---------------------------------------------------------------------------
+
+
+class TestClusteredDictionaryGram:
+    def test_single_block_matches_flat_dictionary(self):
+        # When a clustered dictionary has one block, the block_gram
+        # equals the flat Dictionary's gram on the same features.
+        features = [_feature(f"f{i}", cluster="single", beta=0.1 * i) for i in range(4)]
+        flat = Dictionary(
+            name="flat",
+            features=features,
+            hierarchy={"single": [f.name for f in features]},
+            encoding=MPSRung1(),
+        )
+        flat_gram = flat.gram()
+        cd = ClusteredDictionary(name="clustered", blocks=[flat])
+        bsg = cd.gram()
+        assert bsg.n_blocks == 1
+        np.testing.assert_array_equal(bsg.block_grams[0], flat_gram)
+
+    def test_two_block_dense_form_block_diagonal_correct(self):
+        # Two blocks of 3 features each. Dense form's block-diagonal
+        # regions match each block's gram exactly.
+        block_a = _block("alpha", 3)
+        block_b = _block("beta", 3)
+        cd = ClusteredDictionary(
+            name="cd", blocks=[block_a, block_b]
+        )
+        bsg = cd.gram()
+        dense = bsg.to_dense()
+        np.testing.assert_array_equal(dense[:3, :3], block_a.gram())
+        np.testing.assert_array_equal(dense[3:, 3:], block_b.gram())
+        # No cross-block edges supplied → off-block regions zero.
+        np.testing.assert_array_equal(dense[:3, 3:], np.zeros((3, 3), dtype=complex))
+
+    def test_cross_block_edge_appears_in_dense(self):
+        block_a = _block("alpha", 2)
+        block_b = _block("beta", 2)
+        cd = ClusteredDictionary(
+            name="cd",
+            blocks=[block_a, block_b],
+            cross_block_pairs={(0, 1, 1, 0): 0.42},
+        )
+        bsg = cd.gram()
+        dense = bsg.to_dense()
+        # global_i for (block 0, feat 1) = 0 + 1 = 1
+        # global_j for (block 1, feat 0) = 2 + 0 = 2
+        assert dense[1, 2] == 0.42 + 0j
+        assert dense[2, 1] == 0.42 + 0j
+
+    def test_gram_shape_matches_n_features(self):
+        block_a = _block("alpha", 2)
+        block_b = _block("beta", 3)
+        block_c = _block("gamma", 1)
+        cd = ClusteredDictionary(
+            name="cd", blocks=[block_a, block_b, block_c]
+        )
+        bsg = cd.gram()
+        assert bsg.shape == (6, 6)
+        assert bsg.shape[0] == cd.n_features
+
+    def test_via_build_clustered_dictionary_cosine(self):
+        # End-to-end: planted-antipodal fixture → build_clustered_dictionary
+        # → clustered.gram() round-trip works without errors.
+        rng = np.random.default_rng(7)
+        features, vectors = _build_planted_antipodal(rng)
+        cd = build_clustered_dictionary(
+            name="planted",
+            features=features,
+            decoder_vectors=vectors,
+            encoding=MPSRung1(),
+            block_formation=BlockFormation(
+                strategy="cosine", cosine_threshold=0.9
+            ),
+        )
+        bsg = cd.gram()
+        assert bsg.n_blocks == 3
+        assert bsg.shape == (12, 12)
+        # Per-block grams have unit-modulus diagonal (each feature's
+        # self-overlap is 1).
+        for block_gram in bsg.block_grams:
+            np.testing.assert_allclose(
+                np.abs(np.diag(block_gram)),
+                1.0,
+                atol=1e-9,
+            )
+
+
+# ---------------------------------------------------------------------------
+# §5 — cross_block_redundant_pairs
+# ---------------------------------------------------------------------------
+
+
+def _planted_cross_block_duplicate(
+    threshold_at_build: float = 0.3,
+) -> ClusteredDictionary:
+    """Two blocks of 3 features; feature `alpha_f0` and feature
+    `beta_f0` have identical decoder vectors so their cross-block
+    cosine is exactly 1.0. Used to assert the redundancy primitive
+    catches the planted pair.
+    """
+    d = 8
+    vectors = np.zeros((6, d), dtype=np.float32)
+    # Alpha cluster: pointing along axis 0.
+    vectors[0] = [1, 0, 0, 0, 0, 0, 0, 0]
+    vectors[1] = [0.99, 0.05, 0, 0, 0, 0, 0, 0]
+    vectors[2] = [0.95, 0.10, 0, 0, 0, 0, 0, 0]
+    # Beta cluster: nominally along axis 1 but feature 0 collides
+    # with alpha_f0.
+    vectors[3] = [1, 0, 0, 0, 0, 0, 0, 0]  # ← duplicate of alpha_f0
+    vectors[4] = [0, 1, 0, 0, 0, 0, 0, 0]
+    vectors[5] = [0, 0.95, 0.10, 0, 0, 0, 0, 0]
+    # Normalise.
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    vectors = vectors / norms
+    features = [
+        Feature(name="alpha_f0", cluster="alpha", beta=0.0),
+        Feature(name="alpha_f1", cluster="alpha", beta=0.05),
+        Feature(name="alpha_f2", cluster="alpha", beta=0.10),
+        Feature(name="beta_f0", cluster="beta", beta=0.0),
+        Feature(name="beta_f1", cluster="beta", beta=0.05),
+        Feature(name="beta_f2", cluster="beta", beta=0.10),
+    ]
+    hierarchy = {
+        "alpha": ["alpha_f0", "alpha_f1", "alpha_f2"],
+        "beta": ["beta_f0", "beta_f1", "beta_f2"],
+    }
+    return build_clustered_dictionary(
+        name="planted",
+        features=features,
+        decoder_vectors=vectors,
+        encoding=MPSRung1(),
+        block_formation=BlockFormation(
+            strategy="user_declared",
+            cosine_threshold=threshold_at_build,
+        ),
+        hierarchy=hierarchy,
+    )
+
+
+class TestCrossBlockRedundantPairs:
+    def test_planted_duplicate_caught_and_ranked_first(self):
+        cd = _planted_cross_block_duplicate()
+        report = cd.cross_block_redundant_pairs(threshold=0.7)
+        assert isinstance(report, CrossBlockRedundancyReport)
+        assert len(report.pairs) >= 1
+        first = report.pairs[0]
+        # alpha_f0 and beta_f0 are the planted identical pair.
+        names = {first.feat_i_name, first.feat_j_name}
+        assert names == {"alpha_f0", "beta_f0"}
+        # Their cosine is exactly 1.0 (post-normalisation).
+        assert first.cosine == pytest.approx(1.0, abs=1e-6)
+
+    def test_threshold_monotone(self):
+        cd = _planted_cross_block_duplicate()
+        n_low = len(cd.cross_block_redundant_pairs(threshold=0.5).pairs)
+        n_high = len(cd.cross_block_redundant_pairs(threshold=0.95).pairs)
+        # Tightening threshold can only shrink the result.
+        assert n_high <= n_low
+        # All high-threshold pairs are present in low-threshold.
+        low_pairs = {
+            (p.feat_i_name, p.feat_j_name)
+            for p in cd.cross_block_redundant_pairs(threshold=0.5).pairs
+        }
+        high_pairs = {
+            (p.feat_i_name, p.feat_j_name)
+            for p in cd.cross_block_redundant_pairs(threshold=0.95).pairs
+        }
+        assert high_pairs <= low_pairs
+
+    def test_ordering_is_descending(self):
+        cd = _planted_cross_block_duplicate()
+        report = cd.cross_block_redundant_pairs(threshold=0.3)
+        cosines = [p.cosine for p in report.pairs]
+        assert cosines == sorted(cosines, reverse=True)
+
+    def test_coverage_summary_present(self):
+        cd = _planted_cross_block_duplicate()
+        report = cd.cross_block_redundant_pairs(threshold=0.7)
+        # The planted setup puts everything between block 0 and block 1.
+        assert (0, 1) in report.coverage
+        assert report.coverage[(0, 1)] == len(report.pairs)
+
+    def test_n_total_edges_reported(self):
+        cd = _planted_cross_block_duplicate()
+        report = cd.cross_block_redundant_pairs(threshold=0.7)
+        # Total edges in adjacency >= filtered pair count.
+        assert report.n_total_cross_block_edges >= len(report.pairs)
+        # Matches the underlying adjacency size.
+        assert report.n_total_cross_block_edges == cd.n_cross_block_edges
+
+    def test_threshold_out_of_range_raises(self):
+        cd = _planted_cross_block_duplicate()
+        with pytest.raises(ValueError, match="must lie in"):
+            cd.cross_block_redundant_pairs(threshold=1.5)
+        with pytest.raises(ValueError, match="must lie in"):
+            cd.cross_block_redundant_pairs(threshold=-0.1)
+
+    def test_no_cross_block_edges_yields_empty_report(self):
+        # Construction with no cross_block_pairs → empty redundancy
+        # report regardless of threshold.
+        cd = ClusteredDictionary(
+            name="empty_cb",
+            blocks=[_block("alpha", 2), _block("beta", 2)],
+        )
+        report = cd.cross_block_redundant_pairs(threshold=0.0)
+        assert report.pairs == []
+        assert report.coverage == {}
+        assert report.n_total_cross_block_edges == 0

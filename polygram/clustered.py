@@ -20,7 +20,7 @@ layers on top in follow-up commits.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from typing import Literal
@@ -290,6 +290,298 @@ class ClusteredDictionary:
     def mean_block_size(self) -> float:
         """Average features-per-block; useful for `SelectionReport`."""
         return self.n_features / self.n_blocks
+
+    def cross_block_redundant_pairs(
+        self, threshold: float = 0.7
+    ) -> "CrossBlockRedundancyReport":
+        """Surface cross-block feature pairs whose decoder-vector
+        cosine equals or exceeds `threshold`.
+
+        Operates over the pre-computed `cross_block_pairs` adjacency.
+        Pairs were filtered at build time by
+        `block_formation.cosine_threshold` (default 0.3), so the
+        effective lower bound is `max(threshold, build_threshold)`.
+        If a caller wants pairs below the build threshold, the
+        `ClusteredDictionary` needs to be rebuilt with a lower
+        `cosine_threshold`.
+
+        Returns a `CrossBlockRedundancyReport` with the surviving
+        pairs ordered by cosine descending plus metadata (threshold,
+        total cross-block edge count, per-block-pair coverage).
+        """
+        if not (0.0 <= threshold <= 1.0):
+            raise ValueError(
+                f"cross_block_redundant_pairs: threshold must lie in "
+                f"[0, 1]; got {threshold}"
+            )
+        pairs: list[CrossBlockRedundancyPair] = []
+        coverage: dict[tuple[int, int], int] = defaultdict(int)
+        for (bi, fi, bj, fj), cosine in self.cross_block_pairs.items():
+            if cosine < threshold:
+                continue
+            feat_i_name = self.blocks[bi].features[fi].name
+            feat_j_name = self.blocks[bj].features[fj].name
+            pairs.append(
+                CrossBlockRedundancyPair(
+                    block_i_idx=bi,
+                    feat_i_name=feat_i_name,
+                    block_j_idx=bj,
+                    feat_j_name=feat_j_name,
+                    cosine=float(cosine),
+                )
+            )
+            coverage[(bi, bj)] += 1
+        pairs.sort(key=lambda p: p.cosine, reverse=True)
+        return CrossBlockRedundancyReport(
+            threshold=float(threshold),
+            n_total_cross_block_edges=len(self.cross_block_pairs),
+            pairs=pairs,
+            coverage=dict(coverage),
+        )
+
+    def gram(self) -> "BlockSparseGram":
+        """Block-sparse Gram: per-block dense complex Gram + sparse
+        cross-block edges.
+
+        Per-block entries are computed via each block's
+        `Dictionary.gram()` (the quantum-encoded analytic path); they
+        carry the encoding's complex-valued state overlaps. Cross-
+        block entries are lifted from `cross_block_pairs` — they hold
+        the direct decoder-vector inner products (encoding-agnostic).
+
+        The two regions live in different units. Intra-block entries
+        reflect the quantum-encoded state overlap; cross-block
+        entries reflect classical decoder-vector geometry. Callers
+        treating the result as a single matrix (e.g., via
+        `to_dense()`) should know what they're getting — see the
+        `BlockSparseGram` docstring.
+        """
+        block_grams = [block.gram() for block in self.blocks]
+        # Cross-block edge values are stored as floats (cosine /
+        # real-valued decoder dot product). Lift to complex with
+        # imaginary part 0 for uniform handling in BlockSparseGram.
+        cross_block_edges: dict[CrossBlockKey, complex] = {
+            key: complex(value) for key, value in self.cross_block_pairs.items()
+        }
+        return BlockSparseGram(
+            block_grams=block_grams,
+            cross_block_edges=cross_block_edges,
+        )
+
+
+# ===========================================================================
+# §5 — Cross-block redundancy report types
+# ===========================================================================
+
+
+@dataclass(frozen=True)
+class CrossBlockRedundancyPair:
+    """One feature pair surfaced by
+    `ClusteredDictionary.cross_block_redundant_pairs`.
+
+    `block_i_idx < block_j_idx` follows the canonical adjacency
+    ordering. Feature names are resolved at report time from each
+    block's `Dictionary.features` list so downstream consumers don't
+    need to know about local indices.
+    """
+
+    block_i_idx: int
+    feat_i_name: str
+    block_j_idx: int
+    feat_j_name: str
+    cosine: float
+
+
+@dataclass(frozen=True)
+class CrossBlockRedundancyReport:
+    """Result of `ClusteredDictionary.cross_block_redundant_pairs`.
+
+    Fields:
+
+    - `threshold` — the cosine bound used to filter `pairs`.
+    - `n_total_cross_block_edges` — every cross-block adjacency entry
+      considered (before applying `threshold`). Useful for reporting
+      "X pairs above threshold out of Y cross-block edges examined".
+    - `pairs` — ordered by cosine descending.
+    - `coverage` — per `(block_i_idx, block_j_idx)` count of pairs
+      above threshold; surfaces which block pairs concentrate the
+      redundancies.
+    """
+
+    threshold: float
+    n_total_cross_block_edges: int
+    pairs: list[CrossBlockRedundancyPair]
+    coverage: Mapping[tuple[int, int], int]
+
+
+# ===========================================================================
+# §3 — BlockSparseGram value type
+# ===========================================================================
+
+
+@dataclass(frozen=True)
+class BlockSparseGram:
+    """Block-sparse Gram representation: list of per-block dense complex
+    Gram matrices plus a sparse dict of cross-block entries.
+
+    Two-resolution structure:
+
+    - `block_grams[k]` is a `(K_k, K_k)` complex matrix holding
+      block `k`'s dense intra-block Gram, as returned by the
+      underlying `Dictionary.gram()` (quantum-encoded analytic
+      path).
+    - `cross_block_edges` is a sparse dict keyed by the canonical
+      tuple `(block_i_idx, feat_i_local_idx, block_j_idx,
+      feat_j_local_idx)` with `block_i_idx < block_j_idx`. Values
+      hold cross-block Gram entries (direct decoder-vector inner
+      products); the canonical-ordered storage saves space, with
+      the conjugate placed at `[j, i]` only when `to_dense()`
+      materialises the full matrix.
+
+    The intra-block and cross-block entries are in different units
+    (quantum-encoded overlap vs decoder-vector geometry). Callers
+    doing arithmetic that conflates them should think twice.
+    """
+
+    block_grams: list[np.ndarray]
+    cross_block_edges: Mapping[CrossBlockKey, complex] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.block_grams:
+            raise ValueError(
+                "BlockSparseGram: block_grams must be non-empty"
+            )
+        # Validate per-block shape: each Gram is square.
+        for k, g in enumerate(self.block_grams):
+            if g.ndim != 2 or g.shape[0] != g.shape[1]:
+                raise ValueError(
+                    f"BlockSparseGram: block_grams[{k}] must be a "
+                    f"square 2-D array; got shape {g.shape}"
+                )
+        # Validate cross-block keys against block sizes.
+        n_blocks = len(self.block_grams)
+        for key in self.cross_block_edges:
+            if len(key) != 4:
+                raise ValueError(
+                    f"BlockSparseGram: cross_block_edges key {key!r} "
+                    f"must be a 4-tuple"
+                )
+            bi, fi, bj, fj = key
+            if not (0 <= bi < bj < n_blocks):
+                raise ValueError(
+                    f"BlockSparseGram: cross_block_edges key {key!r} "
+                    f"violates canonical block ordering "
+                    f"0 <= bi < bj < {n_blocks}"
+                )
+            if not (0 <= fi < self.block_grams[bi].shape[0]):
+                raise ValueError(
+                    f"BlockSparseGram: cross_block_edges key {key!r} "
+                    f"feat_i_local_idx={fi} out of range for block {bi} "
+                    f"(size {self.block_grams[bi].shape[0]})"
+                )
+            if not (0 <= fj < self.block_grams[bj].shape[0]):
+                raise ValueError(
+                    f"BlockSparseGram: cross_block_edges key {key!r} "
+                    f"feat_j_local_idx={fj} out of range for block {bj} "
+                    f"(size {self.block_grams[bj].shape[0]})"
+                )
+
+    @property
+    def n_blocks(self) -> int:
+        return len(self.block_grams)
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """Total `(N, N)` shape where `N` = sum of per-block sizes."""
+        n = sum(g.shape[0] for g in self.block_grams)
+        return (n, n)
+
+    @property
+    def density(self) -> float:
+        """Fraction of off-block-diagonal cells filled by cross-block edges.
+
+        Counts each edge twice (lower + upper triangle in the dense
+        form). Returns 0.0 when there is no off-block region (e.g.,
+        single-block grams).
+        """
+        n_total = self.shape[0]
+        block_diagonal_cells = sum(g.shape[0] ** 2 for g in self.block_grams)
+        off_block_cells = n_total * n_total - block_diagonal_cells
+        if off_block_cells == 0:
+            return 0.0
+        # Each cross_block_edges entry covers 2 cells (upper + lower
+        # triangle) in the dense view.
+        return (2 * len(self.cross_block_edges)) / off_block_cells
+
+    def block_diagonal(self) -> list[np.ndarray]:
+        """Return the per-block dense Gram matrices."""
+        return list(self.block_grams)
+
+    def _block_offsets(self) -> list[int]:
+        """Cumulative block-size offsets for global-index mapping."""
+        offsets = [0]
+        for g in self.block_grams:
+            offsets.append(offsets[-1] + g.shape[0])
+        return offsets
+
+    def entries(self) -> Iterator[tuple[int, int, complex]]:
+        """Yield non-zero Gram entries lazily as `(global_i, global_j,
+        value)` tuples.
+
+        Includes every block-diagonal entry (intra-block Gram, every
+        cell of every per-block matrix) and every cross-block edge in
+        canonical `(global_i, global_j, value)` form with
+        `global_i < global_j`.
+        """
+        offsets = self._block_offsets()
+        # Block-diagonal: every (i, j) within each block.
+        for k, g in enumerate(self.block_grams):
+            base = offsets[k]
+            n_k = g.shape[0]
+            for li in range(n_k):
+                for lj in range(n_k):
+                    yield (base + li, base + lj, complex(g[li, lj]))
+        # Cross-block: canonical (bi < bj) entries only. Both halves
+        # of the dense matrix can be reconstructed via the
+        # `to_dense()` path's conjugate mirror.
+        for (bi, fi, bj, fj), value in self.cross_block_edges.items():
+            gi = offsets[bi] + fi
+            gj = offsets[bj] + fj
+            yield (gi, gj, complex(value))
+
+    def cross_block_entries(self) -> Iterator[tuple[int, int, complex]]:
+        """Yield only the cross-block edges, in canonical `(global_i,
+        global_j, value)` form with `global_i < global_j`."""
+        offsets = self._block_offsets()
+        for (bi, fi, bj, fj), value in self.cross_block_edges.items():
+            yield (offsets[bi] + fi, offsets[bj] + fj, complex(value))
+
+    def to_dense(self) -> np.ndarray:
+        """Materialise the full `(N, N)` complex Gram matrix.
+
+        Escape hatch for small clustered dictionaries where the dense
+        form fits in memory. The block-diagonal regions copy each
+        per-block Gram in place; off-block-diagonal cells are zero
+        except where a cross-block edge is present, in which case
+        both `[i, j]` and `[j, i] = conj(...)` are filled.
+
+        For large clustered dictionaries this allocates `O(N²)`
+        memory; prefer `entries()` for streaming.
+        """
+        n = self.shape[0]
+        out = np.zeros((n, n), dtype=complex)
+        offsets = self._block_offsets()
+        for k, g in enumerate(self.block_grams):
+            base = offsets[k]
+            n_k = g.shape[0]
+            out[base : base + n_k, base : base + n_k] = g
+        for (bi, fi, bj, fj), value in self.cross_block_edges.items():
+            gi = offsets[bi] + fi
+            gj = offsets[bj] + fj
+            v = complex(value)
+            out[gi, gj] = v
+            out[gj, gi] = v.conjugate()
+        return out
 
 
 # ===========================================================================
