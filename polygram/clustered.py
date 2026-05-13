@@ -723,6 +723,38 @@ class BlockSparseGram:
         # triangle) in the dense view.
         return (2 * len(self.cross_block_edges)) / off_block_cells
 
+    @property
+    def cross_block_density(self) -> float:
+        """Alias for `density`, surfaced under the more discoverable
+        name for callers focused specifically on cross-block adjacency
+        diagnostics. Identical semantics."""
+        return self.density
+
+    def cross_block_cosine_histogram(
+        self, bins: int = 10
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Histogram of cross-block edge cosine magnitudes.
+
+        Returns `(counts, bin_edges)` matching `numpy.histogram`'s
+        contract over the range `[0, 1]`. Useful for diagnosing whether
+        the cross-block adjacency is dominated by near-threshold edges
+        or by a few outliers near cosine 1.0.
+
+        Cross-block entries store complex Gram values; the histogram
+        uses each entry's magnitude (`abs(value)`).
+        """
+        if not self.cross_block_edges:
+            return (
+                np.zeros(bins, dtype=np.int64),
+                np.linspace(0.0, 1.0, bins + 1),
+            )
+        magnitudes = np.fromiter(
+            (abs(v) for v in self.cross_block_edges.values()),
+            dtype=np.float64,
+            count=len(self.cross_block_edges),
+        )
+        return np.histogram(magnitudes, bins=bins, range=(0.0, 1.0))
+
     def block_diagonal(self) -> list[np.ndarray]:
         """Return the per-block dense Gram matrices."""
         return list(self.block_grams)

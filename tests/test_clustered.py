@@ -676,6 +676,40 @@ class TestBlockSparseGramShapeAndDensity:
         bsg = BlockSparseGram(block_grams=[g0])
         assert bsg.density == 0.0
 
+    def test_cross_block_density_aliases_density(self):
+        g0 = np.zeros((2, 2), dtype=complex)
+        g1 = np.zeros((2, 2), dtype=complex)
+        bsg = BlockSparseGram(
+            block_grams=[g0, g1],
+            cross_block_edges={(0, 0, 1, 0): 0.5},
+        )
+        assert bsg.cross_block_density == bsg.density
+
+    def test_cross_block_cosine_histogram_shape(self):
+        g0 = np.zeros((2, 2), dtype=complex)
+        g1 = np.zeros((2, 2), dtype=complex)
+        bsg = BlockSparseGram(
+            block_grams=[g0, g1],
+            cross_block_edges={
+                (0, 0, 1, 0): 0.5 + 0j,
+                (0, 1, 1, 1): 0.9 + 0j,
+            },
+        )
+        counts, edges = bsg.cross_block_cosine_histogram(bins=10)
+        assert counts.shape == (10,)
+        assert edges.shape == (11,)
+        # Total counts equal the number of edges.
+        assert counts.sum() == 2
+
+    def test_cross_block_cosine_histogram_empty(self):
+        g0 = np.zeros((2, 2), dtype=complex)
+        g1 = np.zeros((2, 2), dtype=complex)
+        bsg = BlockSparseGram(block_grams=[g0, g1])
+        counts, edges = bsg.cross_block_cosine_histogram(bins=5)
+        assert counts.shape == (5,)
+        assert counts.sum() == 0
+        assert edges.shape == (6,)
+
 
 class TestBlockSparseGramIteration:
     def test_block_diagonal_returns_per_block(self):
