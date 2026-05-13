@@ -115,3 +115,31 @@ CANONICAL_PROMPTS = [
     "hello world this is a test prompt",
     "a second prompt for variation here",
 ]
+
+
+# Multi-iteration variant: raises `max_iterations` from 2 to 5 so the
+# loop has room to either converge via `_REASON_STABLE_CLUSTERS`
+# (cluster fingerprint repeats) or `_REASON_NO_PRIORITY_CANDIDATES`
+# (no panels left to validate after the redundancy cluster has been
+# fully zeroed). Exercises the iteration-loop semantics beyond the
+# 2-iteration MAX_ITERATIONS termination that EPOCH_KWARGS hits.
+#
+# Reviewer's §7 follow-up on PR #51: a stronger regression than the
+# default 2-iter fixture, surfacing any future drift in convergence
+# semantics (stable-cluster detection, cluster-fingerprint history,
+# panel selection across iterations).
+EPOCH_KWARGS_MULTI_ITER = dict(
+    layer=10,
+    device="cpu",
+    n_panels_max=4,
+    max_iterations=5,
+    min_firing_rate=0.0,
+    coverage_target=1.0,
+    cosine_threshold=0.50,
+    polygram_overlap_threshold=0.0,
+    jaccard_threshold=0.0,
+    min_both_fire=0,
+)
+"""Canonical EpochCompressor kwargs for the multi-iteration
+convergence test. Same gate thresholds as EPOCH_KWARGS — the only
+difference is `max_iterations=5`."""
