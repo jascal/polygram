@@ -274,7 +274,7 @@ class TestFromSaeLensClustered:
         assert report.n_cross_block_edges is None
 
     def test_clustered_true_returns_clustered_dictionary(self):
-        from polygram.clustered import ClusteredDictionary
+        from polygram.clustered_dictionary import ClusteredDictionary
 
         records = load_toy_sae(FIXTURE)
         # 16 features (more than the legacy 8-cap) — clustered path
@@ -311,7 +311,7 @@ class TestFromSaeLensClustered:
             assert len(block.features) <= 8
 
     def test_clustered_with_custom_block_formation(self):
-        from polygram.clustered import BlockFormation
+        from polygram.clustered_dictionary import BlockFormation
 
         records = load_toy_sae(FIXTURE)
         bf = BlockFormation(

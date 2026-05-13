@@ -705,14 +705,14 @@ def _compute_cosine_graph(
     """Return the set of `(i, j)` pairs (i < j, both in `eligible`)
     with `cos(W_dec[i], W_dec[j]) >= threshold`.
 
-    Thin wrapper that delegates to `polygram.clustered.compute_cosine_pair_graph`
+    Thin wrapper that delegates to `polygram.clustered_dictionary.compute_cosine_pair_graph`
     with `indices=eligible`. Pair tuples are reported in terms of the
     global feature IDs carried in `eligible`. Behaviour-preserving over
     the pre-extraction implementation; the underlying algorithm now
     lives in `polygram/clustered.py` so block-formation strategies can
     share it.
     """
-    from polygram.clustered import compute_cosine_pair_graph
+    from polygram.clustered_dictionary import compute_cosine_pair_graph
 
     return compute_cosine_pair_graph(
         w_dec, threshold=threshold, indices=eligible

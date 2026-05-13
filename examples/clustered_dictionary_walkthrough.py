@@ -41,7 +41,7 @@ from pathlib import Path
 
 import numpy as np
 
-from polygram.clustered import (
+from polygram.clustered_dictionary import (
     BlockFormation,
     build_clustered_dictionary,
     compute_cosine_pair_graph,

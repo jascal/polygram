@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from polygram.clustered import (  # noqa: F401
+    from polygram.clustered_dictionary import (  # noqa: F401
         BlockFormation,
         ClusteredDictionary,
     )
@@ -294,7 +294,7 @@ class SelectionReport:
     geometric_fidelity: float | None = None
     # Clustered-import stats (populated only when `from_sae_lens` is
     # called with `clustered=True`; `None` for the single-Dictionary
-    # path). See `polygram.clustered.ClusteredDictionary`.
+    # path). See `polygram.clustered_dictionary.ClusteredDictionary`.
     n_blocks: int | None = None
     mean_block_size: float | None = None
     n_cross_block_edges: int | None = None
@@ -772,7 +772,7 @@ def from_sae_lens(
     n_cross_block_edges_stat: int | None = None
 
     if clustered:
-        from polygram.clustered import (
+        from polygram.clustered_dictionary import (
             BlockFormation,
             build_clustered_dictionary,
         )

@@ -1,4 +1,4 @@
-"""Tests for `polygram.clustered.ClusteredDictionary` — §1 of the
+"""Tests for `polygram.clustered_dictionary.ClusteredDictionary` — §1 of the
 `clustered-dictionary-analysis` openspec change."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from polygram.clustered import (
+from polygram.clustered_dictionary import (
     BlockFormation,
     BlockSparseGram,
     ClusteredDictionary,
