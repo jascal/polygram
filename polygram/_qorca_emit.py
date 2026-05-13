@@ -42,15 +42,49 @@ def render_machine_markdown(dictionary: Dictionary) -> str:
 
 
 def _render_mps_rung1_markdown(dictionary: Dictionary) -> str:
+    from polygram.encoding import Rung3, Rung4
+
     feats = dictionary.features
     slugs = [feature_slug(f.name) for f in feats]
+
+    # Encoding label for the header. Rung3 and Rung4 both fall through
+    # this MPS renderer (the amp branch lives in the analytic
+    # `Dictionary.gram()` path, not in the emitted machine), but the
+    # header notes which encoding produced the file so downstream
+    # readers know to interpret the amp branch out-of-band.
+    if isinstance(dictionary.encoding, Rung4):
+        encoding_label = "rung-4 MPS-substrate"
+        amp_note = (
+            " The rung-4 product-amp branch on q3/q4 is NOT emitted "
+            "into this machine — it lives in polygram's analytic "
+            "`Dictionary.gram()` path. Round-tripping this `.q.orca.md` "
+            "through q-orca gives the MPSRung1-equivalent gram on the "
+            "(α, β, γ, φ) subset; the analytic Rung4 gram applies the "
+            "product-amp factor on top per "
+            "`polygram.encoding.rung4_amp_overlap`."
+        )
+    elif isinstance(dictionary.encoding, Rung3):
+        encoding_label = "rung-3 MPS-substrate"
+        amp_note = (
+            " The rung-3 Bell-pattern amp branch on q3/q4 is NOT "
+            "emitted into this machine — it lives in polygram's "
+            "analytic `Dictionary.gram()` path. Round-tripping this "
+            "`.q.orca.md` through q-orca gives the MPSRung1-equivalent "
+            "gram on the (α, β, γ, φ) subset; the analytic Rung3 gram "
+            "applies the amp factor on top per "
+            "`polygram.encoding.rung3_amp_overlap`."
+        )
+    else:
+        encoding_label = "rung-1 MPS"
+        amp_note = ""
 
     lines: list[str] = []
     lines.append(f"# machine {dictionary.name}")
     lines.append("")
     lines.append(
-        f"Polygram-generated rung-1 MPS dictionary "
+        f"Polygram-generated {encoding_label} dictionary "
         f"({len(feats)} features, {len(dictionary.hierarchy)} clusters)."
+        f"{amp_note}"
     )
     lines.append("")
 

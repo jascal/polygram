@@ -106,3 +106,132 @@ class TestPerEncodingFeatureCap:
 
         assert MAX_FEATURES_PER_DICTIONARY == MPSRung1.max_features
         assert MAX_FEATURES_PER_DICTIONARY == 8
+
+
+# ---------------------------------------------------------------------------
+# Rung4 encoding (add-rung4-encoding-mvp)
+# ---------------------------------------------------------------------------
+
+
+class TestRung4Encoding:
+    def test_max_features_is_32(self):
+        from polygram.encoding import Rung4
+
+        assert Rung4.max_features == 32
+        assert Rung4().max_features == 32
+
+    def test_bond_dim_default_is_2(self):
+        from polygram.encoding import Rung4
+
+        assert Rung4().bond_dim == 2
+
+    def test_bond_dim_other_than_2_raises(self):
+        import pytest as _pytest
+
+        from polygram.encoding import Rung4
+
+        with _pytest.raises(ValueError, match="bond_dim must be 2"):
+            Rung4(bond_dim=4)
+
+    def test_rung4_amp_overlap_default_is_one(self):
+        from polygram.encoding import rung4_amp_overlap
+
+        z = rung4_amp_overlap(0, 0, 0, 0, 0, 0, 0, 0)
+        assert abs(z - 1.0) < 1e-12
+
+    def test_rung4_amp_overlap_factors_through_single_qubit_overlaps(self):
+        from polygram.encoding import (
+            _single_qubit_overlap,
+            rung4_amp_overlap,
+        )
+
+        # Pick arbitrary non-default knobs.
+        t_a3, p_a3 = 0.3, 0.4
+        t_a4, p_a4 = 0.5, 0.6
+        t_b3, p_b3 = 0.7, 0.8
+        t_b4, p_b4 = 0.9, 1.0
+        expected = (
+            _single_qubit_overlap(t_a3, p_a3, t_b3, p_b3)
+            * _single_qubit_overlap(t_a4, p_a4, t_b4, p_b4)
+        )
+        actual = rung4_amp_overlap(
+            t_a3, p_a3, t_a4, p_a4, t_b3, p_b3, t_b4, p_b4
+        )
+        assert abs(actual - expected) < 1e-12
+
+    def test_rung4_amp_overlap_squared_matches_complex_abs2(self):
+        import math
+
+        from polygram.encoding import (
+            rung4_amp_overlap,
+            rung4_amp_overlap_squared,
+        )
+
+        args = (0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)
+        sq = rung4_amp_overlap_squared(*args)
+        z = rung4_amp_overlap(*args)
+        assert math.isclose(sq, abs(z) ** 2, abs_tol=1e-12)
+
+    def test_rung4state_default_amp_overlap_is_one(self):
+        from polygram.encoding import Rung4State
+
+        s = Rung4State(alpha=0.1, beta=0.2, gamma=0.3, phi=0.4)
+        assert s.amp_overlap_squared(s) == 1.0
+
+    def test_rung4state_amp_overlap_equals_complex_product(self):
+        import math
+
+        from polygram.encoding import Rung4State, rung4_amp_overlap
+
+        a = Rung4State(0.1, 0.2, 0.3, 0.4, theta_amp=0.5, psi_aux=0.6,
+                       theta_amp_b=0.7, psi_amp_b=0.8)
+        b = Rung4State(0.1, 0.2, 0.3, 0.4, theta_amp=0.2, psi_aux=0.1,
+                       theta_amp_b=0.9, psi_amp_b=1.1)
+        expected = (
+            abs(rung4_amp_overlap(
+                a.theta_amp, a.psi_aux, a.theta_amp_b, a.psi_amp_b,
+                b.theta_amp, b.psi_aux, b.theta_amp_b, b.psi_amp_b,
+            )) ** 2
+        )
+        assert math.isclose(a.amp_overlap_squared(b), expected, abs_tol=1e-12)
+
+    def test_rung4state_from_mps_knobs_defaults(self):
+        from polygram.encoding import Rung4State
+
+        s = Rung4State.from_mps_knobs(0.1, 0.2, 0.3, 0.4)
+        assert s.theta_amp == 0.0
+        assert s.psi_aux == 0.0
+        assert s.theta_amp_b == 0.0
+        assert s.psi_amp_b == 0.0
+
+
+class TestRung3AmpOverlapBackcompat:
+    """Pin that the existing `rung3_amp_overlap` math is unchanged by
+    the refactor that extracted `_single_qubit_overlap`. Same inputs
+    must produce the same outputs as before the extraction."""
+
+    def test_rung3_amp_overlap_matches_explicit_formula(self):
+        import math
+
+        from polygram.encoding import rung3_amp_overlap
+
+        # Hand-computed against the docstring formula.
+        ta, pa, tb, pb = 0.5, 0.3, 0.7, 0.2
+        ca, sa = math.cos(ta), math.sin(ta)
+        cb, sb = math.cos(tb), math.sin(tb)
+        delta = pb - pa
+        expected = complex(
+            ca * cb + sa * sb * math.cos(delta),
+            sa * sb * math.sin(delta),
+        )
+        actual = rung3_amp_overlap(ta, pa, tb, pb)
+        assert abs(actual - expected) < 1e-12
+
+    def test_rung3_amp_overlap_default_is_one(self):
+        import math
+
+        from polygram.encoding import rung3_amp_overlap
+
+        # Rung3 default knobs (π/4, 0) give amp factor = 1.
+        z = rung3_amp_overlap(math.pi / 4, 0.0, math.pi / 4, 0.0)
+        assert abs(z - 1.0) < 1e-12

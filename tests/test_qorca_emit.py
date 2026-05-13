@@ -101,3 +101,71 @@ class TestHEAEmit:
         assert "## encoding" not in text
         assert "## theta" not in text
         assert "prepare_concept" in text
+
+
+# ---------------------------------------------------------------------------
+# Rung4 emit (add-rung4-encoding-mvp §6)
+# ---------------------------------------------------------------------------
+
+
+class TestRung4Emit:
+    @staticmethod
+    def _rung4_pair(*, theta_amp=(0.0, 0.0), psi_aux=(0.0, 0.0),
+                    theta_amp_b=(0.0, 0.0), psi_amp_b=(0.0, 0.0)):
+        from polygram import Dictionary, Feature
+        from polygram.encoding import Rung4
+
+        return Dictionary(
+            name="Rung4EmitTest",
+            features=[
+                Feature("a", "ca", beta=-0.5, phi=0.3,
+                        theta_amp=theta_amp[0], psi_aux=psi_aux[0],
+                        theta_amp_b=theta_amp_b[0], psi_amp_b=psi_amp_b[0]),
+                Feature("b", "cb", beta=0.5, phi=0.7,
+                        theta_amp=theta_amp[1], psi_aux=psi_aux[1],
+                        theta_amp_b=theta_amp_b[1], psi_amp_b=psi_amp_b[1]),
+            ],
+            hierarchy={"ca": ["a"], "cb": ["b"]},
+            encoding=Rung4(),
+        )
+
+    def test_rung4_emits_mps_substrate_header(self):
+        from polygram._qorca_emit import render_machine_markdown
+
+        d = self._rung4_pair()
+        md = render_machine_markdown(d)
+        assert "rung-4 MPS-substrate" in md
+        assert "amp branch" in md.lower()
+        assert "prepare_concept" in md
+        # The MPS staircase is present; amp branch is NOT emitted as
+        # a separate action.
+        assert "## encoding" not in md  # no HEA-style encoding tag
+        assert "## theta" not in md     # no HEA-style theta tensor
+
+    def test_rung4_default_knobs_gram_matches_qorca_gram(self):
+        """With default Rung4 amp knobs (all 0), the analytic Rung4
+        gram equals the MPS gram, which is what q-orca produces from
+        the emitted machine. Round-trip equality test."""
+        import numpy as np
+
+        from polygram._qorca_emit import build_machine
+
+        try:
+            from q_orca.compiler.concept_gram_mps import (
+                compute_concept_gram_mps,
+            )
+        except ImportError:
+            import pytest as _pytest
+
+            _pytest.skip("q-orca compiler not available")
+
+        d = self._rung4_pair()  # all amp knobs at default 0
+        analytic_gram = d.gram()
+        # Round-trip through q-orca's MPS gram path on the emitted machine.
+        machine = build_machine(d)
+        qorca_gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        # The analytic Rung4 gram with default amp knobs equals the MPS
+        # gram of the same (α, β, γ, φ), which is what q-orca produces.
+        np.testing.assert_allclose(analytic_gram, qorca_gram, atol=1e-10)

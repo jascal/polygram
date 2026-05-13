@@ -33,12 +33,14 @@ from polygram.encoding import (
     HEA_Rung2,
     MPSRung1,
     Rung3,
+    Rung4,
     rung3_amp_overlap_squared,
+    rung4_amp_overlap_squared,
 )
 
 SUPPORTED_METHODS = ("grid", "scipy")
 SUPPORTED_PLOT_KINDS = ("grid", "scipy", "before_after")
-SUPPORTED_ENCODINGS = ("mps", "hea", "rung3")
+SUPPORTED_ENCODINGS = ("mps", "hea", "rung3", "rung4")
 INFEASIBLE_PENALTY = 1.0
 GRID_KNOB_LIMIT = 4
 
@@ -267,6 +269,13 @@ class Cancellation:
                 f"Cancellation(encoding='rung3') requires a Rung3 "
                 f"dictionary; got encoding={self.dictionary.encoding!r}"
             )
+        if self.encoding == "rung4" and not isinstance(
+            self.dictionary.encoding, Rung4
+        ):
+            raise ValueError(
+                f"Cancellation(encoding='rung4') requires a Rung4 "
+                f"dictionary; got encoding={self.dictionary.encoding!r}"
+            )
 
         if self.encoding == "rung3":
             default_knobs = [
@@ -284,6 +293,23 @@ class Cancellation:
                         f"{self.knobs!r}. Custom rung3 knob lists are not "
                         f"supported in v0."
                     )
+        elif self.encoding == "rung4":
+            default_knobs = [
+                f"{a}.phi", f"{b}.phi",
+                f"{b}.theta_amp", f"{b}.psi_aux",
+                f"{b}.theta_amp_b", f"{b}.psi_amp_b",
+            ]
+            if self.knobs is None:
+                self.knobs = default_knobs
+            else:
+                self.knobs = list(self.knobs)
+                if self.knobs != default_knobs:
+                    raise ValueError(
+                        f"Cancellation(encoding='rung4') requires the "
+                        f"canonical 6-knob list {default_knobs!r}; got "
+                        f"{self.knobs!r}. Custom rung4 knob lists are not "
+                        f"supported in v0."
+                    )
         else:
             if self.knobs is None:
                 self.knobs = [f"{a}.phi", f"{b}.phi"]
@@ -293,7 +319,7 @@ class Cancellation:
         for path in self.knobs:
             self._validate_knob(path)
 
-        if self.encoding != "rung3":
+        if self.encoding not in ("rung3", "rung4"):
             method = self.optimize.get("method", "grid")
             if method not in SUPPORTED_METHODS:
                 raise ValueError(
@@ -320,10 +346,10 @@ class Cancellation:
             raise ValueError(
                 f"min_amp_overlap must be in [0, 1]; got {self.min_amp_overlap!r}"
             )
-        if self.min_amp_overlap > 0.0 and self.encoding != "rung3":
+        if self.min_amp_overlap > 0.0 and self.encoding not in ("rung3", "rung4"):
             raise ValueError(
-                f"min_amp_overlap > 0 is only meaningful for encoding='rung3'; "
-                f"got encoding={self.encoding!r}"
+                f"min_amp_overlap > 0 is only meaningful for "
+                f"encoding in {{'rung3', 'rung4'}}; got encoding={self.encoding!r}"
             )
 
     def _validate_knob(self, path: str) -> None:
@@ -351,9 +377,15 @@ class Cancellation:
                     f"theta_shape={shape}"
                 )
         if kind in ("theta_amp", "psi_aux"):
-            if not isinstance(self.dictionary.encoding, Rung3):
+            if not isinstance(self.dictionary.encoding, (Rung3, Rung4)):
                 raise ValueError(
-                    f"knob path {path!r}: .{kind} paths are Rung3-only; "
+                    f"knob path {path!r}: .{kind} paths are Rung3/Rung4-only; "
+                    f"this Dictionary uses encoding={self.dictionary.encoding!r}"
+                )
+        if kind in ("theta_amp_b", "psi_amp_b"):
+            if not isinstance(self.dictionary.encoding, Rung4):
+                raise ValueError(
+                    f"knob path {path!r}: .{kind} paths are Rung4-only; "
                     f"this Dictionary uses encoding={self.dictionary.encoding!r}"
                 )
 
@@ -361,9 +393,9 @@ class Cancellation:
         _, kind, _ = _parse_knob_path(path)
         if kind == "phi":
             return _PHI_BOUNDS
-        if kind == "theta_amp":
+        if kind in ("theta_amp", "theta_amp_b"):
             return _THETA_AMP_BOUNDS
-        if kind == "psi_aux":
+        if kind in ("psi_aux", "psi_amp_b"):
             return _PSI_AUX_BOUNDS
         return _THETA_BOUNDS
 
@@ -393,7 +425,7 @@ class Cancellation:
         proposal.
         """
         encoding = self.dictionary.encoding
-        if isinstance(encoding, Rung3):
+        if isinstance(encoding, (Rung3, Rung4)):
             return _mps_equivalent_floor(self.dictionary, self.target_pair)
         if not isinstance(encoding, MPSRung1):
             raise NotImplementedError(
@@ -424,6 +456,8 @@ class Cancellation:
     def run(self) -> CancellationResult:
         if self.encoding == "rung3":
             return self._run_rung3_joint()
+        if self.encoding == "rung4":
+            return self._run_rung4_joint()
         method = self.optimize.get("method", "grid")
         max_steps = int(self.optimize.get("max_steps", 50))
 
@@ -775,12 +809,239 @@ class Cancellation:
             psi_aux_optimum=float(final_psi_b),
         )
 
+    def _run_rung4_joint(self) -> CancellationResult:
+        """Joint (φ_a, φ_b, θ_amp_a, ψ_amp_a, θ_amp_b, ψ_amp_b)
+        optimizer for Rung4 dictionaries.
+
+        Mirrors `_run_rung3_joint`'s three-stage pipeline (outer
+        grid + inner 2-φ + scipy Nelder-Mead refine) with an extra
+        two dimensions on the outer grid for the q4 amp knobs.
+        With ``grid_outer=(M, N)``, the outer iteration explores
+        ``M * N * M * N`` cells across (θ_3, ψ_3, θ_4, ψ_4). At
+        the default ``grid_outer=(5, 5)`` that's 625 cells; callers
+        may want to drop to e.g. ``grid_outer=(3, 3)`` (81 cells)
+        for wall-clock parity with Rung3.
+
+        Feature A's four amp knobs stay anchored at their current
+        values (Rung4 defaults are 0 for all four — the |0⟩⊗|0⟩
+        identity state). Feature B's four amp knobs are optimised.
+
+        `min_amp_overlap` constraint applies to
+        ``rung4_amp_overlap_squared`` (the product of the two
+        single-qubit overlaps), preventing the trivial
+        amp-zeroing degenerate solution.
+
+        Returned `structural_floor` is the MPS-phase-only floor of
+        (α, β, γ) — the baseline this optimizer is trying to break,
+        not a bound it is constrained by.
+        """
+        a_name, b_name = self.target_pair
+        a_idx = self.dictionary.feature_index(a_name)
+        b_idx = self.dictionary.feature_index(b_name)
+
+        a_feature = self.dictionary.features[a_idx]
+        theta_a3 = float(a_feature.theta_amp)
+        psi_a3 = float(a_feature.psi_aux)
+        theta_a4 = float(a_feature.theta_amp_b)
+        psi_a4 = float(a_feature.psi_amp_b)
+
+        before_gram = self.dictionary.gram()
+        before_overlap = float(np.abs(before_gram[a_idx, b_idx]) ** 2)
+
+        floor = _mps_equivalent_floor(self.dictionary, self.target_pair)
+
+        M_outer, N_outer = self.grid_outer
+        theta_axis = np.linspace(0.0, float(np.pi / 2), M_outer)
+        psi_axis = np.linspace(0.0, float(2 * np.pi), N_outer, endpoint=False)
+        inner_res = int(self.optimize.get("max_steps", 50))
+
+        amp_threshold = float(self.min_amp_overlap)
+        amp_constrained = amp_threshold > 0.0
+
+        # Outer evals: (phi_a, phi_b, theta_b3, psi_b3, theta_b4, psi_b4,
+        # cell_overlap, cell_feasible).
+        outer_evals: list[tuple[float, float, float, float, float, float, float, bool]] = []
+        best_cell: tuple[float, float, float, float, float, float] | None = None
+        best_overlap_outer = float("inf")
+
+        for theta_b3 in theta_axis:
+            for psi_b3 in psi_axis:
+                for theta_b4 in theta_axis:
+                    for psi_b4 in psi_axis:
+                        d_cell = self.dictionary.with_knob(
+                            f"{b_name}.theta_amp", float(theta_b3)
+                        )
+                        d_cell = d_cell.with_knob(
+                            f"{b_name}.psi_aux", float(psi_b3)
+                        )
+                        d_cell = d_cell.with_knob(
+                            f"{b_name}.theta_amp_b", float(theta_b4)
+                        )
+                        d_cell = d_cell.with_knob(
+                            f"{b_name}.psi_amp_b", float(psi_b4)
+                        )
+                        phi_a, phi_b, cell_overlap, cell_feasible = (
+                            _phi_only_grid_search(
+                                d_cell,
+                                self.target_pair,
+                                self.preserve_tiers,
+                                inner_res,
+                            )
+                        )
+                        if amp_constrained:
+                            amp_sq = rung4_amp_overlap_squared(
+                                theta_a3, psi_a3, theta_a4, psi_a4,
+                                float(theta_b3), float(psi_b3),
+                                float(theta_b4), float(psi_b4),
+                            )
+                            if amp_sq < amp_threshold:
+                                cell_feasible = False
+                        outer_evals.append(
+                            (phi_a, phi_b,
+                             float(theta_b3), float(psi_b3),
+                             float(theta_b4), float(psi_b4),
+                             cell_overlap, cell_feasible)
+                        )
+                        if cell_feasible and cell_overlap < best_overlap_outer:
+                            best_overlap_outer = cell_overlap
+                            best_cell = (phi_a, phi_b,
+                                         float(theta_b3), float(psi_b3),
+                                         float(theta_b4), float(psi_b4))
+
+        if best_cell is None:
+            # No feasible cell — fall back to unconstrained best.
+            unconstrained = min(outer_evals, key=lambda r: r[6])
+            best_cell = (
+                unconstrained[0], unconstrained[1],
+                unconstrained[2], unconstrained[3],
+                unconstrained[4], unconstrained[5],
+            )
+            best_overlap_outer = unconstrained[6]
+
+        scipy_history: list[tuple[float, float, float, float, float, float, float, bool]] = []
+        try:
+            from scipy.optimize import minimize
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError(_SCIPY_INSTALL_HINT) from exc
+
+        def _evaluate(phi_a: float, phi_b: float,
+                      theta_b3: float, psi_b3: float,
+                      theta_b4: float, psi_b4: float) -> tuple[float, bool]:
+            d = self.dictionary.with_knob(f"{a_name}.phi", phi_a)
+            d = d.with_knob(f"{b_name}.phi", phi_b)
+            d = d.with_knob(f"{b_name}.theta_amp", theta_b3)
+            d = d.with_knob(f"{b_name}.psi_aux", psi_b3)
+            d = d.with_knob(f"{b_name}.theta_amp_b", theta_b4)
+            d = d.with_knob(f"{b_name}.psi_amp_b", psi_b4)
+            g = d.gram()
+            ov = float(np.abs(g[a_idx, b_idx]) ** 2)
+            feasible = (
+                hierarchical_ordering_preserved(g, d, self.target_pair)
+                if self.preserve_tiers else True
+            )
+            if amp_constrained:
+                amp_sq = rung4_amp_overlap_squared(
+                    theta_a3, psi_a3, theta_a4, psi_a4,
+                    theta_b3, psi_b3, theta_b4, psi_b4,
+                )
+                if amp_sq < amp_threshold:
+                    feasible = False
+            return ov, feasible
+
+        def objective(x: np.ndarray) -> float:
+            phi_a, phi_b, theta_b3, psi_b3, theta_b4, psi_b4 = (
+                float(v) for v in x
+            )
+            ov, feasible = _evaluate(
+                phi_a, phi_b, theta_b3, psi_b3, theta_b4, psi_b4
+            )
+            scipy_history.append(
+                (phi_a, phi_b, theta_b3, psi_b3, theta_b4, psi_b4,
+                 ov, feasible)
+            )
+            return ov + (0.0 if feasible else INFEASIBLE_PENALTY)
+
+        x0 = np.array(best_cell, dtype=float)
+        minimize(
+            objective, x0=x0, method="Nelder-Mead",
+            options={"xatol": 1e-4, "fatol": 1e-6, "maxiter": 400},
+        )
+
+        candidates: list[tuple[float, ...]] = []
+        candidates.append((
+            best_cell[0], best_cell[1],
+            best_cell[2], best_cell[3], best_cell[4], best_cell[5],
+            best_overlap_outer,
+            _evaluate(*best_cell)[1],
+        ))
+        if scipy_history:
+            feasible_scipy = [r for r in scipy_history if r[7]]
+            pool = feasible_scipy if feasible_scipy else scipy_history
+            best_scipy = min(pool, key=lambda r: r[6])
+            candidates.append(best_scipy)
+
+        feasible_candidates = [c for c in candidates if c[7]]
+        chosen_pool = feasible_candidates if feasible_candidates else candidates
+        chosen = min(chosen_pool, key=lambda r: r[6])
+        (final_phi_a, final_phi_b,
+         final_theta_b3, final_psi_b3,
+         final_theta_b4, final_psi_b4,
+         final_overlap, _) = chosen
+
+        optimized_dict = self._dictionary_at(
+            final_phi_a, final_phi_b,
+            final_theta_b3, final_psi_b3,
+            final_theta_b4, final_psi_b4,
+        )
+        after_gram = optimized_dict.gram()
+        after_overlap = float(np.abs(after_gram[a_idx, b_idx]) ** 2)
+        efficiency = _compute_efficiency(before_overlap, after_overlap, floor)
+
+        all_evals = list(outer_evals) + list(scipy_history)
+        traj = np.array(
+            [[r[0], r[1], r[2], r[3], r[4], r[5], r[6]] for r in all_evals],
+            dtype=float,
+        )
+        feasible_mask = np.array([r[7] for r in all_evals], dtype=bool)
+
+        return CancellationResult(
+            optimized_knobs={
+                f"{a_name}.phi": float(final_phi_a),
+                f"{b_name}.phi": float(final_phi_b),
+                f"{b_name}.theta_amp": float(final_theta_b3),
+                f"{b_name}.psi_aux": float(final_psi_b3),
+                f"{b_name}.theta_amp_b": float(final_theta_b4),
+                f"{b_name}.psi_amp_b": float(final_psi_b4),
+            },
+            before_gram=before_gram,
+            after_gram=after_gram,
+            before_overlap=before_overlap,
+            after_overlap=after_overlap,
+            tolerance_met=bool(after_overlap < self.tolerance),
+            method="rung4_joint",
+            trajectory=traj,
+            feasible_count=int(feasible_mask.sum()),
+            dictionary_at_optimum=optimized_dict,
+            target_pair=self.target_pair,
+            knobs=list(self.knobs),
+            feasible_mask=feasible_mask,
+            structural_floor=float(floor),
+            cancellation_efficiency=efficiency,
+            theta_amp_optimum=float(final_theta_b3),
+            psi_aux_optimum=float(final_psi_b3),
+        )
+
 
 def _is_hea(dictionary: Dictionary) -> bool:
     return isinstance(dictionary.encoding, HEA_Rung2)
 
 
 def _infer_encoding_string(encoding: object) -> str:
+    # Check Rung4 before Rung3 since neither is a subclass of the
+    # other (both are independent dataclasses), but inferring order
+    # matters if encodings ever subclass one another.
+    if isinstance(encoding, Rung4):
+        return "rung4"
     if isinstance(encoding, Rung3):
         return "rung3"
     if isinstance(encoding, HEA_Rung2):

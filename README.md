@@ -60,7 +60,7 @@ for the empirical basis):
 | `MPSRung1` | 8 | `dim(C^8) = 8` (3-qubit register) |
 | `Rung3` | 16 | `dim(C^8 ⊗ C^2) = 16` (amp branch restricted to 2-dim subspace) |
 | `HEA_Rung2` | `2 ** n_qubits` | scales with the existing `n_qubits` knob |
-| `Rung4` *(planned)* | 32 | `dim(C^8 ⊗ C^4) = 32` once the product-amp branch from `add-rung4-encoding-mvp` lands |
+| `Rung4` | 32 | `dim(C^8 ⊗ C^4) = 32` (product amp branch on q3/q4 — `add-rung4-encoding-mvp`, empirically verified by `examples/rung4_rank_verification.py`) |
 
 Real SAEs ship 16k–1M features per layer, well past any per-encoding
 cap. Two paths to that scale:
