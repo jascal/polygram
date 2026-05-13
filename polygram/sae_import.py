@@ -28,7 +28,12 @@ import numpy as np
 from polygram.dictionary import Dictionary, Feature
 from polygram.encoding import MPSRung1
 
-MAX_FEATURES_PER_DICTIONARY = 8
+# Back-compat alias. New code SHALL query `encoding.max_features`
+# (where `encoding` is the target Dictionary's encoding) rather than
+# this constant. The value matches `MPSRung1.max_features` — the
+# encoding `from_sae_lens` defaults to — so existing callers that
+# import `MAX_FEATURES_PER_DICTIONARY` continue to see 8.
+MAX_FEATURES_PER_DICTIONARY = MPSRung1.max_features
 
 # Decoder weight tensor key auto-detect precedence — see
 # `load_sae_safetensors`. Update only with empirical signal from a
@@ -616,12 +621,16 @@ def from_sae_lens(
             n_clusters = cfg.n_clusters
         elif resolved_profile.default_n_clusters is not None:
             n_clusters = resolved_profile.default_n_clusters
-    if not clustered and len(feature_ids) > MAX_FEATURES_PER_DICTIONARY:
+    target_encoding = encoding or MPSRung1()
+    encoding_cap = int(target_encoding.max_features)
+    if not clustered and len(feature_ids) > encoding_cap:
         raise ValueError(
-            f"selected {len(feature_ids)} features, but Polygram's "
-            f"rung-1 MPS encoding caps a Dictionary at "
-            f"{MAX_FEATURES_PER_DICTIONARY} features. Pick a smaller "
-            f"subset, or pass `clustered=True` to build a "
+            f"selected {len(feature_ids)} features, but the "
+            f"{type(target_encoding).__name__} encoding caps a "
+            f"Dictionary at {encoding_cap} features. Pick a smaller "
+            f"subset, switch to an encoding with a larger cap "
+            f"(e.g., Rung3 for 16, HEA_Rung2 with larger n_qubits for "
+            f"2**n_qubits), or pass `clustered=True` to build a "
             f"`ClusteredDictionary` instead."
         )
     if len(feature_ids) == 0:

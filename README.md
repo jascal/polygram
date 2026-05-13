@@ -50,15 +50,27 @@ docs/img/         — README screenshots
 
 ## Capacity limits
 
-The rung-1 MPS encoding represents each feature as a 3-qubit state
-parametrized by α/β/γ/φ. This caps a `Dictionary` at **8 features**
-(in practice ≤6 is most ergonomic). Real SAEs ship 16k–1M features —
-which is why the `from_sae_lens(...)` importer (below) is
-**selection-first**: you name the subset you want to study, and
-Polygram tells you how lossy the projection-vector → β collapse was
-via `SelectionReport.beta_variance_explained`. The bridge is to
-*small, focused experiments* on a handful of features, not bulk
-SAE simulation.
+Per-encoding feature caps follow each encoding's reachable
+Hilbert-space dimension (see
+[`docs/research/rung3-rank-bound.md`](docs/research/rung3-rank-bound.md)
+for the empirical basis):
+
+| Encoding | `max_features` | Source |
+|---|---|---|
+| `MPSRung1` | 8 | `dim(C^8) = 8` (3-qubit register) |
+| `Rung3` | 16 | `dim(C^8 ⊗ C^2) = 16` (amp branch restricted to 2-dim subspace) |
+| `HEA_Rung2` | `2 ** n_qubits` | scales with the existing `n_qubits` knob |
+
+Real SAEs ship 16k–1M features per layer, well past any per-encoding
+cap. Two paths to that scale:
+
+- **Selection-first**: `from_sae_lens(...)` names a subset within
+  the encoding's cap. `SelectionReport.beta_variance_explained`
+  surfaces how lossy the projection-vector → β collapse was.
+- **Clustered**: `from_sae_lens(..., clustered=True)` (or
+  `polygram.clustered_dictionary.build_clustered_dictionary`)
+  block-decomposes the SAE into per-encoding-cap-sized blocks plus
+  a sparse cross-block adjacency; analyses delegate per-block.
 
 ## Quickstart
 

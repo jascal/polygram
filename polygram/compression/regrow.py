@@ -456,17 +456,22 @@ class Regrower:
             provenance=dict(self._provenance),
         )
 
-        # Pick a feature subset for the Dictionary rebuild — Polygram's
-        # rung-1 MPS encoding caps Dictionary at 8 features
-        # (MAX_FEATURES_PER_DICTIONARY in sae_import.py), so we can't
-        # rebuild on the full 24K-feature SAE. Prefer the populated
-        # slots (most interesting for inspection); fall back to the
-        # first 8 feature ids when there are no populated slots.
+        # Pick a feature subset for the Dictionary rebuild — MPSRung1
+        # caps Dictionary at `MPSRung1.max_features` (= 8), so we
+        # can't rebuild on the full 24K-feature SAE. Prefer the
+        # populated slots (most interesting for inspection); fall back
+        # to the first `cap` feature ids when there are no populated
+        # slots.
+        from polygram.encoding import MPSRung1 as _MPSRung1
+
+        rebuild_cap = int(_MPSRung1.max_features)
         sorted_zeroed = sorted(int(f) for f in self.zeroed)
         if sorted_zeroed:
-            dict_ids = sorted_zeroed[:8]
+            dict_ids = sorted_zeroed[:rebuild_cap]
         else:
-            dict_ids = list(plan.feature_ids[:min(8, len(plan.feature_ids))])
+            dict_ids = list(
+                plan.feature_ids[: min(rebuild_cap, len(plan.feature_ids))]
+            )
         records = load_sae_safetensors(str(out_path), feature_ids=dict_ids)
         rebuilt_dictionary, _ = from_sae_lens(
             records,

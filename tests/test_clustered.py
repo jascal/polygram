@@ -249,12 +249,11 @@ class TestClusteredDictionaryEncodingCap:
         assert cd.n_features == 8
 
     def test_hea_max_features_when_declared(self):
-        # If the encoding declares `max_features`, the cap honours it.
-        # We can't test 2**n_qubits>8 without per-encoding-feature-cap
-        # (PR #42) shipping, so probe the defensive getattr() path: an
-        # encoding without `max_features` falls back to the legacy 8.
+        # HEA_Rung2 declares `max_features = 2 ** n_qubits` (per the
+        # per-encoding-feature-cap change). ClusteredDictionary honours
+        # that cap per-encoding.
         encoding = HEA_Rung2(depth=1, n_qubits=3)
-        assert not hasattr(encoding, "max_features")
+        assert encoding.max_features == 8
         feats = [_feature(f"f{i}", cluster="hea", beta=0.05 * i) for i in range(8)]
         block = Dictionary(
             name="hea",
