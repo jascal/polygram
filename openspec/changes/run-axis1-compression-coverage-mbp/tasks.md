@@ -6,64 +6,32 @@
 
 ## 2. Environment prep on the 2019 MBP
 
-- [ ] 2.1 Verify `pip install -e ".[behavioural]"` succeeds in the polygram `.venv`. (Per auto-memory, the user has a parallel personal-project `.venv` with torch 2.2.2 + transformers 4.49 + numpy<2 caps already working — this task is to ensure the polygram-dir `.venv` matches.)
-- [ ] 2.2 Smoke-check: `python -c "import torch, transformers; print(torch.__version__, transformers.__version__)"` returns without error.
-- [ ] 2.3 Smoke-check: `python -c "from polygram import EpochCompressor; ec = EpochCompressor.__init__"` resolves without import error after the behavioural extras land.
+- [x] 2.1 Verify `pip install -e ".[behavioural]"` succeeds in the polygram `.venv`. (Per auto-memory, the user has a parallel personal-project `.venv` with torch 2.2.2 + transformers 4.49 + numpy<2 caps already working — this task is to ensure the polygram-dir `.venv` matches.) — `.venv` already had torch 2.2.2 + transformers 4.57.6 working; no install needed.
+- [x] 2.2 Smoke-check: `python -c "import torch, transformers; print(torch.__version__, transformers.__version__)"` returns without error.
+- [x] 2.3 Smoke-check: `python -c "from polygram import EpochCompressor; ec = EpochCompressor.__init__"` resolves without import error after the behavioural extras land.
 
-## 3. Run the comparison (3 cells)
+## 3. Run the comparison (4 cells + 2 extended controls)
 
-- [ ] 3.1 Cell C1 (MPS baseline):
-  ```
-  python examples/rung_compression_coverage.py \
-    --encoding mps \
-    --sae scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors \
-    --output docs/research/data/axis1_mps.json
-  ```
-- [ ] 3.2 Cell C2 (Rung4 default-knob control):
-  ```
-  python examples/rung_compression_coverage.py \
-    --encoding rung4 \
-    --sae scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors \
-    --output docs/research/data/axis1_rung4_amp_off.json
-  ```
-- [ ] 3.3 Cell C3 (Rung4 amp-on, load-bearing):
-  ```
-  python examples/rung_compression_coverage.py \
-    --encoding rung4 --assign-amp-knobs \
-    --sae scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors \
-    --output docs/research/data/axis1_rung4_amp_on.json
-  ```
-- [ ] 3.4 (optional) Cell C4 (Rung3 amp-on):
-  ```
-  python examples/rung_compression_coverage.py \
-    --encoding rung3 --assign-amp-knobs \
-    --sae scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors \
-    --output docs/research/data/axis1_rung3_amp_on.json
-  ```
-- [ ] 3.5 Capture the console output for each cell in a `runlog_<cell>.txt` next to the JSON, so reviewers can verify no warnings/errors and inspect per-iteration trajectory.
+- [x] 3.1 Cell C1 (MPS baseline) → `axis1_mps.json`. 3540 zeroed; cumulative CE Δ = 0.291; `max_iterations` termination.
+- [x] 3.2 Cell C2 (Rung4 default-knob control) → `axis1_rung4_amp_off.json`. 17 411 zeroed; cumulative CE Δ = 0.404; `max_iterations`.
+- [x] 3.3 Cell C3 (Rung4 amp-on, load-bearing) → `axis1_rung4_amp_on.json`. **9 376 zeroed; cumulative CE Δ = 0.208 (lower than MPS)**; `max_iterations`.
+- [x] 3.4 Cell C4 (Rung3 amp-on, generality) → `axis1_rung3_amp_on.json`. 6 465 zeroed; cumulative CE Δ = 0.235; `max_iterations`. Sits monotonically between MPS and Rung4 amp-on.
+- [x] 3.5 Capture the console output for each cell in `runlog_<cell>.txt`. All four landed under `docs/research/data/runlog_C{1,2,3,4}_*.txt`.
+- [x] 3.6 (added in flight) C3-extended (Rung4 amp-on, `--max-iterations 10`) → `axis1_rung4_amp_on_iter10.json`. 22 892 zeroed; cumulative CE Δ = 0.534; per-iter trajectory shows plateau (iters 0-5 ~3050) then collapse (iters 6-9), with anomalous iter-9 CE spike (0.168).
+- [x] 3.7 (added in flight) C1-extended (MPS, `--max-iterations 10`) → `axis1_mps_iter10.json`. 10 847 zeroed; cumulative CE Δ = 0.432. Disambiguates the iter-9 spike as Rung4-amp-on-specific (MPS shows smooth monotonic decline, no comparable spike).
 
 ## 4. Compare + write up
 
-- [ ] 4.1 Compile the headline table comparing C1 / C2 / C3 (and C4 if run) on:
-  - `n_features_zeroed_total`
-  - `final_iteration.cumulative_cross_entropy_delta`
-  - `n_iterations` actually executed
-  - `final_iteration.convergence_state`
-- [ ] 4.2 Apply the decision rule from `proposal.md`:
-  - "Material difference" thresholds: ≥10% on features-zeroed, ≥20% on CE delta.
-  - Bucket: PASS / PARTIAL / FAIL / INCONCLUSIVE.
-- [ ] 4.3 Write up the result as a new "## Axis 1 result (v2.2)" section in `docs/research/rung4-viability-spike-v2.md`. Mirror the v2.1 (Axis 2) section's table-then-prose structure. Include:
-  - The 3-cell (or 4-cell) headline table.
-  - The verdict bucket + interpretation.
-  - Any per-iteration trajectory observations (e.g., "Rung4 amp-on hit max_iterations terminal at iter 3 with N features zeroed, while MPS terminated at iter 2 via stable_clusters").
-  - Honest predictions vs actuals (record the proposal-time predictions and whether they held).
-- [ ] 4.4 Update `CHANGELOG.md` with a one-line "Axis 1 measurement landed" under the existing v2 work entry.
+- [x] 4.1 Compile the headline table comparing all cells. Done in `docs/research/rung4-viability-spike-v2.md` under "Axis 1 result (v2.2)".
+- [x] 4.2 Apply the decision rule from `proposal.md`. **Verdict: PASS at 3-iter operating point** (Rung4 amp-on +165% features at −28% CE vs MPS, both metrics clear material thresholds). At 10-iter borderline PASS/PARTIAL (more features at moderately higher CE; features-per-CE-budget ratio stays 1.71× MPS).
+- [x] 4.3 Write up the result as "## Axis 1 result (v2.2)" section. Mirrors v2.1 structure; includes 4-cell headline, verdict, per-iter trajectory observations, predictions-vs-actuals table, extended-iter analysis, and MPS 10-iter control / Pareto comparison subsections.
+- [x] 4.4 Update `CHANGELOG.md` with the "Axis 1 measurement landed" entry. Also added a `### Fixed` entry for the `cumulative_cross_entropy_delta` example-script bug discovered + patched mid-run.
 
 ## 5. Closing
 
-- [ ] 5.1 Run `openspec validate run-axis1-compression-coverage-mbp --strict`.
-- [ ] 5.2 No new test code; the existing smoke test (`tests/test_examples.py::test_rung_compression_coverage_smoke`) covers the CLI surface.
-- [ ] 5.3 Commit + PR with the artifacts and v2.2 write-up. Title: `docs(research): Axis 1 compression coverage — <verdict-bucket>`.
+- [x] 5.1 Run `openspec validate run-axis1-compression-coverage-mbp --strict`.
+- [x] 5.2 No new test code; the existing smoke test (`tests/test_examples.py::test_rung_compression_coverage_smoke`) covers the CLI surface.
+- [ ] 5.3 Commit + PR with the artifacts and v2.2 write-up. Title: `docs(research): Axis 1 compression coverage — PASS`.
 
 ## 6. What this change explicitly defers
 

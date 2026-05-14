@@ -1,0 +1,21 @@
+sae_checkpoint: scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors
+encoding: rung4 (max_features=32)
+assign_amp_knobs: False
+model: gpt2, layer: 10
+prompts: 8
+epoch_kwargs: {'layer': 10, 'n_panels_max': 200, 'max_iterations': 3, 'coverage_target': 0.5, 'cosine_threshold': 0.3}
+
+== running EpochCompressor ==
+
+== Compression coverage metrics ==
+  n_features_zeroed_total:        17411
+  n_iterations:                   3
+  final cumulative CE delta:      0.403784
+  final convergence state:        max_iterations
+
+  per-iteration trajectory:
+    iter 0: zeroed_count=5909, CE_delta=0.207929, cumulative_CE_delta=0.207929, state=continuing
+    iter 1: zeroed_count=5811, CE_delta=0.106905, cumulative_CE_delta=0.314834, state=continuing
+    iter 2: zeroed_count=5691, CE_delta=0.088950, cumulative_CE_delta=0.403784, state=max_iterations
+
+wrote docs/research/data/axis1_rung4_amp_off.json

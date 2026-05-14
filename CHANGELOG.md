@@ -4,6 +4,24 @@
 
 ### Added
 
+- **Axis 1 (compression coverage) measurement landed (v2.2).** Ran
+  the 4-cell battery (MPS baseline, Rung4 amp-off control, Rung4
+  amp-on load-bearing, Rung3 amp-on generality) on the 2019 MBP
+  against the real GPT-2-small SAE, plus 10-iteration extensions
+  for Rung4 amp-on and MPS as control. Rung4 amp-on zeros 2.65×
+  more features than MPS at 28% *lower* cumulative CE budget at
+  the default 3-iter operating point — **PASS** for Axis 1.
+  Rung3 amp-on confirms the lift generalises across rungs. The
+  MPS 10-iter control disambiguates a Rung4-amp-on iter-9 CE
+  spike as encoding-specific cluster-exhaustion behaviour rather
+  than universal late-stage compression. Features-per-CE-budget
+  ratio: Rung4 amp-on stays 1.71× MPS even at iter 10. Results +
+  per-iter trajectories captured in
+  [`docs/research/rung4-viability-spike-v2.md`](docs/research/rung4-viability-spike-v2.md)
+  under "Axis 1 result (v2.2)"; raw JSON + console captures under
+  `docs/research/data/`.
+  Closes the "Axis 1 / 4 pending a torch-enabled host" TODO for
+  Axis 1; Axis 4 remains separate work.
 - **`EpochCompressor(assign_amp_knobs=True)` + `Compressor(assign_amp_knobs=True)`** —
   threads the encoding-aware-knob-assignment flag through the
   compression pipeline. Both the per-panel `from_sae_lens` call in
@@ -50,6 +68,18 @@
     or encoding-specific knob assignment in `from_sae_lens`. Axes 1
     + 4 pending a torch-enabled host. Decision: **inconclusive — v1
     opt-in verdict stands.**
+
+### Fixed
+
+- **`examples/rung_compression_coverage.py`** — script referenced a
+  nonexistent `EpochIteration.cumulative_cross_entropy_delta` field
+  and crashed after the compressor finished, before writing JSON
+  output. Replaced with a cumulative sum derived from the real
+  per-iter `cross_entropy_delta` field; both per-iter and final
+  CE deltas now appear in the output payload. The smoke test
+  (`test_rung_compression_coverage_smoke`) was insufficient — it
+  exercises only the SAE-missing skip path and never reaches the
+  report-render code where the bug lived.
 
 ### Changed (Performance)
 
