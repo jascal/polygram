@@ -4,6 +4,25 @@
 
 ### Added
 
+- **Pareto-path planning (Phase 2 of `add-pareto-target-compression`).**
+  Two new public dataclasses (`ParetoReport`, `ParetoOutcome`) and a
+  new `Compressor.plan_pareto(targets)` method. `plan_pareto` takes a
+  sequence of positive integer K values and produces one
+  `CompressionPlan` per K in **one shared sort plus one shared
+  union-find walk**, regardless of `len(targets)` — verified in the
+  test suite via a sort-spy. Snapshots `parent` at each K's stop
+  point (Phase 1 "must exceed then drop back" rule, applied per-K)
+  and falls back to the final state when a K is unreachable. The
+  returned `ParetoReport` bundles per-K
+  `ParetoOutcome(target_k, reached_target, plan)` outcomes plus
+  provenance (`sae_checkpoint`, `sae_checkpoint_sha256`,
+  `score_field`); `targets` are deduplicated and sorted descending,
+  with `outcomes[i].target_k == targets[i]`. JSON round-trip via
+  `to_json` / `from_json` mirrors `CompressionReport`'s serializer.
+  Both classes are exported from
+  [`polygram`](polygram/__init__.py). Phase 3 (CLI `--pareto` /
+  `--pareto-materialize` flags + 0.4.0 release) is the next
+  follow-up.
 - **Target-K compression (Phase 1 of `add-pareto-target-compression`).**
   New public `Compressor.plan_with_target(target_n_features_kept=None)`
   method ignores `validation_report.confirmed` and instead sorts

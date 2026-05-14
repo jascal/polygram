@@ -78,57 +78,59 @@ passes.
 
 ### 5. ParetoOutcome + ParetoReport dataclasses
 
-- [ ] 5.1 Create `polygram/compression/pareto.py`.
-- [ ] 5.2 Define `@dataclass(frozen=True) class ParetoOutcome`
-  with fields `target_k: int`, `reached_target: bool`,
-  `plan: CompressionPlan`.
-- [ ] 5.3 Define `@dataclass(frozen=True) class ParetoReport` with
-  fields `schema_version: int`, `sae_checkpoint: Path`,
-  `sae_checkpoint_sha256: str`, `score_field: str`,
-  `targets: tuple[int, ...]`, `outcomes: tuple[ParetoOutcome, ...]`.
-- [ ] 5.4 `ParetoReport.to_json(path=None) -> str` and
-  `ParetoReport.from_json(source) -> ParetoReport` mirroring
+- [x] 5.1 Created `polygram/compression/pareto.py`.
+- [x] 5.2 `@dataclass(frozen=True) class ParetoOutcome` with
+  fields `target_k`, `reached_target`, `plan`.
+- [x] 5.3 `@dataclass(frozen=True) class ParetoReport` with
+  `schema_version`, `sae_checkpoint`, `sae_checkpoint_sha256`,
+  `score_field`, `targets`, `outcomes`.
+- [x] 5.4 `ParetoReport.to_json(path=None) -> str` and
+  `ParetoReport.from_json(source)` mirror
   `CompressionReport`'s hand-coded serializer. Reuse
-  `_cluster_to_dict` / `_cluster_from_dict` from
-  `polygram/compression/report.py`.
-- [ ] 5.5 Export `ParetoReport`, `ParetoOutcome` from
-  `polygram/__init__.py` and `polygram/compression/__init__.py`.
+  `_cluster_to_dict` / `_cluster_from_dict`.
+- [x] 5.5 Exported from `polygram/__init__.py` and
+  `polygram/compression/__init__.py`.
 
 ### 6. Compressor.plan_pareto
 
-- [ ] 6.1 Add
-  `Compressor.plan_pareto(targets: Sequence[int]) -> ParetoReport`.
-  Empty / `None` `targets` raises `ValueError` with a usage hint.
-  Duplicate K values in `targets` are deduplicated; output
-  `ParetoReport.targets` is sorted descending for stable
-  iteration.
-- [ ] 6.2 The method SHALL sort pairs once (same NaN filter,
-  same tiebreak rule as Phase 1) and walk the prefix for each K
-  in sorted-descending order, sharing union-find state.
-- [ ] 6.3 Per-K `ParetoOutcome.reached_target` is `True` iff the
-  resulting plan's `n_features_kept <= target_k`.
+- [x] 6.1 `Compressor.plan_pareto(targets) -> ParetoReport`.
+  Empty / `None` / non-positive entries raise `ValueError` with a
+  usage hint naming the offending input. Duplicates dedup;
+  `ParetoReport.targets` is sorted descending.
+- [x] 6.2 Single sort + single union-find walk via
+  `_walk_pairs_for_pareto_snapshots`. Each K's `parent` is
+  snapshotted at the moment its Phase 1 stop condition fires
+  (must-exceed-then-drop); K values whose trajectory never
+  matches the rule fall back to the final parent state. Sort
+  invocation verified exactly-once via test-suite spy.
+- [x] 6.3 `ParetoOutcome.reached_target = plan.n_features_kept <= target_k`.
 
 ### 7. Phase 2 tests
 
-- [ ] 7.1 `plan_pareto([2000, 1000, 500, 200])` on a fixture returns
-  4 outcomes whose feature counts are weakly decreasing and whose
-  cluster structures are nested (every cluster at K=1000 is a
-  subset of some cluster at K=500).
-- [ ] 7.2 `plan_pareto([K])` matches `plan_with_target(K)` cluster-
-  for-cluster (verify via `plan.clusters == outcomes[0].plan.clusters`
-  and same `feature_ids`).
-- [ ] 7.3 Sort-once efficiency: instrument with a counter / spy
-  that verifies the pair sort is invoked exactly once across an
-  N-target call (no per-K resort).
-- [ ] 7.4 Round-trip: `ParetoReport.from_json(report.to_json()) == report`.
-- [ ] 7.5 `reached_target` reflects per-K outcome: on a fixture
-  reachable to K=100 but not K=50,
-  `plan_pareto([2000, 50])` produces
-  `outcomes[0].reached_target = True`,
-  `outcomes[1].reached_target = False`.
-- [ ] 7.6 `plan_pareto([])` raises `ValueError`.
-- [ ] 7.7 `plan_pareto([500, 200, 1000, 500])` returns
-  `targets == (1000, 500, 200)` with 3 outcomes.
+15 tests in `tests/compression/test_compressor_plan_pareto.py`.
+
+- [x] 7.1 Nested-plans invariant verified across
+  `plan_pareto([3, 2, 1])` on a 6-feature chain fixture; every
+  cluster at higher K is `⊆` some cluster at lower K, feature
+  counts weakly decrease.
+- [x] 7.2 `plan_pareto([K])` matches
+  `plan_with_target(K)` cluster-for-cluster and
+  feature_ids-for-feature_ids.
+- [x] 7.3 Sort-once instrumented via `unittest.mock.patch.object`
+  on `Compressor._sort_pairs_by_score`: exactly 1 call per
+  `plan_pareto` invocation regardless of `len(targets)`.
+- [x] 7.4 `ParetoReport.to_json` / `from_json` round-trip via
+  string AND via path; missing-key payload raises; non-string,
+  non-path source raises `TypeError`.
+- [x] 7.5 Per-K `reached_target`: on a 3-disjoint-pairs fixture
+  reachable only to `n_features_kept = 3`,
+  `plan_pareto([10, 2])` yields `reached_target = True` for K=10
+  and `False` for K=2.
+- [x] 7.6 `plan_pareto([])` and `plan_pareto(None)` both raise
+  `ValueError`.
+- [x] 7.7 `plan_pareto([1, 3, 2, 1, 2])` returns
+  `targets == (3, 2, 1)` with 3 outcomes ordered to match.
+  Also: `plan_pareto([0, 2])` and `plan_pareto([-1])` raise.
 
 ## Phase 3 — CLI + integration + release
 

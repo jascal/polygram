@@ -30,6 +30,7 @@ from polygram.compression.epoch_report import (
     EpochResult,
     Panel,
 )
+from polygram.compression.pareto import ParetoOutcome, ParetoReport
 from polygram.compression.regrow import Regrower, RegrowStrategy
 from polygram.compression.regrow_report import (
     RegrowPlan,
@@ -55,6 +56,8 @@ __all__ = [
     "EpochReport",
     "EpochResult",
     "Panel",
+    "ParetoOutcome",
+    "ParetoReport",
     "RegrowPlan",
     "RegrowReport",
     "RegrowResult",
