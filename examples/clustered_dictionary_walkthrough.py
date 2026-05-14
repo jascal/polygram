@@ -24,9 +24,14 @@ Usage:
     python examples/clustered_dictionary_walkthrough.py \\
         --sae scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors \\
         --n-features 2048 \\
-        --block-size 32 \\
+        --encoding rung3 \\
         --redundancy-threshold 0.7 \\
-        --output docs/research/data/clustered_dictionary_recall.json
+        --output docs/research/data/clustered_dictionary_recall_rung3_n2048.json
+
+`--encoding` chooses the per-block encoding (default: mps). The
+encoding's `max_features` becomes the default `--block-size`:
+mps=8, rung3=16, rung4=32, hea=32 (n_qubits=5). Pass `--block-size`
+to override.
 
 When `--sae` is omitted, falls back to the bundled toy SAE fixture
 (16 features) so the script runs in CI without external dependencies.
@@ -47,7 +52,23 @@ from polygram.clustered_dictionary import (
     compute_cosine_pair_graph,
 )
 from polygram.dictionary import Feature
-from polygram.encoding import MPSRung1
+from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung4
+
+
+# Encoding registry — name → (factory, default block_size).
+# Per-encoding feature caps (after PR #50):
+#   mps    → MPSRung1.max_features = 8
+#   rung3  → Rung3.max_features    = 16
+#   rung4  → Rung4.max_features    = 32
+#   hea    → HEA_Rung2(n_qubits=N).max_features = 2**N
+ENCODING_REGISTRY: dict[str, tuple[callable, int]] = {
+    "mps":   (lambda: MPSRung1(),                    MPSRung1.max_features),
+    "rung3": (lambda: Rung3(),                       Rung3.max_features),
+    "rung4": (lambda: Rung4(),                       Rung4.max_features),
+    # HEA defaults to n_qubits=5 → 2^5 = 32 (matches Rung4's cap, useful
+    # for direct A/B against the analytic Rung4 path).
+    "hea":   (lambda: HEA_Rung2(depth=1, n_qubits=5), 32),
+}
 
 
 FIXTURE_TOY = Path(__file__).parent.parent / "tests" / "fixtures" / "toy_sae.json"
@@ -70,10 +91,23 @@ def parse_args() -> argparse.Namespace:
         "The flat baseline is O(N²), so keep N reasonable.",
     )
     p.add_argument(
+        "--encoding",
+        choices=sorted(ENCODING_REGISTRY.keys()),
+        default="mps",
+        help=(
+            "Per-block encoding (default: mps). Determines the default "
+            "block-size cap: mps=8, rung3=16, rung4=32, hea=32 "
+            "(n_qubits=5). Override the size with --block-size."
+        ),
+    )
+    p.add_argument(
         "--block-size",
         type=int,
-        default=8,
-        help="Per-block feature cap (default: 8, MPSRung1's cap).",
+        default=None,
+        help=(
+            "Per-block feature cap. Defaults to the chosen encoding's "
+            "`max_features` (mps=8, rung3=16, rung4=32, hea=32)."
+        ),
     )
     p.add_argument(
         "--cosine-threshold",
@@ -133,6 +167,7 @@ def run_flat_baseline(
 def run_clustered(
     vectors: np.ndarray,
     *,
+    encoding,
     block_size: int,
     cosine_threshold: float,
     redundancy_threshold: float,
@@ -150,7 +185,7 @@ def run_clustered(
         name="walkthrough",
         features=features,
         decoder_vectors=vectors,
-        encoding=MPSRung1(),
+        encoding=encoding,
         block_formation=BlockFormation(
             strategy="cosine",
             cosine_threshold=cosine_threshold,
@@ -202,10 +237,15 @@ def main() -> int:
     selected.sort()
     vectors = vectors_full[selected]
 
+    encoding_factory, encoding_default_cap = ENCODING_REGISTRY[args.encoding]
+    encoding = encoding_factory()
+    block_size = args.block_size if args.block_size is not None else encoding_default_cap
+
     print(f"fixture: {fixture_label}")
     print(f"  total features: {n_total}, d_model: {vectors_full.shape[1]}")
     print(f"  subset for run: N={n_features} (seed={args.seed})")
-    print(f"  block_size={args.block_size}, cosine_threshold={args.cosine_threshold}")
+    print(f"  encoding={args.encoding} (cap={encoding_default_cap}), block_size={block_size}")
+    print(f"  cosine_threshold={args.cosine_threshold}")
     print(f"  redundancy_threshold={args.redundancy_threshold}\n")
 
     print("== Flat baseline ==")
@@ -218,7 +258,8 @@ def main() -> int:
     print("== Clustered ==")
     clustered_pairs, clustered_wall, stats = run_clustered(
         vectors,
-        block_size=args.block_size,
+        encoding=encoding,
+        block_size=block_size,
         cosine_threshold=args.cosine_threshold,
         redundancy_threshold=args.redundancy_threshold,
     )
@@ -245,7 +286,8 @@ def main() -> int:
         "n_subset_features": int(n_features),
         "d_model": int(vectors_full.shape[1]),
         "seed": int(args.seed),
-        "block_size": int(args.block_size),
+        "encoding": args.encoding,
+        "block_size": int(block_size),
         "cosine_threshold": float(args.cosine_threshold),
         "redundancy_threshold": float(args.redundancy_threshold),
         "flat": {

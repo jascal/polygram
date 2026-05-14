@@ -4,6 +4,15 @@
 
 ### Added
 
+- **`examples/clustered_dictionary_walkthrough.py --encoding`** —
+  new CLI flag (`mps` / `rung3` / `rung4` / `hea`) selecting the
+  per-block encoding. The encoding's `max_features` becomes the
+  default `--block-size`. Closes issue #47. K=16 / K=32 rows added
+  to `docs/research/clustered-dictionary-recall-vs-flat.md`'s
+  headline table — recall stays 1.000 at all three K values; block
+  count drops 25-41% from K=8 to K=32 at N=8192 but wall-clock is
+  K-invariant (cosine-pair-graph O(N²) dominates over per-block
+  Python overhead at this scale).
 - **`examples/rung4_viability_spike.py`** — research-track follow-up
   to `add-rung4-encoding-mvp` §7. Mirrors the Rung3 viability spike:
   runs all 28 pairs of the §4.4 8-feature panel through
