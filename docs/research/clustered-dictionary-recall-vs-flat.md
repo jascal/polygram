@@ -23,24 +23,35 @@ constraint.
 
 ## TL;DR
 
-| Metric | Target | N=2048 | N=8192 |
-|---|---|---|---|
-| **Recall** (clustered ∩ flat / flat) | ≥ 0.95 | **1.000** | **1.000** |
-| **Precision** (clustered ∩ flat / clustered) | (informative) | 1.000 | 1.000 |
-| **Speedup** (flat wall / clustered wall) | ≥ 100× | **0.5×** | **0.5×** |
-| pairs found above threshold 0.7 | (informative) | 9 | 202 |
+| Metric | Target | N=2048 K=8 | N=8192 K=8 | N=2048 K=16 | N=8192 K=16 | N=2048 K=32 | N=8192 K=32 |
+|---|---|---|---|---|---|---|---|
+| **Recall** | ≥ 0.95 | **1.000** | **1.000** | **1.000** | **1.000** | **1.000** | **1.000** |
+| **Precision** | (info) | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| **Speedup** | ≥ 100× | **0.48×** | **0.48×** | **0.48×** | **0.49×** | **0.47×** | **0.48×** |
+| n_blocks | (info) | 795 | 1783 | 668 | 1323 | 613 | 1046 |
+| mean_block_size | (info) | 2.58 | 4.59 | 3.07 | 6.19 | 3.34 | 7.83 |
 
-**Recall is perfect at both scales.** The clustered partition catches
-every flat-baseline redundant pair, both intra-block (caught by the
-per-block Gram on cosine) and cross-block (caught by the
-`cross_block_redundant_pairs` analytic primitive).
+Encodings: `K=8` (MPSRung1), `K=16` (Rung3), `K=32` (Rung4).
 
-**Speedup is inverse to the proposal's target.** Clustering is ~2×
-slower than the flat baseline for both N=2048 and N=8192 on a real
-GPT-2-small SAE. This finding **reframes the value proposition**:
-clustered analysis isn't a raw cosine-speed win at moderate N; it's
-a structural enabler for quantum-encoded analyses that don't fit on
-a single ≤8-feature dictionary.
+**Recall is perfect across all three K values.** The clustered
+partition catches every flat-baseline redundant pair regardless of
+the per-encoding feature cap. The cap relaxes the block-formation
+upper bound, not the recall guarantee.
+
+**Speedup is K-invariant.** Larger K *does* reduce the block count
+substantially (at N=8192: 1783 → 1323 → 1046, a 41% drop from
+K=8 to K=32), but the wall-clock barely moves: 12.4 → 12.5 → 12.6
+seconds. Per-block Python overhead is not the dominant cost in
+this regime; the cosine-pair-graph O(N²) computation done twice
+(once during block formation, once for cross-block adjacency)
+dominates. Confirms the speedup target was always going to be
+binding on the cosine-graph compute, not on Dictionary overhead.
+
+**Value proposition reframed.** Clustered analysis isn't a raw
+cosine-speed win at moderate N regardless of K; it's a structural
+enabler for quantum-encoded analyses that don't fit on a single
+≤K-feature dictionary. K=16 (Rung3) and K=32 (Rung4) extend that
+ceiling but don't relax the cosine-graph wall.
 
 ## Methodology
 
@@ -53,10 +64,14 @@ Real-scale fixture: GPT-2-small SAE checkpoint
   `compute_cosine_pair_graph` (BLAS-backed `np.dot`), threshold the
   result at `cosine ≥ 0.7`.
 - **Clustered**: `build_clustered_dictionary` with cosine block
-  formation at `block_size_max=8` (MPSRung1's cap),
-  `cosine_threshold=0.3` for block formation. Intra-block redundant
-  pairs derived from per-block cosine sub-matrices; cross-block
-  pairs from `ClusteredDictionary.cross_block_redundant_pairs`.
+  formation, `cosine_threshold=0.3`. `block_size_max` set to the
+  per-encoding cap: 8 (MPSRung1), 16 (Rung3), 32 (Rung4).
+  Intra-block redundant pairs derived from per-block cosine
+  sub-matrices; cross-block pairs from
+  `ClusteredDictionary.cross_block_redundant_pairs`.
+
+  Reproduce K=16/K=32 rows with `--encoding rung3` and
+  `--encoding rung4` respectively (issue #47).
 
 Recall = `|clustered_pairs ∩ flat_pairs| / |flat_pairs|`.
 Precision = `|clustered_pairs ∩ flat_pairs| / |clustered_pairs|`.
@@ -89,6 +104,28 @@ at this N. At very large N (≥10⁵), the N² cost would dominate; at
 very small N (<200), the Python overhead is irrelevant. The crossover
 where clustering pays for itself on pure-cosine workloads is around
 **N ≈ 10⁵–10⁶**.
+
+### K=16 / K=32 don't change the picture
+
+The natural block sizes at this dataset's cosine geometry are 4–8
+(mean), well below the K=16 / K=32 caps. Raising K drops the block
+count by 25–41% but doesn't change wall-clock because:
+
+- Per-block Dictionary construction at mean size 6–8 is faster
+  than at mean size 4, partially offsetting the lower block count.
+- The cosine-pair-graph computation (run twice — block formation +
+  cross-block adjacency) is O(N²) in `vectors`, independent of K.
+  That's the dominant cost at this N.
+- Cross-block redundancy iteration scales with the cross-block
+  edge count, which is roughly constant across K values at this
+  density (1500–1700 at N=2048; 44k–48k at N=8192).
+
+**Downstream consumers that pay per-block cost** (like
+`EpochCompressor`, which validates each block separately) will see
+the K savings translate directly: 41% fewer blocks at N=8192 with
+K=32 means 41% fewer per-block validation passes. That's where the
+encoding-cap lift cashes out — not in the clustering primitive
+itself.
 
 ## Where clustered analysis *does* pay
 
