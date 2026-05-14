@@ -4,6 +4,20 @@
 
 ### Added
 
+- **`examples/rung4_viability_spike.py`** — research-track follow-up
+  to `add-rung4-encoding-mvp` §7. Mirrors the Rung3 viability spike:
+  runs all 28 pairs of the §4.4 8-feature panel through
+  `Cancellation(encoding="rung4")` (6-knob joint optimizer, 4D outer
+  grid over feature B's product-amp knobs), reports the four-criterion
+  A/B/C/D decision banner, and writes a partial JSON with criterion A
+  when the `[behavioural]` extra (torch + transformers) is missing.
+  See `docs/research/rung4-viability-spike.md` for the findings
+  (**decision: Rung4 stays opt-in**; the constrained spike's residual
+  is structurally identical to Rung3's because both encodings hit the
+  `min_amp_overlap` constraint boundary tight).
+- **`polygram.Rung4` / `polygram.Rung4State`** are now exported from
+  the top-level `polygram` namespace (was previously only available
+  via `polygram.encoding.Rung4`).
 - **`EpochCompressor(encoding=...)`** — new constructor parameter
   (defaults to `MPSRung1()`) plumbs the configured encoding through
   the compression pipeline. Compression runs can now opt into Rung3

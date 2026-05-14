@@ -59,10 +59,10 @@ bucket); landing it cleanly belongs in a research-track follow-up
 PR alongside the resulting `docs/research/rung4-viability-spike.md`
 note.
 
-- [ ] 7.1 ~~Mirror `examples/rung3_viability_spike.py` structure~~ — deferred to follow-up PR (research-track; needs real SAE + [behavioural] extra).
-- [ ] 7.2 ~~Two output JSONs~~ — deferred to follow-up PR.
-- [ ] 7.3 ~~Define the decision rule~~ — deferred to follow-up PR. The proposal's default-on-vs-opt-in decision waits on the spike's empirical result.
-- [ ] 7.4 ~~Plot output~~ — deferred to follow-up PR.
+- [x] 7.1 Mirror `examples/rung3_viability_spike.py` structure → shipped as `examples/rung4_viability_spike.py`.
+- [x] 7.2 Two output JSONs → `docs/research/data/rung4_viability_spike.json` (unconstrained) + `rung4_viability_spike_constrained.json` (ε = 0.5).
+- [x] 7.3 Define the decision rule → `make-rung4-default` is dead; Rung4 stays opt-in. See `docs/research/rung4-viability-spike.md` §Decision.
+- [ ] 7.4 ~~Plot output~~ — skipped; the result is a single constant (median residual = ε at constraint boundary), no plot adds information.
 
 ## 8. Tests
 
@@ -85,7 +85,7 @@ note.
 
 ## 10. Findings PR (follows this change)
 
-- [ ] 10.1 Run `examples/rung4_viability_spike.py` against the bundled GPT-2-small SAE fixture; both runs (unconstrained + constrained).
-- [ ] 10.2 Write `docs/research/rung4-viability-spike.md` with the A/B/C/D table mirroring the Rung3 note. Include the final decision (default-on vs opt-in).
-- [ ] 10.3 Commit the spike's JSON + PNG artifacts under `docs/research/data/`.
-- [ ] 10.4 Open a findings PR title: `docs(research): Rung4 viability spike — <decision-bucket>`. Body summarises the deltas vs the Rung3 spike.
+- [x] 10.1 Run `examples/rung4_viability_spike.py` — both runs landed (analytic phase only; behavioural phase deferred pending torch-enabled host).
+- [x] 10.2 Write `docs/research/rung4-viability-spike.md` — A/B/C/D table mirrors Rung3 note. B/C/D rows show `skipped` (behavioural phase pending); A alone is sufficient for the verdict. Final decision: Rung4 stays opt-in.
+- [x] 10.3 Commit the spike's JSON artifacts under `docs/research/data/`.
+- [ ] 10.4 Open a findings PR (in progress).
