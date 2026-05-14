@@ -4,16 +4,17 @@
   "n_subset_features": 2048,
   "d_model": 768,
   "seed": 0,
+  "encoding": "mps",
   "block_size": 8,
   "cosine_threshold": 0.3,
   "redundancy_threshold": 0.7,
   "flat": {
     "n_pairs": 9,
-    "wall_seconds": 0.37907389365136623
+    "wall_seconds": 0.41041950322687626
   },
   "clustered": {
     "n_pairs": 9,
-    "wall_seconds": 0.7882682858034968,
+    "wall_seconds": 0.4486851189285517,
     "n_blocks": 795,
     "mean_block_size": 2.5761006289308175,
     "n_cross_block_edges_total": 1947,
@@ -21,5 +22,5 @@
   },
   "recall": 1.0,
   "precision": 1.0,
-  "speedup": 0.4808945133000867
+  "speedup": 0.9147161024795012
 }
