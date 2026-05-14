@@ -17,8 +17,9 @@
   than universal late-stage compression. Features-per-CE-budget
   ratio: Rung4 amp-on stays 1.71× MPS even at iter 10. Results +
   per-iter trajectories captured in
-  `docs/research/rung4-viability-spike-v2.md` under "Axis 1 result
-  (v2.2)"; raw JSON + console captures under `docs/research/data/`.
+  [`docs/research/rung4-viability-spike-v2.md`](docs/research/rung4-viability-spike-v2.md)
+  under "Axis 1 result (v2.2)"; raw JSON + console captures under
+  `docs/research/data/`.
   Closes the "Axis 1 / 4 pending a torch-enabled host" TODO for
   Axis 1; Axis 4 remains separate work.
 - **`EpochCompressor(assign_amp_knobs=True)` + `Compressor(assign_amp_knobs=True)`** —

@@ -571,9 +571,14 @@ depth":
 - **The iter-9 CE spike is encoding-specific.** MPS at 10 iter
   doesn't show a comparable late-iter spike. Hypothesis: K=32
   amp-on panels exhaust high-cosine cluster supply by iter 6 and
-  late iters scrape bad-geometry residuals. This is a property
-  worth understanding before running Rung4 amp-on at production
-  iteration counts above ~6, but doesn't change the verdict.
+  late iters scrape bad-geometry residuals. This is a *feature*
+  of the method, not a bug — bigger K panels deliberately admit
+  more candidate features per cluster, which by construction
+  depletes the high-cosine supply faster than MPS K=8. The
+  late-iter regime change is the cost of the early-iter
+  quantity-of-zeroings advantage. Worth understanding before
+  running Rung4 amp-on at production iteration counts above ~6,
+  but doesn't change the verdict.
 
 Natural follow-ups (deferred per
 [the proposal's "explicitly does NOT do" section](../../openspec/changes/run-axis1-compression-coverage-mbp/proposal.md)):

@@ -230,6 +230,13 @@ def main(argv: list[str] | None = None) -> int:
 
     report = result.report
     final_iter = report.iterations[-1] if report.iterations else None
+    # `EpochIteration.cross_entropy_delta` is the per-iter delta vs the
+    # prior iteration's state (see epoch.py: `_token_cross_entropy_delta`
+    # is called with `current_state` and `new_state`), not a running
+    # cumulative. Decision-rule comparisons in
+    # `docs/research/rung4-viability-spike-v2.md` want the cumulative
+    # budget at the end of the run, so we accumulate here and surface
+    # both in the JSON payload.
     cumulative_by_iter: list[float] = []
     running = 0.0
     for it in report.iterations:
