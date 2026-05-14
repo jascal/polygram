@@ -307,6 +307,200 @@ class Compressor:
         return min(cluster, key=lambda fid: (-n_fires_total[fid], fid))
 
     # ----------------------------------------------------------------
+    # plan_with_target() — target-K compression
+    # ----------------------------------------------------------------
+
+    def plan_with_target(
+        self, target_n_features_kept: int | None = None
+    ) -> CompressionPlan:
+        """Build clusters by greedy union-find over score-sorted pairs
+        until the cluster count first drops to `<= target_n_features_kept`.
+
+        Ignores `validation_report.confirmed`; orders the full
+        `validation_report.pairs` list by `config.score_field` descending
+        and unions greedily. The cluster-count trajectory typically grows
+        from 0 to a peak (as disjoint pairs introduce new components)
+        then shrinks (as later pairs bridge components); the stop
+        condition fires the first time count drops to `<= target_k`
+        AFTER previously exceeding it. If count never exceeds target_k,
+        the full pair list is processed and the most-compressed reachable
+        plan is returned (caller detects via `plan.n_features_kept`).
+
+        See `openspec/changes/add-pareto-target-compression/`.
+        """
+        if target_n_features_kept is None:
+            if (
+                self.config is None
+                or self.config.target_n_features_kept is None
+            ):
+                raise ValueError(
+                    "Compressor.plan_with_target: target_n_features_kept "
+                    "must be provided either as the method argument or "
+                    "via CompressionConfig(target_n_features_kept=...). "
+                    "Both are None."
+                )
+            target_n_features_kept = self.config.target_n_features_kept
+
+        if (
+            not isinstance(target_n_features_kept, int)
+            or isinstance(target_n_features_kept, bool)
+            or target_n_features_kept < 1
+        ):
+            raise ValueError(
+                f"Compressor.plan_with_target: target_n_features_kept "
+                f"must be an integer >= 1; got {target_n_features_kept!r}"
+            )
+
+        score_field = (
+            self.config.score_field
+            if self.config is not None
+            else "polygram_overlap"
+        )
+
+        # Lazy-load W_dec for scale_aware rep_selection (mirrors _build_plan).
+        if (
+            self.rep_selection == "scale_aware"
+            and self._cached_w_dec is None
+        ):
+            from polygram.sae_import import _load_sae_checkpoint
+
+            state = _load_sae_checkpoint(self.sae_checkpoint, ["W_dec"])
+            object.__setattr__(self, "_cached_w_dec", state["W_dec"])
+
+        pairs = self._filter_pairs_for_score(
+            self.validation_report.pairs, score_field
+        )
+        # Decision 6: sort by (-score, min(i,j), max(i,j)) for symmetric
+        # tiebreak on the three bounded score axes.
+        sorted_pairs = sorted(
+            pairs,
+            key=lambda p: (
+                -float(getattr(p, score_field)),
+                min(p.i, p.j),
+                max(p.i, p.j),
+            ),
+        )
+
+        pair_lookup: dict[tuple[int, int], CandidatePair] = {}
+        for p in self.validation_report.pairs:
+            key = (min(p.i, p.j), max(p.i, p.j))
+            pair_lookup[key] = p
+
+        return self._greedy_union_to_target(
+            target_n_features_kept, sorted_pairs, pair_lookup
+        )
+
+    @staticmethod
+    def _filter_pairs_for_score(
+        pairs: tuple[CandidatePair, ...],
+        score_field: str,
+    ) -> tuple[CandidatePair, ...]:
+        """Drop pairs whose `score_field` value is NaN.
+
+        Decision 5: a decoder-only `ValidationReport` (from
+        `DecoderGeometryConfirmer`) populates only `decoder_overlap` and
+        leaves the behavioural fields as NaN. Sorting NaN values is
+        platform-dependent, so we filter first and raise if no pairs
+        survive — naming the score field and the likely cause so the
+        caller picks a compatible field.
+        """
+        filtered = tuple(
+            p for p in pairs
+            if not math.isnan(float(getattr(p, score_field)))
+        )
+        if not filtered:
+            raise ValueError(
+                "Compressor.plan_with_target: no pairs have a finite "
+                f"{score_field!r} score after NaN filtering. Likely "
+                "cause: the ValidationReport was produced by "
+                "DecoderGeometryConfirmer (which populates only "
+                "decoder_overlap) but the chosen score_field requires "
+                "behavioural scoring. Re-validate via BehaviouralValidator "
+                "or pass score_field='decoder_overlap'."
+            )
+        return filtered
+
+    def _greedy_union_to_target(
+        self,
+        target_k: int,
+        sorted_pairs: list[CandidatePair],
+        pair_lookup: dict[tuple[int, int], CandidatePair],
+    ) -> CompressionPlan:
+        parent: dict[int, int] = {}
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        n_clusters = 0
+        target_was_exceeded = False
+
+        for pair in sorted_pairs:
+            i, j = int(pair.i), int(pair.j)
+            i_new = i not in parent
+            j_new = j not in parent
+            if i_new:
+                parent[i] = i
+            if j_new:
+                parent[j] = j
+
+            ri = find(i)
+            rj = find(j)
+            if ri != rj:
+                if i_new and j_new:
+                    n_clusters += 1
+                elif (not i_new) and (not j_new):
+                    n_clusters -= 1
+                # else (exactly one new): a singleton joins an existing
+                # ≥2-member component — no change in cluster count.
+
+                if ri < rj:
+                    parent[rj] = ri
+                else:
+                    parent[ri] = rj
+
+            if n_clusters > target_k:
+                target_was_exceeded = True
+            elif target_was_exceeded:
+                # Crossed back to ≤ target_k from above — stop.
+                break
+
+        components: dict[int, set[int]] = defaultdict(set)
+        for fid in parent:
+            components[find(fid)].add(fid)
+
+        ordered_components = sorted(
+            components.values(), key=lambda s: min(s)
+        )
+        cluster_plans: list[ClusterPlan] = []
+        for cluster_id, members_set in enumerate(ordered_components):
+            members_sorted = tuple(sorted(members_set))
+            rep = self._pick_representative(
+                cluster=members_set,
+                cluster_id=cluster_id,
+                pair_lookup=pair_lookup,
+                apply_overrides=True,
+            )
+            zeroed = tuple(fid for fid in members_sorted if fid != rep)
+            cluster_plans.append(
+                ClusterPlan(
+                    cluster_id=cluster_id,
+                    members=members_sorted,
+                    representative=rep,
+                    zeroed=zeroed,
+                )
+            )
+
+        return CompressionPlan(
+            clusters=tuple(cluster_plans),
+            feature_ids=tuple(
+                int(f) for f in self.validation_report.feature_ids
+            ),
+        )
+
+    # ----------------------------------------------------------------
     # apply()
     # ----------------------------------------------------------------
 

@@ -75,6 +75,8 @@ class TestDefaults:
         assert cfg.rep_selection == "scale_aware"
         assert cfg.merge_mode == "freq_weighted"
         assert cfg.confirmer is None
+        assert cfg.target_n_features_kept is None
+        assert cfg.score_field == "polygram_overlap"
 
     def test_epoch_compression_defaults_match_iterative_preset(self):
         cfg = EpochCompressionConfig()
@@ -143,6 +145,25 @@ class TestRangeValidation:
         with pytest.raises(ValueError, match=r"rep_selection"):
             CompressionConfig(rep_selection="bogus")
 
+    def test_compression_target_n_features_kept_zero_raises(self):
+        with pytest.raises(ValueError, match=r"target_n_features_kept"):
+            CompressionConfig(target_n_features_kept=0)
+
+    def test_compression_target_n_features_kept_negative_raises(self):
+        with pytest.raises(ValueError, match=r"target_n_features_kept"):
+            CompressionConfig(target_n_features_kept=-5)
+
+    def test_compression_unknown_score_field_raises(self):
+        with pytest.raises(ValueError, match=r"score_field"):
+            CompressionConfig(score_field="bogus")
+
+    def test_compression_kl_score_field_raises(self):
+        # `kl_log_ratio_abs` is a real CandidatePair field but is
+        # deliberately excluded from valid score_field values
+        # (Decision 3 of add-pareto-target-compression).
+        with pytest.raises(ValueError, match=r"score_field"):
+            CompressionConfig(score_field="kl_log_ratio_abs")
+
     def test_regrow_layer_negative_raises(self):
         with pytest.raises(ValueError, match=r"layer"):
             RegrowConfig(model_name="gpt2", layer=-1)
@@ -195,6 +216,21 @@ class TestRoundTrip:
     def test_compression_round_trip(self):
         cfg = CompressionConfig(strategy="zero", rep_selection="n_fires", confirmer="quantum_interference")
         assert CompressionConfig.from_dict(cfg.to_dict()) == cfg
+
+    def test_compression_round_trip_with_target_k_fields(self):
+        cfg = CompressionConfig(
+            target_n_features_kept=500, score_field="jaccard"
+        )
+        assert CompressionConfig.from_dict(cfg.to_dict()) == cfg
+
+    def test_compression_from_dict_tolerates_missing_target_k_fields(self):
+        cfg = CompressionConfig.from_dict({
+            "strategy": "merge",
+            "rep_selection": "scale_aware",
+            "merge_mode": "freq_weighted",
+        })
+        assert cfg.target_n_features_kept is None
+        assert cfg.score_field == "polygram_overlap"
 
     def test_epoch_compression_round_trip_with_nested_validation(self):
         cfg = EpochCompressionConfig(

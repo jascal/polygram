@@ -77,6 +77,14 @@ class CompressionPlan:
     clusters: tuple[ClusterPlan, ...]
     feature_ids: tuple[int, ...]
 
+    @property
+    def n_features_kept(self) -> int:
+        # Mirrors `CompressionReport.n_features_kept`, which the
+        # `Compressor` derives as `sum(1 for _ in plan.clusters)`. Exposed
+        # here so target-K planners can read the same value off the plan
+        # before `apply()` runs (see openspec/changes/add-pareto-target-compression).
+        return len(self.clusters)
+
 
 @dataclass(frozen=True, eq=False)
 class CompressionReport:
