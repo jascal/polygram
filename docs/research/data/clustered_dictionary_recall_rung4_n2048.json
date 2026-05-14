@@ -10,11 +10,11 @@
   "redundancy_threshold": 0.7,
   "flat": {
     "n_pairs": 9,
-    "wall_seconds": 0.3833052688278258
+    "wall_seconds": 0.3805778492242098
   },
   "clustered": {
     "n_pairs": 9,
-    "wall_seconds": 0.8107218318618834,
+    "wall_seconds": 0.42989834723994136,
     "n_blocks": 613,
     "mean_block_size": 3.34094616639478,
     "n_cross_block_edges_total": 1462,
@@ -22,5 +22,5 @@
   },
   "recall": 1.0,
   "precision": 1.0,
-  "speedup": 0.47279504974910636
+  "speedup": 0.8852740459869596
 }

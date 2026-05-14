@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Changed (Performance)
+
+- **`build_clustered_dictionary`** now shares the cosine pair graph
+  between block formation and cross-block adjacency rather than
+  recomputing it twice. Wall-clock at N=8192 K=8 drops from 12.4 s
+  to 7.0 s (1.8× faster); clustered speedup vs flat-cosine baseline
+  improves from 0.48× to 0.94× across all measured K values. No
+  behavior change — recall remains 1.000 on the killer-experiment
+  fixture; cross-block adjacency is bit-equal. Closes issue #58.
+  Research note `docs/research/clustered-dictionary-recall-vs-flat.md`
+  updated with post-fix measurements and a side-by-side speedup row.
+
 ### Added
 
 - **`examples/clustered_dictionary_walkthrough.py --encoding`** —

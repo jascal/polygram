@@ -927,10 +927,13 @@ def _form_blocks_cosine(
     decoder_vectors: np.ndarray,
     block_size_max: int,
     cosine_threshold: float,
+    *,
+    cosine_pairs: set[tuple[int, int]] | None = None,
 ) -> list[list[int]]:
     """Greedy single-linkage BFS clustering with a size cap.
 
-    Builds the cosine pair graph at the supplied threshold, then for
+    Builds the cosine pair graph at the supplied threshold (or accepts
+    a precomputed one via `cosine_pairs` — see issue #58), then for
     each unassigned feature in input order picks it as a seed and
     grows a block by BFS over its high-cosine neighbours until either
     the block reaches `block_size_max` or the neighbour frontier
@@ -943,9 +946,10 @@ def _form_blocks_cosine(
     n = len(features)
     if n == 0:
         return []
-    cosine_pairs = compute_cosine_pair_graph(
-        decoder_vectors, threshold=cosine_threshold
-    )
+    if cosine_pairs is None:
+        cosine_pairs = compute_cosine_pair_graph(
+            decoder_vectors, threshold=cosine_threshold
+        )
     adj: dict[int, set[int]] = defaultdict(set)
     for i, j in cosine_pairs:
         adj[i].add(j)
@@ -1057,6 +1061,8 @@ def _compute_cross_block_edges(
     block_indices: list[list[int]],
     decoder_vectors: np.ndarray,
     cosine_threshold: float,
+    *,
+    cosine_pairs: set[tuple[int, int]] | None = None,
 ) -> dict[CrossBlockKey, float]:
     """Compute the sparse cross-block adjacency from the block partition
     plus the full decoder-vector array.
@@ -1067,6 +1073,10 @@ def _compute_cross_block_edges(
     where `feat_i_local_idx` is the position of feature `i` within
     its own block. The block ordering invariant `block_i_idx <
     block_j_idx` is enforced by sorting the (block_i, block_j) pair.
+
+    `cosine_pairs` may be passed in pre-computed (issue #58) to avoid
+    recomputing the same O(N²) cosine graph that block formation
+    already produced. When None, computed locally.
     """
     # Build global → (block_idx, local_idx) lookup.
     feat_to_block: dict[int, tuple[int, int]] = {}
@@ -1074,9 +1084,10 @@ def _compute_cross_block_edges(
         for local_idx, feat_idx in enumerate(indices):
             feat_to_block[feat_idx] = (block_idx, local_idx)
 
-    cosine_pairs = compute_cosine_pair_graph(
-        decoder_vectors, threshold=cosine_threshold
-    )
+    if cosine_pairs is None:
+        cosine_pairs = compute_cosine_pair_graph(
+            decoder_vectors, threshold=cosine_threshold
+        )
     edges: dict[CrossBlockKey, float] = {}
     # Recompute cosines for the surviving pairs to populate the edge
     # weight; cheap because cosine_pairs is already filtered.
@@ -1161,9 +1172,22 @@ def build_clustered_dictionary(
 
     cap = _resolve_block_size_max(encoding, block_formation.block_size_max)
 
+    # Pre-compute the cosine pair graph once and share between block
+    # formation (cosine strategy only) and cross-block adjacency
+    # (always). Issue #58: previously computed twice on the same
+    # decoder_vectors+threshold, which dominated wall-clock at N≥2k.
+    # Skip for `co_firing` — that path raises before touching either.
+    if block_formation.strategy in ("cosine", "user_declared"):
+        cosine_pairs = compute_cosine_pair_graph(
+            decoder_vectors, threshold=block_formation.cosine_threshold
+        )
+    else:
+        cosine_pairs = None
+
     if block_formation.strategy == "cosine":
         block_indices = _form_blocks_cosine(
-            features, decoder_vectors, cap, block_formation.cosine_threshold
+            features, decoder_vectors, cap, block_formation.cosine_threshold,
+            cosine_pairs=cosine_pairs,
         )
     elif block_formation.strategy == "co_firing":
         if activation_traces is None:
@@ -1195,7 +1219,8 @@ def build_clustered_dictionary(
         name, features, block_indices, encoding, block_formation, hierarchy
     )
     cross_block_pairs = _compute_cross_block_edges(
-        block_indices, decoder_vectors, block_formation.cosine_threshold
+        block_indices, decoder_vectors, block_formation.cosine_threshold,
+        cosine_pairs=cosine_pairs,
     )
     return ClusteredDictionary(
         name=name,
