@@ -560,20 +560,22 @@ class Compressor:
         """Build a `CompressionPlan` for each target K in one shared
         sort + one shared union-find walk.
 
-        `targets` is any sequence of positive integers. The returned
-        `ParetoReport.targets` is deduplicated and sorted descending
-        for stable iteration; `outcomes[i]` matches `targets[i]`.
+        `targets` is any sequence of positive integers. Duplicates are
+        removed and the surviving K values are sorted descending; the
+        returned `ParetoReport.targets` reflects that ordering and
+        `outcomes[i].target_k == targets[i]` for every i, so callers
+        can iterate the two in parallel without re-sorting.
 
         Algorithm: walk the score-sorted pair list once, tracking the
-        cluster-count trajectory. For each K (sorted descending), the
-        stop condition fires the first time the count drops back to
-        `<= K` after exceeding it (Phase 1 stop-rule clarification —
-        see `_greedy_union_to_target` and openspec Decision 10).
-        Snapshot the `parent` dict at each K's stop point so the plan
-        for that K can be materialised independently. K values whose
-        trajectory never exceeds their threshold (target too high) or
-        never drops back (target too low / infeasible) take the final
-        `parent` state.
+        cluster-count trajectory. For each K, the stop condition fires
+        the first time the count drops back to `<= K` after exceeding
+        it (Phase 1 stop-rule clarification — see
+        `_greedy_union_to_target` and openspec Decision 10). Snapshot
+        the `parent` dict at each K's stop point so the plan for that
+        K can be materialised independently. K values whose trajectory
+        never exceeds their threshold (target too high) or never drops
+        back (target too low / infeasible) take the final `parent`
+        state.
         """
         if targets is None:
             raise ValueError(
@@ -655,6 +657,13 @@ class Compressor:
         """Single union-find walk that snapshots `parent` for each K
         as its stop condition fires. Caller materialises plans from the
         snapshots via `_materialise_plan_from_parent`.
+
+        Per-K stop condition (mirrors Phase 1):
+        `n_clusters > K` flips `target_was_exceeded[K]` to `True`;
+        once that flag is set, the first iteration where
+        `n_clusters <= K` triggers a snapshot of the current `parent`
+        dict and marks K as resolved. Walking stops early once every K
+        is resolved.
 
         K values whose trajectory never exceeds K (target too high) or
         never drops back to K from above (target too low / infeasible)
