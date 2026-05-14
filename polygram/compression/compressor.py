@@ -43,6 +43,7 @@ from polygram.compression.report import (
     CompressionReport,
     CompressionResult,
 )
+from polygram.compression.pareto import ParetoOutcome, ParetoReport
 from polygram.compression.strategies.zero import apply_zero
 
 
@@ -369,27 +370,49 @@ class Compressor:
             state = _load_sae_checkpoint(self.sae_checkpoint, ["W_dec"])
             object.__setattr__(self, "_cached_w_dec", state["W_dec"])
 
-        pairs = self._filter_pairs_for_score(
+        sorted_pairs, pair_lookup = self._prepare_pairs_for_target_k(
+            score_field
+        )
+
+        return self._greedy_union_to_target(
+            target_n_features_kept, sorted_pairs, pair_lookup
+        )
+
+    def _prepare_pairs_for_target_k(
+        self, score_field: str
+    ) -> tuple[list[CandidatePair], dict[tuple[int, int], CandidatePair]]:
+        """Filter + sort the pair list for target-K planning, and build
+        the canonical `(min, max)` pair lookup used by
+        `_pick_representative`. Shared between `plan_with_target` and
+        `plan_pareto` so a multi-K sweep sorts pairs exactly once.
+        """
+        filtered = self._filter_pairs_for_score(
             self.validation_report.pairs, score_field
         )
-        # Decision 6: sort by (-score, min(i,j), max(i,j)) for symmetric
-        # tiebreak on the three bounded score axes.
-        sorted_pairs = sorted(
+        sorted_pairs = self._sort_pairs_by_score(filtered, score_field)
+        pair_lookup: dict[tuple[int, int], CandidatePair] = {}
+        for p in self.validation_report.pairs:
+            key = (min(p.i, p.j), max(p.i, p.j))
+            pair_lookup[key] = p
+        return sorted_pairs, pair_lookup
+
+    @staticmethod
+    def _sort_pairs_by_score(
+        pairs: tuple[CandidatePair, ...] | list[CandidatePair],
+        score_field: str,
+    ) -> list[CandidatePair]:
+        """Decision 6: sort by `(-score, min(i,j), max(i,j))` for a
+        symmetric, deterministic tiebreak on the three bounded
+        score axes. Extracted so `plan_pareto` can patch / spy on it
+        to verify the single-sort invariant.
+        """
+        return sorted(
             pairs,
             key=lambda p: (
                 -float(getattr(p, score_field)),
                 min(p.i, p.j),
                 max(p.i, p.j),
             ),
-        )
-
-        pair_lookup: dict[tuple[int, int], CandidatePair] = {}
-        for p in self.validation_report.pairs:
-            key = (min(p.i, p.j), max(p.i, p.j))
-            pair_lookup[key] = p
-
-        return self._greedy_union_to_target(
-            target_n_features_kept, sorted_pairs, pair_lookup
         )
 
     @staticmethod
@@ -469,15 +492,35 @@ class Compressor:
                 # Crossed back to ≤ target_k from above — stop.
                 break
 
-        # Rebuild components from `parent` after the loop rather than
-        # maintaining a parallel component-membership dict inside the
-        # loop. The loop's hot path only needs find() roots and the
-        # n_clusters counter; full membership is only consulted here at
-        # the end to materialise ClusterPlan objects. Two passes over
-        # `parent` (one for find(), one for grouping) is cheaper than
-        # synchronising membership state on every union.
+        return self._materialise_plan_from_parent(parent, pair_lookup)
+
+    def _materialise_plan_from_parent(
+        self,
+        parent: dict[int, int],
+        pair_lookup: dict[tuple[int, int], CandidatePair],
+    ) -> CompressionPlan:
+        """Build a `CompressionPlan` from a union-find `parent` map.
+
+        Rebuilds components from `parent` rather than maintaining a
+        parallel membership dict inside the hot path: the union-find
+        walk only needs find() roots and the `n_clusters` counter; full
+        membership is only consulted here to materialise `ClusterPlan`
+        objects. Two passes over `parent` (one for find(), one for
+        grouping) is cheaper than synchronising membership state on
+        every union.
+
+        Shared by `_greedy_union_to_target` (single-K) and `plan_pareto`
+        (multi-K via per-K parent snapshots).
+        """
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
         components: dict[int, set[int]] = defaultdict(set)
-        for fid in parent:
+        for fid in list(parent):
             components[find(fid)].add(fid)
 
         ordered_components = sorted(
@@ -508,6 +551,173 @@ class Compressor:
                 int(f) for f in self.validation_report.feature_ids
             ),
         )
+
+    # ----------------------------------------------------------------
+    # plan_pareto() — multi-K sweep, one sort + one union-find walk
+    # ----------------------------------------------------------------
+
+    def plan_pareto(self, targets) -> ParetoReport:
+        """Build a `CompressionPlan` for each target K in one shared
+        sort + one shared union-find walk.
+
+        `targets` is any sequence of positive integers. The returned
+        `ParetoReport.targets` is deduplicated and sorted descending
+        for stable iteration; `outcomes[i]` matches `targets[i]`.
+
+        Algorithm: walk the score-sorted pair list once, tracking the
+        cluster-count trajectory. For each K (sorted descending), the
+        stop condition fires the first time the count drops back to
+        `<= K` after exceeding it (Phase 1 stop-rule clarification —
+        see `_greedy_union_to_target` and openspec Decision 10).
+        Snapshot the `parent` dict at each K's stop point so the plan
+        for that K can be materialised independently. K values whose
+        trajectory never exceeds their threshold (target too high) or
+        never drops back (target too low / infeasible) take the final
+        `parent` state.
+        """
+        if targets is None:
+            raise ValueError(
+                "Compressor.plan_pareto: targets must be a non-empty "
+                "sequence of positive integers; got None."
+            )
+
+        target_set: set[int] = set()
+        for t in targets:
+            if (
+                not isinstance(t, int)
+                or isinstance(t, bool)
+                or t < 1
+            ):
+                raise ValueError(
+                    "Compressor.plan_pareto: every target must be an "
+                    f"integer >= 1; got {t!r} in {list(targets)!r}"
+                )
+            target_set.add(int(t))
+        if not target_set:
+            raise ValueError(
+                "Compressor.plan_pareto: targets is empty; supply at "
+                "least one positive integer K."
+            )
+        sorted_targets: tuple[int, ...] = tuple(
+            sorted(target_set, reverse=True)
+        )
+
+        score_field = (
+            self.config.score_field
+            if self.config is not None
+            else "polygram_overlap"
+        )
+
+        if (
+            self.rep_selection == "scale_aware"
+            and self._cached_w_dec is None
+        ):
+            from polygram.sae_import import _load_sae_checkpoint
+
+            state = _load_sae_checkpoint(self.sae_checkpoint, ["W_dec"])
+            object.__setattr__(self, "_cached_w_dec", state["W_dec"])
+
+        sorted_pairs, pair_lookup = self._prepare_pairs_for_target_k(
+            score_field
+        )
+
+        snapshots = self._walk_pairs_for_pareto_snapshots(
+            sorted_pairs, sorted_targets
+        )
+
+        outcomes: list[ParetoOutcome] = []
+        for k in sorted_targets:
+            plan = self._materialise_plan_from_parent(
+                snapshots[k], pair_lookup
+            )
+            outcomes.append(
+                ParetoOutcome(
+                    target_k=k,
+                    reached_target=plan.n_features_kept <= k,
+                    plan=plan,
+                )
+            )
+
+        return ParetoReport(
+            schema_version=1,
+            sae_checkpoint=Path(self.sae_checkpoint),
+            sae_checkpoint_sha256=sha256_file(self.sae_checkpoint),
+            score_field=score_field,
+            targets=sorted_targets,
+            outcomes=tuple(outcomes),
+        )
+
+    def _walk_pairs_for_pareto_snapshots(
+        self,
+        sorted_pairs: list[CandidatePair],
+        sorted_targets: tuple[int, ...],
+    ) -> dict[int, dict[int, int]]:
+        """Single union-find walk that snapshots `parent` for each K
+        as its stop condition fires. Caller materialises plans from the
+        snapshots via `_materialise_plan_from_parent`.
+
+        K values whose trajectory never exceeds K (target too high) or
+        never drops back to K from above (target too low / infeasible)
+        get the final `parent` state, matching Phase 1's behaviour.
+        """
+        parent: dict[int, int] = {}
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        n_clusters = 0
+        target_was_exceeded: dict[int, bool] = {k: False for k in sorted_targets}
+        snapshots: dict[int, dict[int, int]] = {}
+
+        for pair in sorted_pairs:
+            i, j = int(pair.i), int(pair.j)
+            i_new = i not in parent
+            j_new = j not in parent
+            if i_new:
+                parent[i] = i
+            if j_new:
+                parent[j] = j
+
+            ri = find(i)
+            rj = find(j)
+            if ri != rj:
+                if i_new and j_new:
+                    n_clusters += 1
+                elif (not i_new) and (not j_new):
+                    n_clusters -= 1
+                if ri < rj:
+                    parent[rj] = ri
+                else:
+                    parent[ri] = rj
+
+            # Check each target's stop condition after this pair. Larger
+            # K thresholds fire earlier in the trajectory; smaller K
+            # thresholds fire later. Iterate in the order the caller
+            # supplied (descending) so the first K to snapshot is the
+            # largest still-unresolved target.
+            for k in sorted_targets:
+                if k in snapshots:
+                    continue
+                if n_clusters > k:
+                    target_was_exceeded[k] = True
+                elif target_was_exceeded[k]:
+                    snapshots[k] = dict(parent)
+
+            if len(snapshots) == len(sorted_targets):
+                break
+
+        # K values that never reached a stop condition fall back to the
+        # final parent state. `dict(parent)` snapshots once per K to keep
+        # them independent if a caller wanted to mutate later (defensive).
+        final_parent = dict(parent)
+        for k in sorted_targets:
+            if k not in snapshots:
+                snapshots[k] = dict(final_parent)
+
+        return snapshots
 
     # ----------------------------------------------------------------
     # apply()

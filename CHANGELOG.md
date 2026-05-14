@@ -4,6 +4,21 @@
 
 ### Added
 
+- **Pareto-path planning (Phase 2 of `add-pareto-target-compression`).**
+  New `Compressor.plan_pareto(targets)` method takes a sequence of
+  positive integer K values, sorts pairs by `score_field` exactly
+  once, and walks the union-find tree a single time, snapshotting
+  `parent` state at each K's stop point (Phase 1 "must exceed then
+  drop back" rule, applied per-K). Returns a `ParetoReport` bundling
+  per-K `ParetoOutcome(target_k, reached_target, plan)` outcomes,
+  with provenance fields (`sae_checkpoint`, `sae_checkpoint_sha256`,
+  `score_field`) and JSON round-trip via `to_json` / `from_json`
+  mirroring `CompressionReport`'s serializer. `targets` are
+  deduplicated and returned in descending order. `ParetoReport` /
+  `ParetoOutcome` are exported from
+  [`polygram`](polygram/__init__.py). Phase 3 (CLI `--pareto` /
+  `--pareto-materialize` flags + 0.4.0 release) is the next
+  follow-up.
 - **Target-K compression (Phase 1 of `add-pareto-target-compression`).**
   New public `Compressor.plan_with_target(target_n_features_kept=None)`
   method ignores `validation_report.confirmed` and instead sorts
