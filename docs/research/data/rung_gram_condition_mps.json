@@ -1,0 +1,23 @@
+{
+  "encoding": "mps",
+  "max_features": 8,
+  "k_selected": 8,
+  "feature_ids": [
+    4268,
+    9576,
+    12421,
+    14176,
+    14387,
+    16384,
+    19615,
+    23726
+  ],
+  "fixture": "scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors",
+  "selection_method": "top_cosine_cluster",
+  "gram_squared_mod_max_off_diagonal": 0.9998629369847293,
+  "gram_squared_mod_mean_off_diagonal": 0.7724678948203277,
+  "gram_squared_mod_frobenius_off_diagonal": 2.114902392710676,
+  "gram_squared_mod_lambda_min": -4.0944756339508904e-17,
+  "gram_squared_mod_lambda_max": 6.447233137965798,
+  "gram_squared_mod_condition_number": Infinity
+}

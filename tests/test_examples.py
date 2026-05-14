@@ -338,6 +338,43 @@ def test_rung3_viability_spike_smoke(capsys, tmp_path):
     assert "rung3_viability_spike:" in out
 
 
+def test_rung_compression_coverage_smoke(capsys, tmp_path):
+    """Smoke test: `examples/rung_compression_coverage.py` (Axis 1
+    of the rung-viability v2 methodology) exits 0 cleanly when the
+    SAE checkpoint is missing OR torch is unavailable. CI exercises
+    one of those skip paths."""
+    from examples.rung_compression_coverage import main
+
+    rc = main([
+        "--sae", str(tmp_path / "nonexistent.safetensors"),
+        "--encoding", "rung4",
+        "--quiet",
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert "rung_compression_coverage:" in out
+
+
+def test_rung_gram_condition_smoke(capsys):
+    """Smoke test: `examples/rung_gram_condition.py` (Axis 2 of the
+    rung-viability v2 methodology) runs end-to-end on the bundled
+    toy SAE fixture at K=8, --encoding rung4 (which reduces to
+    MPSRung1-equivalent gram at default knobs)."""
+    from examples.rung_gram_condition import main
+
+    rc = main([
+        "--encoding", "rung4",
+        "--k", "8",
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    # Headline metric label is in the output.
+    assert "Gram condition metrics" in out
+    assert "λ_min(|gram|²):" in out
+
+
 def test_rung4_viability_spike_smoke(capsys, tmp_path):
     """Smoke test: `examples/rung4_viability_spike.py` exits 0 on the
     SAE-absent branch. The full spike runs all 28 pairs of the §4.4
