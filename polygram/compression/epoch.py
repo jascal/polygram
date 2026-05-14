@@ -109,6 +109,13 @@ class EpochCompressor:
     # byte-identical to the pre-change pipeline (load-bearing — pinned by
     # the differential regression test in tests/compression/).
     encoding: "MPSRung1 | HEA_Rung2 | Rung3 | Rung4 | None" = None
+    # Whether to populate higher-rung amp-branch knobs from decoder
+    # geometry when building per-panel Dictionaries during validation
+    # (encoding-aware-knob-assignment, PR #63). Default False preserves
+    # byte-identity. Set True to actually exercise Rung3/Rung4 capacity
+    # in the compression pipeline — otherwise the per-panel dictionaries
+    # collapse to MPSRung1-equivalent gram even with `encoding=Rung4()`.
+    assign_amp_knobs: bool = False
 
     # Internal state populated during run()
     _zeroed: set[int] = field(default_factory=set, init=False, repr=False, compare=False)
@@ -454,6 +461,8 @@ class EpochCompressor:
                     sae_checkpoint=tmp_in_path,
                     strategy="zero",
                     representatives=representatives,
+                    encoding=self.encoding,
+                    assign_amp_knobs=self.assign_amp_knobs,
                 )
                 compress_result = compressor.run(
                     output_checkpoint=tmp_out_path
@@ -596,6 +605,8 @@ class EpochCompressor:
             dict_ids,
             assign_gamma=True,
             name=f"Epoch_{self.sae_checkpoint.stem.replace('-', '_').replace('.', '_')}",
+            encoding=self.encoding,
+            assign_amp_knobs=self.assign_amp_knobs,
         )
 
         return EpochResult(
@@ -683,6 +694,7 @@ class EpochCompressor:
                     layer=int(self.layer),
                     model_name=self.model_name,
                     encoding=self.encoding,
+                    assign_amp_knobs=self.assign_amp_knobs,
                 )
             )
         return reports
@@ -968,6 +980,7 @@ def _validate_panel_inline(
     layer: int,
     model_name: str,
     encoding,
+    assign_amp_knobs: bool = False,
 ) -> ValidationReport:
     """Synthesize a ValidationReport for one panel without running
     the full BehaviouralValidator.validate() ablation pass.
@@ -1013,6 +1026,7 @@ def _validate_panel_inline(
             records, feature_ids, assign_gamma=True,
             name=f"Panel{panel_id}",
             encoding=encoding,
+            assign_amp_knobs=assign_amp_knobs,
         )
     finally:
         tmp_path.unlink(missing_ok=True)

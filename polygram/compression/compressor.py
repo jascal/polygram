@@ -90,6 +90,13 @@ class Compressor:
     merge_mode: str | None = None
     representatives: dict[int, int] | None = None
     config: "CompressionConfig | None" = None
+    # Encoding-aware-knob-assignment plumbing. When set, Compressor.apply
+    # passes them through to its post-compression `from_sae_lens` rebuild
+    # so the resulting Dictionary uses the configured encoding's full
+    # state space rather than collapsing to MPSRung1-equivalent. Default
+    # values preserve byte-identity.
+    encoding: object | None = None
+    assign_amp_knobs: bool = False
 
     # Cached union-find clusters keyed by cluster_id; populated by
     # `plan()` and consulted by the `representatives` validator.
@@ -420,6 +427,8 @@ class Compressor:
             feature_ids,
             assign_gamma=True,
             name=self.validation_report.dictionary_name,
+            encoding=self.encoding,
+            assign_amp_knobs=self.assign_amp_knobs,
         )
 
         return CompressionResult(

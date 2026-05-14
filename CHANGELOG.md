@@ -4,6 +4,17 @@
 
 ### Added
 
+- **`EpochCompressor(assign_amp_knobs=True)` + `Compressor(assign_amp_knobs=True)`** —
+  threads the encoding-aware-knob-assignment flag through the
+  compression pipeline. Both the per-panel `from_sae_lens` call in
+  `_validate_panel_inline`, the final dictionary rebuild in
+  `EpochCompressor.run`, and the post-compression `from_sae_lens`
+  rebuild in `Compressor.apply` now honour the flag. Without this,
+  setting `encoding=Rung4()` on the compressor would still result
+  in MPS-equivalent per-block dictionaries during validation —
+  defeating the un-dormanting work from PR #63. Default `False`
+  preserves byte-identical behaviour. Unblocks Axis 1 (compression
+  coverage) measurements on real SAEs.
 - **Encoding-aware knob assignment in `from_sae_lens`** — new
   `assign_amp_knobs: bool = False` kwarg. When True, the loader
   populates higher-rung amp-branch knobs (`theta_amp`, `psi_aux`,
