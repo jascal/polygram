@@ -1,0 +1,21 @@
+sae_checkpoint: scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors
+encoding: mps (max_features=8)
+assign_amp_knobs: False
+model: gpt2, layer: 10
+prompts: 8
+epoch_kwargs: {'layer': 10, 'n_panels_max': 200, 'max_iterations': 3, 'coverage_target': 0.5, 'cosine_threshold': 0.3}
+
+== running EpochCompressor ==
+
+== Compression coverage metrics ==
+  n_features_zeroed_total:        3540
+  n_iterations:                   3
+  final cumulative CE delta:      0.290905
+  final convergence state:        max_iterations
+
+  per-iteration trajectory:
+    iter 0: zeroed_count=1225, CE_delta=0.205435, cumulative_CE_delta=0.205435, state=continuing
+    iter 1: zeroed_count=1176, CE_delta=0.061958, cumulative_CE_delta=0.267393, state=continuing
+    iter 2: zeroed_count=1139, CE_delta=0.023512, cumulative_CE_delta=0.290905, state=max_iterations
+
+wrote docs/research/data/axis1_mps.json

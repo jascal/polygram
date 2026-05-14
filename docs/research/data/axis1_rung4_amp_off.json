@@ -1,0 +1,47 @@
+{
+  "encoding": "rung4",
+  "max_features": 32,
+  "assign_amp_knobs": false,
+  "sae_checkpoint": "scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors",
+  "model_name": "gpt2",
+  "layer": 10,
+  "n_prompts": 8,
+  "epoch_kwargs": {
+    "layer": 10,
+    "n_panels_max": 200,
+    "max_iterations": 3,
+    "coverage_target": 0.5,
+    "cosine_threshold": 0.3
+  },
+  "n_features_zeroed_total": 17411,
+  "n_iterations": 3,
+  "final_iteration": {
+    "iteration": 2,
+    "cross_entropy_delta": 0.0889499,
+    "cumulative_cross_entropy_delta": 0.4037839,
+    "convergence_state": "max_iterations"
+  },
+  "per_iteration": [
+    {
+      "iteration": 0,
+      "features_zeroed_this_iteration_count": 5909,
+      "cross_entropy_delta": 0.207929,
+      "cumulative_cross_entropy_delta": 0.207929,
+      "convergence_state": "continuing"
+    },
+    {
+      "iteration": 1,
+      "features_zeroed_this_iteration_count": 5811,
+      "cross_entropy_delta": 0.106905,
+      "cumulative_cross_entropy_delta": 0.314834,
+      "convergence_state": "continuing"
+    },
+    {
+      "iteration": 2,
+      "features_zeroed_this_iteration_count": 5691,
+      "cross_entropy_delta": 0.0889499,
+      "cumulative_cross_entropy_delta": 0.4037839,
+      "convergence_state": "max_iterations"
+    }
+  ]
+}

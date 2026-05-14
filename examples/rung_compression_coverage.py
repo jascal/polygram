@@ -230,6 +230,12 @@ def main(argv: list[str] | None = None) -> int:
 
     report = result.report
     final_iter = report.iterations[-1] if report.iterations else None
+    cumulative_by_iter: list[float] = []
+    running = 0.0
+    for it in report.iterations:
+        running += float(it.cross_entropy_delta)
+        cumulative_by_iter.append(running)
+    final_cumulative_ce_delta = cumulative_by_iter[-1] if cumulative_by_iter else 0.0
 
     if not args.quiet:
         print()
@@ -239,17 +245,18 @@ def main(argv: list[str] | None = None) -> int:
         if final_iter is not None:
             print(
                 f"  final cumulative CE delta:      "
-                f"{final_iter.cumulative_cross_entropy_delta:.6f}"
+                f"{final_cumulative_ce_delta:.6f}"
             )
             print(f"  final convergence state:        {final_iter.convergence_state}")
         print()
         if report.iterations:
             print("  per-iteration trajectory:")
-            for it in report.iterations:
+            for it, cum in zip(report.iterations, cumulative_by_iter):
                 print(
                     f"    iter {it.iteration}: zeroed_count="
                     f"{len(it.features_zeroed_this_iteration)}, "
-                    f"cumulative_CE_delta={it.cumulative_cross_entropy_delta:.6f}, "
+                    f"CE_delta={it.cross_entropy_delta:.6f}, "
+                    f"cumulative_CE_delta={cum:.6f}, "
                     f"state={it.convergence_state}"
                 )
 
@@ -268,8 +275,8 @@ def main(argv: list[str] | None = None) -> int:
             None if final_iter is None
             else {
                 "iteration": int(final_iter.iteration),
-                "cumulative_cross_entropy_delta":
-                    float(final_iter.cumulative_cross_entropy_delta),
+                "cross_entropy_delta": float(final_iter.cross_entropy_delta),
+                "cumulative_cross_entropy_delta": float(final_cumulative_ce_delta),
                 "convergence_state": final_iter.convergence_state,
             }
         ),
@@ -278,11 +285,11 @@ def main(argv: list[str] | None = None) -> int:
                 "iteration": int(it.iteration),
                 "features_zeroed_this_iteration_count":
                     len(it.features_zeroed_this_iteration),
-                "cumulative_cross_entropy_delta":
-                    float(it.cumulative_cross_entropy_delta),
+                "cross_entropy_delta": float(it.cross_entropy_delta),
+                "cumulative_cross_entropy_delta": float(cum),
                 "convergence_state": it.convergence_state,
             }
-            for it in report.iterations
+            for it, cum in zip(report.iterations, cumulative_by_iter)
         ],
     }
     if args.output is not None:

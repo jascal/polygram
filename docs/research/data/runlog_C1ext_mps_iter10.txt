@@ -1,0 +1,28 @@
+sae_checkpoint: scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors
+encoding: mps (max_features=8)
+assign_amp_knobs: False
+model: gpt2, layer: 10
+prompts: 8
+epoch_kwargs: {'layer': 10, 'n_panels_max': 200, 'max_iterations': 10, 'coverage_target': 0.5, 'cosine_threshold': 0.3}
+
+== running EpochCompressor ==
+
+== Compression coverage metrics ==
+  n_features_zeroed_total:        10847
+  n_iterations:                   10
+  final cumulative CE delta:      0.432035
+  final convergence state:        max_iterations
+
+  per-iteration trajectory:
+    iter 0: zeroed_count=1225, CE_delta=0.205435, cumulative_CE_delta=0.205435, state=continuing
+    iter 1: zeroed_count=1176, CE_delta=0.061958, cumulative_CE_delta=0.267393, state=continuing
+    iter 2: zeroed_count=1139, CE_delta=0.023512, cumulative_CE_delta=0.290905, state=continuing
+    iter 3: zeroed_count=1120, CE_delta=0.014121, cumulative_CE_delta=0.305026, state=continuing
+    iter 4: zeroed_count=1097, CE_delta=0.032529, cumulative_CE_delta=0.337555, state=continuing
+    iter 5: zeroed_count=1077, CE_delta=0.016543, cumulative_CE_delta=0.354099, state=continuing
+    iter 6: zeroed_count=1061, CE_delta=0.007870, cumulative_CE_delta=0.361968, state=continuing
+    iter 7: zeroed_count=1007, CE_delta=0.049080, cumulative_CE_delta=0.411049, state=continuing
+    iter 8: zeroed_count=989, CE_delta=0.008437, cumulative_CE_delta=0.419486, state=continuing
+    iter 9: zeroed_count=956, CE_delta=0.012550, cumulative_CE_delta=0.432035, state=max_iterations
+
+wrote docs/research/data/axis1_mps_iter10.json
