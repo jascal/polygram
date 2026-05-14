@@ -154,6 +154,8 @@ class ClusteredKnobAssignment:
         gamma_range: tuple[float, float],
         assign_gamma: bool,
         seed: int,
+        assign_amp_knobs: bool = False,
+        encoding: object = None,
     ) -> KnobAssignmentResult:
         n = len(feature_names)
         k = n_clusters if n_clusters is not None else 2
@@ -184,12 +186,27 @@ class ClusteredKnobAssignment:
 
         betas = [betas_by_cluster[c] for c in cluster_per_feature]
 
+        amp_assignments: dict[str, list[float] | None] = {
+            "theta_amps": None,
+            "psi_auxes": None,
+            "theta_amp_bs": None,
+            "psi_amp_bs": None,
+        }
+        if assign_amp_knobs and encoding is not None:
+            from polygram.geometry.amp_assignment import assign_amp_knobs_pca
+
+            amp_assignments = assign_amp_knobs_pca(projections, encoding)
+
         return KnobAssignmentResult(
             cluster_per_feature=cluster_per_feature,
             betas=betas,
             gammas=gammas,
             cluster_method="kmeans",
             beta_variance_explained=var_explained,
+            theta_amps=amp_assignments["theta_amps"],
+            psi_auxes=amp_assignments["psi_auxes"],
+            theta_amp_bs=amp_assignments["theta_amp_bs"],
+            psi_amp_bs=amp_assignments["psi_amp_bs"],
         )
 
 

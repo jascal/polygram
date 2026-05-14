@@ -568,6 +568,7 @@ def from_sae_lens(
     profile: "str | GeometricProfile | None" = None,
     clustered: bool = False,
     block_formation: "BlockFormation | None" = None,
+    assign_amp_knobs: bool | None = None,
 ) -> tuple["Dictionary | ClusteredDictionary", SelectionReport]:
     """Build a `Dictionary` from an explicit subset of SAE features.
 
@@ -612,6 +613,8 @@ def from_sae_lens(
 
     if assign_gamma is None:
         assign_gamma = cfg.assign_gamma
+    if assign_amp_knobs is None:
+        assign_amp_knobs = cfg.assign_amp_knobs
     if gamma_range is None:
         gamma_range = cfg.gamma_range
     # n_clusters default cascade: kwarg > config (only if config explicitly
@@ -689,12 +692,20 @@ def from_sae_lens(
             gamma_range=gamma_range,
             assign_gamma=assign_gamma,
             seed=0,
+            assign_amp_knobs=assign_amp_knobs,
+            encoding=encoding,
         )
         cluster_per_feature = result.cluster_per_feature
         method = result.cluster_method
         betas_explicit = result.betas
         gammas_explicit = result.gammas
         var_explained_explicit = result.beta_variance_explained
+        amp_knobs_explicit = {
+            "theta_amps": result.theta_amps,
+            "psi_auxes": result.psi_auxes,
+            "theta_amp_bs": result.theta_amp_bs,
+            "psi_amp_bs": result.psi_amp_bs,
+        }
 
     cluster_order: list[str] = []
     seen: set[str] = set()
@@ -728,6 +739,20 @@ def from_sae_lens(
             gammas = [0.0] * len(selected)
             gamma_method = "zero"
         betas = [betas_by_cluster[c] for c in cluster_per_feature]
+        # Bypass path: still honour assign_amp_knobs by calling the
+        # helper directly on the raw projections. Keeps the flag's
+        # effect consistent across all paths.
+        if assign_amp_knobs and encoding is not None:
+            from polygram.geometry.amp_assignment import assign_amp_knobs_pca
+
+            amp_knobs_explicit = assign_amp_knobs_pca(projs, encoding)
+        else:
+            amp_knobs_explicit = {
+                "theta_amps": None,
+                "psi_auxes": None,
+                "theta_amp_bs": None,
+                "psi_amp_bs": None,
+            }
     else:
         betas = betas_explicit  # type: ignore[assignment]
         gammas = gammas_explicit  # type: ignore[assignment]
@@ -740,10 +765,33 @@ def from_sae_lens(
 
         centroids_by_cluster = _centroids(projs, cluster_per_feature)
 
-    features = [
-        Feature(name=r.name, cluster=c, beta=b, gamma=g)
-        for r, c, b, g in zip(selected, cluster_per_feature, betas, gammas)
-    ]
+    # Resolve per-feature amp-branch knob values. When the strategy
+    # (or bypass path) populated the arrays, each feature's knob value
+    # comes from the array; otherwise it falls back to the encoding's
+    # default (the Feature dataclass's field default).
+    theta_amps_arr = amp_knobs_explicit["theta_amps"]
+    psi_auxes_arr = amp_knobs_explicit["psi_auxes"]
+    theta_amp_bs_arr = amp_knobs_explicit["theta_amp_bs"]
+    psi_amp_bs_arr = amp_knobs_explicit["psi_amp_bs"]
+
+    features = []
+    for i, (r, c, b, g) in enumerate(
+        zip(selected, cluster_per_feature, betas, gammas)
+    ):
+        # Build kwargs lazily so that None entries don't override the
+        # Feature dataclass's encoding defaults.
+        feat_kwargs: dict[str, float] = {}
+        if theta_amps_arr is not None:
+            feat_kwargs["theta_amp"] = theta_amps_arr[i]
+        if psi_auxes_arr is not None:
+            feat_kwargs["psi_aux"] = psi_auxes_arr[i]
+        if theta_amp_bs_arr is not None:
+            feat_kwargs["theta_amp_b"] = theta_amp_bs_arr[i]
+        if psi_amp_bs_arr is not None:
+            feat_kwargs["psi_amp_b"] = psi_amp_bs_arr[i]
+        features.append(
+            Feature(name=r.name, cluster=c, beta=b, gamma=g, **feat_kwargs)
+        )
     hierarchy: dict[str, list[str]] = {c: [] for c in cluster_order}
     for f in features:
         hierarchy[f.cluster].append(f.name)

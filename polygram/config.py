@@ -401,6 +401,12 @@ class SAEImportConfig(_ConfigMixin):
     gamma_range: tuple[float, float] = (-0.25, 0.25)
     n_clusters: int = 2
     profile: str | None = None
+    # encoding-aware-knob-assignment. Default False preserves byte-
+    # identical behaviour. When True, the loader populates higher-rung
+    # encodings' amp-branch knobs from decoder PCA (see
+    # polygram/geometry/amp_assignment.py). No-op for MPSRung1 /
+    # HEA_Rung2.
+    assign_amp_knobs: bool = False
 
     def __post_init__(self) -> None:
         if not (
