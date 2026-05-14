@@ -28,9 +28,9 @@ The canonical 3-cell comparison is:
 | C3 | rung4 | True | Load-bearing — does un-dormant Rung4 actually compress better? |
 | C4 (optional) | rung3 | True | Rung3 amp-on data point for the rung-ladder comparison |
 
-C1 vs C2 should show **near-identical** compression metrics (modulo the encoding's structural effect on panel size — Rung4 has cap 32 vs MPS's 8, which DOES affect `_select_panels`'s neighbour cap). If C1 and C2 are quite different, the panel-size effect dominates and the amp-knob path's effect (C2 vs C3) is what matters for "does un-dormanting help?".
+**C1 vs C2 — expected near-identical compression metrics modulo the per-encoding panel-size effect.** Default-knob Rung4 produces MPSRung1-equivalent grams in the validator, BUT Rung4's `max_features=32` cap lets `_select_panels` build panels up to 32 features (vs MPS's 8). Bigger panels = different cancellation patterns. So C1 vs C2 isolates the *panel-size* effect alone; C2 vs C3 isolates the *amp-knob* effect on top of the same panel size. If C1 and C2 are quite different, the panel-size effect dominates and the amp-knob path's marginal contribution (C2 vs C3) is what tells us whether un-dormanting helps.
 
-C2 vs C3 is the load-bearing comparison.
+**C2 vs C3 is the load-bearing comparison.**
 
 ### Decision 2: Use existing canonical kwargs
 
@@ -71,5 +71,5 @@ The runs are deterministic given the same SAE checkpoint, prompts, kwargs, and t
 
 ## Open Questions
 
-- **Should the verdict be "flip the default" or "leave opt-in" regardless of the outcome?** Default-flipping has compatibility cost (existing call sites that pass `encoding=Rung4()` see different behaviour). Even a strong Axis 1 PASS doesn't *require* flipping the default — it just supports doing so in a follow-up change. Defer the decision.
+- **Should the verdict be "flip the default" or "leave opt-in" regardless of the outcome?** Default-flipping has compatibility cost (existing call sites that pass `encoding=Rung4()` see different behaviour). Even a strong Axis 1 PASS doesn't *require* flipping the default — it just supports doing so in a follow-up change. Defer the decision. **If PASS, a follow-up openspec change (`flip-assign-amp-knobs-default-for-higher-rungs`) will propose flipping with explicit migration guidance for existing Rung3/Rung4 call sites; the default-flip is not in scope of this measurement run.**
 - **Should we measure with prompts ≠ the canonical 8?** The 8 prompts are diverse enough for a 30-token forward, but may not exercise the full SAE feature space. A 32-prompt run is 4× the wall time and might surface different feature-firing distributions. Defer; the 8-prompt single-point is the first-cut measurement.

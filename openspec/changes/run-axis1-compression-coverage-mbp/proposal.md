@@ -35,9 +35,41 @@ After the runs land, the v2.2 supplemental in `docs/research/rung4-viability-spi
 
 The verdict goes into the v2.2 note. None of these is a "kill the encoding" verdict — Rung4 stays opt-in regardless. The question is whether to flip the default and update the README's "when to use which rung" guidance.
 
+### Run commands (copy-paste for the torch host)
+
+After `pip install -e ".[behavioural]"` succeeds in the polygram venv:
+
+```bash
+# C1 — MPS baseline
+python examples/rung_compression_coverage.py \
+  --encoding mps \
+  --sae scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors \
+  --output docs/research/data/axis1_mps.json
+
+# C2 — Rung4 default-knob (control; isolates panel-size effect from amp effect)
+python examples/rung_compression_coverage.py \
+  --encoding rung4 \
+  --sae scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors \
+  --output docs/research/data/axis1_rung4_amp_off.json
+
+# C3 — Rung4 amp-on (LOAD-BEARING)
+python examples/rung_compression_coverage.py \
+  --encoding rung4 --assign-amp-knobs \
+  --sae scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors \
+  --output docs/research/data/axis1_rung4_amp_on.json
+
+# C4 (optional) — Rung3 amp-on
+python examples/rung_compression_coverage.py \
+  --encoding rung3 --assign-amp-knobs \
+  --sae scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors \
+  --output docs/research/data/axis1_rung3_amp_on.json
+```
+
+Each cell ≈ 3-5 min on the 2019 MBP; 3 cells ≈ 15 min total.
+
 ### Expected artifacts
 
-- `docs/research/data/axis1_mps_n_features_zeroed.json` — MPS baseline
+- `docs/research/data/axis1_mps.json` — MPS baseline
 - `docs/research/data/axis1_rung4_amp_off.json` — Rung4 default-knob (control)
 - `docs/research/data/axis1_rung4_amp_on.json` — Rung4 amp-on (load-bearing)
 - (optional) `docs/research/data/axis1_rung3_amp_on.json`
