@@ -4,6 +4,23 @@
 
 ### Added
 
+- **Encoding-aware knob assignment in `from_sae_lens`** — new
+  `assign_amp_knobs: bool = False` kwarg. When True, the loader
+  populates higher-rung amp-branch knobs (`theta_amp`, `psi_aux`,
+  `theta_amp_b`, `psi_amp_b`) from decoder geometry via PCA-axis
+  extension of the existing β strategy. Resolves the load-bearing
+  finding in `docs/research/rung4-viability-spike-v2.md` that
+  higher-rung dictionaries were structurally dormant in the loader
+  path (gram-equivalent to MPSRung1 at default knobs). Default
+  `False` preserves byte-identical behaviour. `SAEImportConfig`
+  gains the same field. Both shipped profiles (`clustered`,
+  `uniform-sphere`) honour the flag. Falsifying tests in
+  `tests/test_amp_knob_assignment.py` pin the invariant that
+  Rung4 gram with amp-on differs from amp-off by Frobenius >
+  1e-3 on the toy fixture (off-diagonal-only > 1e-3 too).
+  Real-SAE measurements: Rung4 mean off-diagonal drops 0.82 →
+  0.32 with amp-on; the encoding's state space is no longer
+  collapsing to MPSRung1.
 - **Rung-viability v2 methodology — measurement scripts and partial
   results.** Implements axes 1 + 2 of the v2 methodology proposed
   in `docs/research/rung-viability-methodology.md`:

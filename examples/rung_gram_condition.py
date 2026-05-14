@@ -117,6 +117,16 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional JSON path for the result artifact.",
     )
+    p.add_argument(
+        "--assign-amp-knobs",
+        action="store_true",
+        help=(
+            "Populate the encoding's amp-branch knobs from decoder "
+            "geometry (PCA-axis extension). When omitted, the loader "
+            "uses encoding defaults — which for Rung3/Rung4 produce "
+            "MPSRung1-equivalent gram, per the v2 results note."
+        ),
+    )
     return p.parse_args()
 
 
@@ -185,10 +195,16 @@ def compute_gram_condition_metrics(
     encoding,
     *,
     name: str,
+    assign_amp_knobs: bool = False,
 ) -> dict:
     """Build a `Dictionary` on `feature_ids` with `encoding`, compute
     `np.abs(gram)**2`, and report the off-diagonal mass + spectral
-    extrema (load-bearing metrics for Axis 2)."""
+    extrema (load-bearing metrics for Axis 2).
+
+    `assign_amp_knobs` controls whether higher-rung amp-branch knobs
+    are populated from decoder geometry (PR for issue-58 follow-up).
+    Default False matches the v2 results note's measurements.
+    """
     if sae_path is not None:
         records = load_sae_safetensors(sae_path, feature_ids=feature_ids)
     else:
@@ -199,6 +215,7 @@ def compute_gram_condition_metrics(
     dictionary, _ = from_sae_lens(
         records, feature_ids, assign_gamma=True, name=name,
         encoding=encoding,
+        assign_amp_knobs=assign_amp_knobs,
     )
     gram = dictionary.gram()
     gram_sq = np.abs(gram) ** 2
@@ -252,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     metrics = compute_gram_condition_metrics(
         sae_path, feature_ids, encoding,
         name=f"RungGramCondition_{args.encoding}_k{k}",
+        assign_amp_knobs=bool(args.assign_amp_knobs),
     )
 
     print("== Gram condition metrics ==")
@@ -287,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
         "feature_ids": feature_ids,
         "fixture": fixture_label,
         "selection_method": "top_cosine_cluster",
+        "assign_amp_knobs": bool(args.assign_amp_knobs),
         **metrics,
     }
     if args.output is not None:
@@ -304,6 +323,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--k", type=int, default=None)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output", type=Path, default=None)
+    p.add_argument("--assign-amp-knobs", action="store_true")
     return p.parse_args(argv)
 
 

@@ -187,8 +187,67 @@ Two findings worth recording independent of the verdict:
   ready; awaits torch-enabled run)
 - `examples/rung_gram_condition.py` — Axis 2 script
 - `docs/research/data/rung_gram_condition_{mps,rung3,rung4}.json`
-  — Axis 2 raw outputs (K=max_features each)
+  — Axis 2 raw outputs (K=max_features each, **amp-knob defaults**)
 - `docs/research/data/rung_gram_condition_{rung3,rung4}_k8.json`
   — Axis 2 same-K control (proves bit-identity)
+- `docs/research/data/rung_gram_condition_{rung3,rung4}_amp_on.json`
+  — Axis 2 raw outputs **with PCA-axis amp-knob assignment** (post-
+  `encoding-aware-knob-assignment` change). See Resolved section.
 - `tests/test_examples.py::test_rung_compression_coverage_smoke`
 - `tests/test_examples.py::test_rung_gram_condition_smoke`
+- `tests/test_amp_knob_assignment.py` — the falsifying-invariant
+  tests that pin the amp-knob assignment as actually doing work.
+
+## Resolved (encoding-aware-knob-assignment)
+
+The "Axis 2 methodology is invalid as designed" finding is partially
+addressed by [`encoding-aware-knob-assignment`](../../openspec/changes/encoding-aware-knob-assignment/proposal.md)
+(P0 from the post-#61 strategic review). That change adds
+`assign_amp_knobs: bool = False` to `from_sae_lens`. When set to
+`True`, the loader populates higher-rung amp-branch knobs from
+decoder PCA — un-dormanting the encodings' larger state spaces.
+
+Re-running Axis 2 at K=max_features with `--assign-amp-knobs` on
+the same real GPT-2-small SAE fixture:
+
+| Metric | MPSRung1 K=8 (unchanged) | Rung3 K=16 amp-off | Rung3 K=16 **amp-on** | Rung4 K=32 amp-off | Rung4 K=32 **amp-on** |
+|---|---|---|---|---|---|
+| mean off-diag | 0.7725 | 0.7835 | **0.4787** | 0.8236 | **0.3206** |
+| Frobenius off-diag / k | 2.115 | 3.137 | **2.397** | 4.718 | **2.345** |
+| λ_min | ~0 | ~0 | ~0 | -3.7e-15 | **+2.9e-16** |
+| λ_max | 6.45 | 12.78 | 9.37 | 26.81 | **12.30** |
+| Condition # | inf | inf | inf | inf | **4.2e+16** |
+
+**Headline finding**: Rung4 amp-on drops mean off-diagonal by 61%
+(0.82 → 0.32) and flips λ_min from negative-FP-noise (rank-deficient)
+to positive-near-zero (numerically rank-full). The encoding's
+state space is no longer collapsing to MPSRung1; the gram is
+materially different from the K=8 baseline.
+
+**Caveat (not a failure, just reality)**: λ_min remains *near* zero
+on this fixture, and the condition number stays large (~4e+16). This
+is the expected behaviour for a deliberately-chosen highest-redundancy
+K=32 panel — the features were *picked* because they're nearly
+parallel in decoder space, so any encoding (no matter how rich) will
+produce a gram with one or more tiny eigenvalues. The amp assignment
+moves us from "actually rank-deficient (negative FP-noise λ_min)" to
+"merely ill-conditioned (positive near-zero λ_min)", which is the
+load-bearing change. The condition-number metric becomes informative
+again only when measured on less-redundant panels.
+
+MPS amp-on is bit-identical to MPS amp-off (no amp branch — the flag
+is a no-op for MPSRung1).
+
+**Decision update**: with the un-dormant path available, Axis 1
+(compression coverage) and Axis 4 (sae-forge faithfulness) become
+meaningful experiments for the first time — they'd actually be
+testing higher-rung capacity rather than MPS-equivalent aliases.
+Verdict on Rung4 viability is still **inconclusive pending
+Axis 1 / 4 on a torch-enabled host**, but the load-bearing
+methodological blocker is resolved.
+
+> **TODO** — run `examples/rung_compression_coverage.py --assign-amp-knobs`
+> (Axis 1) on a torch-enabled host. The script ships and the un-dormant
+> path is in place; what's left is procuring the GPU time per the
+> auto-memory's IP-separation constraint. Results land here as a v2.2
+> supplement.
