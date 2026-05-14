@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added
+
+- **Rung-viability v2 methodology — measurement scripts and partial
+  results.** Implements axes 1 + 2 of the v2 methodology proposed
+  in `docs/research/rung-viability-methodology.md`:
+  - `examples/rung_compression_coverage.py` (Axis 1) —
+    `EpochCompressor(encoding=X)` runs across encodings on the
+    same SAE; reports per-iteration zeroing trajectory + cumulative
+    cross-entropy delta. Graceful skip when torch / SAE is missing.
+  - `examples/rung_gram_condition.py` (Axis 2) — builds a
+    `Dictionary` at K=max_features on the top-cosine subset of an
+    SAE; reports λ_min(|gram|²), off-diagonal Frobenius mass,
+    condition number. Torch-free.
+  - `docs/research/rung4-viability-spike-v2.md` — captures the
+    Axis 2 finding: at default knobs, Rung3 and Rung4 reduce to
+    MPSRung1-equivalent gram (designed property of the encodings);
+    Axis 2 as designed can't discriminate without knob optimization
+    or encoding-specific knob assignment in `from_sae_lens`. Axes 1
+    + 4 pending a torch-enabled host. Decision: **inconclusive — v1
+    opt-in verdict stands.**
+
 ### Changed (Performance)
 
 - **`build_clustered_dictionary`** now shares the cosine pair graph
