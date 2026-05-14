@@ -273,23 +273,31 @@ to footgun callers into a multi-GB disk write they didn't intend.
 
 ### Decision 10 — `target_n_features_kept` semantics under infeasible targets
 
-If the target K is **higher** than the minimum reachable
+If the target K is **lower** than the minimum reachable
 representative count for the supplied pair list (i.e. if the
 algorithm finishes processing all pairs before the cluster count
 drops to `target_k`), the algorithm returns the most-compressed
-plan it can reach. The resulting `n_features_kept` is `> target_k`.
+plan it can reach. The resulting `plan.n_features_kept` is
+strictly `> target_k`.
 
-For `plan_with_target()`, callers detect this by
+For `plan_with_target()`, callers detect this by checking
 `plan.n_features_kept > target_k`. No exception is raised — this
 is a common case in sweeps.
 
-For `plan_pareto()`, the `ParetoOutcome.reached_target` flag
-records the result per K.
+For `plan_pareto()`, the `ParetoOutcome` for that K records
+`reached_target = False` and the same overshooting
+`plan.n_features_kept`. Concretely, when `reached_target` is
+`False`: the algorithm exhausted all viable pairs; the returned
+plan is the best achievable compression for that pair list given
+the chosen `score_field`; `plan.n_features_kept` is the actual
+representative count the caller got, which the caller should
+treat as an upper bound on what's reachable with these pairs.
 
 If the target K is **higher** than the trivial-no-compression
 count (`len(feature_ids)` — every feature is its own component),
 the algorithm short-circuits and returns a plan with zero
-clusters. `reached_target = True` (trivially).
+clusters. `plan.n_features_kept == 0` and `reached_target` is
+`True` (trivially — any cluster count `≤ target_k`).
 
 **Alternative considered**: raise on infeasible target. Rejected —
 common in sweeps; better to return the closest achievable plan and

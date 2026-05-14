@@ -33,6 +33,21 @@ with cluster-exhaustion, and called out
 as the natural follow-up. Target-K planning is the load-bearing
 primitive for that follow-up.
 
+### Expected workflow
+
+Typical caller path: run a Pareto sweep
+(`polygram compress --pareto 500,1000,2000` — writes only the
+`pareto.json` plan artifact, no SAE rewrites), inspect the
+features-vs-CE curve (or any downstream faithfulness metric) to
+choose a K, then re-run with
+`polygram compress --target-features K` to materialise the chosen
+SAE checkpoint. Callers who want to materialise the whole sweep
+up-front can use `--pareto 500,1000,2000 --pareto-materialize`
+instead. The cheap step (planning) and the expensive step
+(rewriting one or more SAE checkpoints) are deliberately
+separated; `--pareto-materialize` is the explicit opt-in to pay
+the full disk cost.
+
 ## What Changes
 
 ### Public API
