@@ -144,6 +144,16 @@ def parse_args() -> argparse.Namespace:
         help="Optional JSON path for the result artifact.",
     )
     p.add_argument(
+        "--assign-amp-knobs",
+        action="store_true",
+        help=(
+            "Populate higher-rung amp-branch knobs from decoder "
+            "geometry (PCA-axis extension). Without this flag, "
+            "Rung3/Rung4 dictionaries collapse to MPSRung1-equivalent "
+            "gram in the validator — see encoding-aware-knob-assignment."
+        ),
+    )
+    p.add_argument(
         "--quiet", action="store_true",
         help="Suppress per-iteration progress lines.",
     )
@@ -199,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.quiet:
         print(f"sae_checkpoint: {sae_path}")
         print(f"encoding: {args.encoding} (max_features={encoding.max_features})")
+        print(f"assign_amp_knobs: {bool(args.assign_amp_knobs)}")
         print(f"model: {args.model_name}, layer: {args.layer}")
         print(f"prompts: {len(prompts)}")
         print(f"epoch_kwargs: {epoch_kwargs}")
@@ -212,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             prompts=prompts,
             model_name=args.model_name,
             encoding=encoding,
+            assign_amp_knobs=bool(args.assign_amp_knobs),
             **epoch_kwargs,
         )
         result = epoch.run(out_path)
@@ -244,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "encoding": args.encoding,
         "max_features": encoding.max_features,
+        "assign_amp_knobs": bool(args.assign_amp_knobs),
         "sae_checkpoint": str(sae_path),
         "model_name": args.model_name,
         "layer": int(args.layer),
@@ -291,6 +304,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--cosine-threshold", type=float, default=0.3)
     p.add_argument("--n-prompts", type=int, default=len(CANONICAL_PROMPTS))
     p.add_argument("--output", type=Path, default=None)
+    p.add_argument("--assign-amp-knobs", action="store_true")
     p.add_argument("--quiet", action="store_true")
     return p.parse_args(argv)
 
