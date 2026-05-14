@@ -238,13 +238,15 @@ again only when measured on less-redundant panels.
 MPS amp-on is bit-identical to MPS amp-off (no amp branch — the flag
 is a no-op for MPSRung1).
 
-**Decision update**: with the un-dormant path available, Axis 1
-(compression coverage) and Axis 4 (sae-forge faithfulness) become
-meaningful experiments for the first time — they'd actually be
-testing higher-rung capacity rather than MPS-equivalent aliases.
-Verdict on Rung4 viability is still **inconclusive pending
-Axis 1 / 4 on a torch-enabled host**, but the load-bearing
-methodological blocker is resolved.
+**Decision update**: with the un-dormant path available end-to-end
+through `from_sae_lens`, `EpochCompressor`, `Compressor`, and
+therefore in all downstream sae-forge + behavioural-validation
+steps, Axis 1 (compression coverage) and Axis 4 (sae-forge
+faithfulness) become meaningful experiments for the first time —
+they'd actually be testing higher-rung capacity rather than
+MPS-equivalent aliases. Verdict on Rung4 viability is still
+**inconclusive pending Axis 1 / 4 on a torch-enabled host**, but
+the load-bearing methodological blocker is resolved.
 
 > **TODO** — run `examples/rung_compression_coverage.py --assign-amp-knobs`
 > (Axis 1) on a torch-enabled host. The script ships and the un-dormant
