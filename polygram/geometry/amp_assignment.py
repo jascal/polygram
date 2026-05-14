@@ -159,7 +159,13 @@ def assign_amp_knobs_pca(
     }
 
     # Knob → (axis_index, range_lo, range_hi).
-    # axis_index is 0-indexed into vt's rows (PCA axis-N is row N-1).
+    # axis_index is 0-indexed into vt's rows. PC1 (axis 1, vt[0]) is
+    # consumed by β in the surrounding strategy; amp knobs start from
+    # PC2 (vt[1]):
+    #   theta_amp   ← PC2  (vt[1]) → rescaled to [0, π/2]
+    #   psi_aux     ← PC3  (vt[2]) → rescaled to [0, 2π]
+    #   theta_amp_b ← PC4  (vt[3]) → [0, π/2]   (Rung4 only)
+    #   psi_amp_b   ← PC5  (vt[4]) → [0, 2π]    (Rung4 only)
     knob_slots = [
         ("theta_amps",   1, 0.0, math.pi / 2),
         ("psi_auxes",    2, 0.0, 2 * math.pi),
