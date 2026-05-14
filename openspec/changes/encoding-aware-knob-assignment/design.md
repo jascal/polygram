@@ -118,7 +118,7 @@ This is the load-bearing assertion. If it fails, the impl is wrong.
 
 ## Open Questions
 
-- **Should the rescaling be linear or sinusoidal?** Top-K PCA coords are not necessarily uniformly distributed; a uniform rescale into `[0, π/2]` could produce clustering near the endpoints. A sinusoidal rescale (`asin(coord / max)`) would push samples toward the interior. Linear is simpler and matches the existing β strategy; defer the question unless P1 measurements show distribution pathology.
+- **Should the rescaling be linear or sinusoidal?** Top-K PCA coords are not necessarily uniformly distributed; a uniform linear rescale into `[0, π/2]` or `[0, 2π]` could produce clustering near the endpoints (PCA coords on real SAE projections tend to be heavy-tailed, so a `coord / abs_max` linear map will push the bulk of features toward zero with a long tail toward the boundary). A sinusoidal rescale (`asin(coord / abs_max) * (π/2) / (π/2)` or similar) would spread samples more uniformly across the interior. **For v1: linear rescale** — simpler, matches the existing β strategy, defers the distribution-shape question until Axis-1 measurements show pathology. If early Axis-1 runs find the endpoint-clustering is biting (e.g., gram condition number doesn't improve as much as predicted), a sinusoidal variant is a cheap follow-up (one-line change in the rescale helper). Pinning this as a known-deferred decision rather than a "maybe later" item.
 - **Should we expose the assignment strategy as configurable?** A user might want random-seed assignment for an ablation, or k-means-cluster-ordinal for a different geometric story. v1 hardcodes PCA-axis; the API leaves room for a strategy plug-in if a consumer asks. Out of scope for v1.
 
 ## Migration Plan

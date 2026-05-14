@@ -32,8 +32,9 @@ The assignment is encoding-aware in the sense that the strategy knows how many a
 
 After this change, a Rung4 dictionary built via `from_sae_lens(records, encoding=Rung4(), assign_amp_knobs=True)` MUST produce a gram **measurably different** from the same dictionary built with `assign_amp_knobs=False`. Specifically:
 
-- `mean(|gram_amp_on|² - |gram_amp_off|²)` is non-zero by more than 1e-6 on the toy SAE fixture.
-- `||gram_amp_on|² - |gram_amp_off||²_F > 1e-3` (Frobenius distance well above FP noise floor).
+- `mean(|gram_amp_on|² - |gram_amp_off|²)` is non-zero by more than 1e-6 on the toy SAE fixture (sanity: the change exists somewhere).
+- `||gram_amp_on|² - |gram_amp_off||²_F > 1e-3` (full-matrix Frobenius distance well above FP noise floor).
+- **Off-diagonal-only Frobenius distance** `||off_diag(|gram_amp_on|² - |gram_amp_off|²)||_F > 1e-3` — stronger assertion that the change isn't concentrated on the diagonal (a degenerate impl that perturbed only the on-diagonal terms would pass the previous check but fail this one).
 - The byte-identical default (`assign_amp_knobs=False`) test continues to pass — every existing differential regression test is unchanged.
 
 If the new path produces bit-identical gram to the old path, the change is broken and the test fails loudly.
