@@ -338,6 +338,24 @@ def test_rung3_viability_spike_smoke(capsys, tmp_path):
     assert "rung3_viability_spike:" in out
 
 
+def test_rung4_viability_spike_smoke(capsys, tmp_path):
+    """Smoke test: `examples/rung4_viability_spike.py` exits 0 on the
+    SAE-absent branch. The full spike runs all 28 pairs of the §4.4
+    panel through Rung4's 4D outer grid + scipy refine (~40 min CPU),
+    so CI exercises only the skip path."""
+    from examples.rung4_viability_spike import main
+
+    rc = main([
+        "--sae-checkpoint", str(tmp_path / "nonexistent.safetensors"),
+        "--output-dir", str(tmp_path / "spike_out"),
+        "--quiet",
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    assert "rung4_viability_spike:" in out
+
+
 def test_sae_import_rung3_n16_smoke(capsys):
     """Smoke test: importing 16 features against `Rung3` works on the
     bundled toy fixture (per-encoding-feature-cap change). Confirms

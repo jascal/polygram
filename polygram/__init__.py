@@ -56,7 +56,7 @@ from polygram.compression import (
 )
 from polygram.dictionary import Dictionary, Feature
 from polygram.emit import write_qorca
-from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung3State
+from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung3State, Rung4, Rung4State
 from polygram.experiment import Experiment, ExperimentResult, InterferenceSweep
 from polygram.geometry import (
     GeometricProfile,
@@ -119,6 +119,8 @@ __all__ = [
     "Regrower",
     "Rung3",
     "Rung3State",
+    "Rung4",
+    "Rung4State",
     "SAEFeatureRecord",
     "SelectionReport",
     "SlotPopulation",
