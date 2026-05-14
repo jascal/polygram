@@ -244,6 +244,7 @@ class CancellationConfig(_ConfigMixin):
 _SUPPORTED_STRATEGIES = ("merge", "zero")
 _SUPPORTED_REP_SELECTIONS = ("n_fires", "scale_aware")
 _SUPPORTED_MERGE_MODES = ("freq_weighted", "simple_mean")
+_SUPPORTED_SCORE_FIELDS = ("polygram_overlap", "jaccard", "decoder_overlap")
 
 
 @_register
@@ -253,12 +254,27 @@ class CompressionConfig(_ConfigMixin):
 
     Defaults mirror what current external callers (e.g. sae-forge) pass
     explicitly today.
+
+    `target_n_features_kept` is the count of cluster *representatives*
+    (matching `CompressionReport.n_features_kept`), not the SAE's total
+    surviving feature count. Setting it activates
+    :meth:`polygram.compression.Compressor.plan_with_target`; leaving it
+    `None` keeps the historical threshold-driven `plan()` path
+    byte-identical. See `openspec/changes/add-pareto-target-compression/design.md`
+    Decision 1.
+
+    `score_field` chooses which `CandidatePair` field orders the greedy
+    union in target-K mode. Only the three bounded-`[0, 1]`
+    similarity-like fields are accepted; KL- and count-based fields are
+    excluded by Decision 3 of the same change.
     """
 
     strategy: str = "merge"
     rep_selection: str = "scale_aware"
     merge_mode: str = "freq_weighted"
     confirmer: str | None = None
+    target_n_features_kept: int | None = None
+    score_field: str = "polygram_overlap"
 
     def __post_init__(self) -> None:
         if self.strategy not in _SUPPORTED_STRATEGIES:
@@ -275,6 +291,22 @@ class CompressionConfig(_ConfigMixin):
             raise ValueError(
                 f"CompressionConfig: merge_mode must be one of "
                 f"{_SUPPORTED_MERGE_MODES}; got {self.merge_mode!r}"
+            )
+        if self.target_n_features_kept is not None:
+            if (
+                not isinstance(self.target_n_features_kept, int)
+                or isinstance(self.target_n_features_kept, bool)
+                or self.target_n_features_kept < 1
+            ):
+                raise ValueError(
+                    "CompressionConfig: target_n_features_kept must be "
+                    "None or an integer >= 1; got "
+                    f"{self.target_n_features_kept!r}"
+                )
+        if self.score_field not in _SUPPORTED_SCORE_FIELDS:
+            raise ValueError(
+                f"CompressionConfig: score_field must be one of "
+                f"{_SUPPORTED_SCORE_FIELDS}; got {self.score_field!r}"
             )
 
 
