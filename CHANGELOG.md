@@ -4,6 +4,23 @@
 
 ### Added
 
+- **Target-K compression (Phase 1 of `add-pareto-target-compression`).**
+  New public `Compressor.plan_with_target(target_n_features_kept=None)`
+  method ignores `validation_report.confirmed` and instead sorts
+  `validation_report.pairs` by a configurable score field
+  (`polygram_overlap` default; `jaccard` or `decoder_overlap` also
+  accepted), filters NaN scores, and greedy-unions until the
+  cluster count crosses back to `<= target_k` after exceeding it.
+  `CompressionConfig` gains `target_n_features_kept: int | None = None`
+  and `score_field: str = "polygram_overlap"` with `__post_init__`
+  validation. `CompressionPlan` gains a derived `@property
+  n_features_kept` (`= len(self.clusters)`) mirroring the existing
+  `CompressionReport.n_features_kept` semantic. Threshold path
+  (`Compressor.plan()`) is byte-identical when the new fields are
+  unset; full test suite (823) green. Phase 2 (`ParetoReport` +
+  `plan_pareto`) and Phase 3 (CLI flags + 0.4.0 release) are
+  separate follow-ups. See
+  [`openspec/changes/add-pareto-target-compression/`](openspec/changes/add-pareto-target-compression/).
 - **Axis 1 (compression coverage) measurement landed (v2.2).** Ran
   the 4-cell battery (MPS baseline, Rung4 amp-off control, Rung4
   amp-on load-bearing, Rung3 amp-on generality) on the 2019 MBP

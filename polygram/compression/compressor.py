@@ -326,7 +326,9 @@ class Compressor:
         the full pair list is processed and the most-compressed reachable
         plan is returned (caller detects via `plan.n_features_kept`).
 
-        See `openspec/changes/add-pareto-target-compression/`.
+        See `openspec/changes/add-pareto-target-compression/design.md`
+        Decision 10 and `tasks.md` §3.2 for the infeasible-target
+        behaviour and the stop-rule clarification.
         """
         if target_n_features_kept is None:
             if (
@@ -467,6 +469,13 @@ class Compressor:
                 # Crossed back to ≤ target_k from above — stop.
                 break
 
+        # Rebuild components from `parent` after the loop rather than
+        # maintaining a parallel component-membership dict inside the
+        # loop. The loop's hot path only needs find() roots and the
+        # n_clusters counter; full membership is only consulted here at
+        # the end to materialise ClusterPlan objects. Two passes over
+        # `parent` (one for find(), one for grouping) is cheaper than
+        # synchronising membership state on every union.
         components: dict[int, set[int]] = defaultdict(set)
         for fid in parent:
             components[find(fid)].add(fid)
