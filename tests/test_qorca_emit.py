@@ -142,6 +142,26 @@ class TestRung4Emit:
         assert "## encoding" not in md  # no HEA-style encoding tag
         assert "## theta" not in md     # no HEA-style theta tensor
 
+    def test_rung4_emits_amp_branch_section_with_four_columns(self):
+        from polygram._qorca_emit import render_machine_markdown
+
+        d = self._rung4_pair(
+            theta_amp=(0.11, 0.22),
+            psi_aux=(0.33, 0.44),
+            theta_amp_b=(0.55, 0.66),
+            psi_amp_b=(0.77, 0.88),
+        )
+        md = render_machine_markdown(d)
+        assert "## amp branch" in md
+        block = md.rsplit("## amp branch", 1)[1]
+        assert (
+            "| concept | theta_amp | psi_aux | theta_amp_b | psi_amp_b |"
+            in block
+        )
+        # Per-feature values present verbatim.
+        assert "| a | 0.11 | 0.33 | 0.55 | 0.77 |" in block
+        assert "| b | 0.22 | 0.44 | 0.66 | 0.88 |" in block
+
     def test_rung4_default_knobs_gram_matches_qorca_gram(self):
         """With default Rung4 amp knobs (all 0), the analytic Rung4
         gram equals the MPS gram, which is what q-orca produces from
@@ -169,3 +189,97 @@ class TestRung4Emit:
         # The analytic Rung4 gram with default amp knobs equals the MPS
         # gram of the same (α, β, γ, φ), which is what q-orca produces.
         np.testing.assert_allclose(analytic_gram, qorca_gram, atol=1e-10)
+
+    def test_rung4_build_machine_tolerates_amp_branch_section(self):
+        from polygram._qorca_emit import build_machine
+
+        d = self._rung4_pair(
+            theta_amp=(0.1, 0.2),
+            psi_aux=(0.3, 0.4),
+            theta_amp_b=(0.5, 0.6),
+            psi_amp_b=(0.7, 0.8),
+        )
+        # Parses cleanly through q-orca (unknown `## amp branch`
+        # section is silently ignored); raises if the parser
+        # rejects the file.
+        machine = build_machine(d)
+        assert machine.name == "Rung4EmitTest"
+
+
+# ---------------------------------------------------------------------------
+# Rung3 emit (parallel to Rung4: substrate + `## amp branch` sidecar)
+# ---------------------------------------------------------------------------
+
+
+class TestRung3Emit:
+    @staticmethod
+    def _rung3_pair(*, theta_amp=(0.0, 0.0), psi_aux=(0.0, 0.0)):
+        from polygram import Dictionary, Feature
+        from polygram.encoding import Rung3
+
+        return Dictionary(
+            name="Rung3EmitTest",
+            features=[
+                Feature("a", "ca", beta=-0.5, phi=0.3,
+                        theta_amp=theta_amp[0], psi_aux=psi_aux[0]),
+                Feature("b", "cb", beta=0.5, phi=0.7,
+                        theta_amp=theta_amp[1], psi_aux=psi_aux[1]),
+            ],
+            hierarchy={"ca": ["a"], "cb": ["b"]},
+            encoding=Rung3(),
+        )
+
+    def test_rung3_emits_mps_substrate_header(self):
+        from polygram._qorca_emit import render_machine_markdown
+
+        md = render_machine_markdown(self._rung3_pair())
+        assert "rung-3 MPS-substrate" in md
+        assert "amp branch" in md.lower()
+        assert "prepare_concept" in md
+        assert "## encoding" not in md
+        assert "## theta" not in md
+
+    def test_rung3_emits_amp_branch_section_with_two_columns(self):
+        from polygram._qorca_emit import render_machine_markdown
+
+        md = render_machine_markdown(
+            self._rung3_pair(theta_amp=(0.11, 0.22), psi_aux=(0.33, 0.44))
+        )
+        assert "## amp branch" in md
+        block = md.rsplit("## amp branch", 1)[1]
+        assert "| concept | theta_amp | psi_aux |" in block
+        # Rung3 variant omits the Rung4-only columns.
+        assert "theta_amp_b" not in block
+        assert "psi_amp_b" not in block
+        assert "| a | 0.11 | 0.33 |" in block
+        assert "| b | 0.22 | 0.44 |" in block
+
+    def test_rung3_build_machine_tolerates_amp_branch_section(self):
+        from polygram._qorca_emit import build_machine
+
+        d = self._rung3_pair(theta_amp=(0.1, 0.2), psi_aux=(0.3, 0.4))
+        machine = build_machine(d)
+        assert machine.name == "Rung3EmitTest"
+
+
+# ---------------------------------------------------------------------------
+# Rung1/HEA should NOT emit a `## amp branch` section.
+# ---------------------------------------------------------------------------
+
+
+def test_mps_rung1_emits_no_amp_branch_section():
+    from polygram import Dictionary, Feature
+    from polygram._qorca_emit import render_machine_markdown
+
+    d = Dictionary(
+        name="Rung1NoAmpBranch",
+        features=[Feature("a", "s1", beta=0.0)],
+        hierarchy={"s1": ["a"]},
+    )
+    assert "## amp branch" not in render_machine_markdown(d)
+
+
+def test_hea_emits_no_amp_branch_section():
+    from polygram._qorca_emit import render_machine_markdown
+
+    assert "## amp branch" not in render_machine_markdown(_hea_dictionary())
