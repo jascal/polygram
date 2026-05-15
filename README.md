@@ -246,6 +246,30 @@ PCA on the centered projection vectors (rescaled into
 `gamma_range`, default `(-0.25, 0.25)`); `report.gamma_method`
 records `"zero"` (default) or `"projection_pca"`.
 
+#### Phase + amp knob assignment (0.6.0+)
+
+By default, `from_sae_lens` populates β (PC1) and γ (per-cluster
+PCA). The remaining MPS-substrate knobs α and φ — and Rung3/Rung4's
+amp-branch knobs — default to constants, which collapses
+higher-rung gram to MPSRung1-equivalent on activation-uncorrelated
+feature sets.
+
+Two opt-in flags un-dormant the rest of the encoding's expressivity:
+
+- **`assign_phase_knobs=True`** populates α (from PC2) and φ (from
+  PC3) for every encoding with MPS-substrate knobs (MPSRung1, Rung3,
+  Rung4). Resolves the gram-saturation issue documented in
+  [`docs/research/rung4-viability-spike-v2.md`](docs/research/rung4-viability-spike-v2.md)
+  — see the 2026-05-15 GPT-2 bug-report root cause.
+- **`assign_amp_knobs=True`** populates Rung3/Rung4's amp-branch
+  knobs (theta_amp, psi_aux, and Rung4's theta_amp_b/psi_amp_b)
+  from PC4-PC7. No-op for MPSRung1 (no amp branch).
+
+The flags compose additively. For Rung4 with both on, every
+feature carries non-default values across all six knob channels.
+Defaults are `False` for both — existing call sites are
+byte-identical.
+
 ### Geometric profiles (`polygram.geometry`)
 
 `from_sae_lens` accepts a `profile=` kwarg selecting which geometric

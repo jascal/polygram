@@ -159,18 +159,20 @@ def assign_amp_knobs_pca(
     }
 
     # Knob → (axis_index, range_lo, range_hi).
-    # axis_index is 0-indexed into vt's rows. PC1 (axis 1, vt[0]) is
-    # consumed by β in the surrounding strategy; amp knobs start from
-    # PC2 (vt[1]):
-    #   theta_amp   ← PC2  (vt[1]) → rescaled to [0, π/2]
-    #   psi_aux     ← PC3  (vt[2]) → rescaled to [0, 2π]
-    #   theta_amp_b ← PC4  (vt[3]) → [0, π/2]   (Rung4 only)
-    #   psi_amp_b   ← PC5  (vt[4]) → [0, 2π]    (Rung4 only)
+    # axis_index is 0-indexed into vt's rows. The axis allocation
+    # shifted in add-phase-knob-assignment: PC2-PC3 are now reserved
+    # for α/φ (see polygram/geometry/phase_assignment.py); amp knobs
+    # start from PC4 (vt[3]):
+    #   theta_amp   ← PC4  (vt[3]) → rescaled to [0, π/2]
+    #   psi_aux     ← PC5  (vt[4]) → rescaled to [0, 2π]
+    #   theta_amp_b ← PC6  (vt[5]) → [0, π/2]   (Rung4 only)
+    #   psi_amp_b   ← PC7  (vt[6]) → [0, 2π]    (Rung4 only)
+    # (Pre-shift allocation was PC2-PC5 / vt[1]-vt[4].)
     knob_slots = [
-        ("theta_amps",   1, 0.0, math.pi / 2),
-        ("psi_auxes",    2, 0.0, 2 * math.pi),
-        ("theta_amp_bs", 3, 0.0, math.pi / 2),
-        ("psi_amp_bs",   4, 0.0, 2 * math.pi),
+        ("theta_amps",   3, 0.0, math.pi / 2),
+        ("psi_auxes",    4, 0.0, 2 * math.pi),
+        ("theta_amp_bs", 5, 0.0, math.pi / 2),
+        ("psi_amp_bs",   6, 0.0, 2 * math.pi),
     ]
 
     for slot_idx, (key, axis_idx, lo, hi) in enumerate(knob_slots):

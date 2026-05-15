@@ -53,6 +53,7 @@ class UniformSphereKnobAssignment:
         assign_gamma: bool,
         seed: int,
         assign_amp_knobs: bool = False,
+        assign_phase_knobs: bool = False,
         encoding: object = None,
     ) -> KnobAssignmentResult:
         n = len(feature_names)
@@ -126,6 +127,17 @@ class UniformSphereKnobAssignment:
 
             amp_assignments = assign_amp_knobs_pca(projections, encoding)
 
+        phase_assignments: dict[str, list[float] | None] = {
+            "alphas": None,
+            "phis": None,
+        }
+        if assign_phase_knobs and encoding is not None:
+            from polygram.geometry.phase_assignment import (
+                assign_phase_knobs_pca,
+            )
+
+            phase_assignments = assign_phase_knobs_pca(projections, encoding)
+
         return KnobAssignmentResult(
             cluster_per_feature=cluster_per_feature,
             betas=list(betas),
@@ -136,6 +148,8 @@ class UniformSphereKnobAssignment:
             psi_auxes=amp_assignments["psi_auxes"],
             theta_amp_bs=amp_assignments["theta_amp_bs"],
             psi_amp_bs=amp_assignments["psi_amp_bs"],
+            alphas=phase_assignments["alphas"],
+            phis=phase_assignments["phis"],
         )
 
 

@@ -116,6 +116,11 @@ class EpochCompressor:
     # in the compression pipeline — otherwise the per-panel dictionaries
     # collapse to MPSRung1-equivalent gram even with `encoding=Rung4()`.
     assign_amp_knobs: bool = False
+    # Whether to populate MPS-substrate α / φ knobs from decoder
+    # geometry (add-phase-knob-assignment). Default False preserves
+    # byte-identity. Set True to un-dormant MPSRung1's full state
+    # space (per the 2026-05-15 GPT-2 bug report root cause).
+    assign_phase_knobs: bool = False
 
     # Internal state populated during run()
     _zeroed: set[int] = field(default_factory=set, init=False, repr=False, compare=False)
@@ -463,6 +468,7 @@ class EpochCompressor:
                     representatives=representatives,
                     encoding=self.encoding,
                     assign_amp_knobs=self.assign_amp_knobs,
+                    assign_phase_knobs=self.assign_phase_knobs,
                 )
                 compress_result = compressor.run(
                     output_checkpoint=tmp_out_path
@@ -607,6 +613,7 @@ class EpochCompressor:
             name=f"Epoch_{self.sae_checkpoint.stem.replace('-', '_').replace('.', '_')}",
             encoding=self.encoding,
             assign_amp_knobs=self.assign_amp_knobs,
+            assign_phase_knobs=self.assign_phase_knobs,
         )
 
         return EpochResult(
@@ -695,6 +702,7 @@ class EpochCompressor:
                     model_name=self.model_name,
                     encoding=self.encoding,
                     assign_amp_knobs=self.assign_amp_knobs,
+                    assign_phase_knobs=self.assign_phase_knobs,
                 )
             )
         return reports
@@ -981,6 +989,7 @@ def _validate_panel_inline(
     model_name: str,
     encoding,
     assign_amp_knobs: bool = False,
+    assign_phase_knobs: bool = False,
 ) -> ValidationReport:
     """Synthesize a ValidationReport for one panel without running
     the full BehaviouralValidator.validate() ablation pass.
@@ -1027,6 +1036,7 @@ def _validate_panel_inline(
             name=f"Panel{panel_id}",
             encoding=encoding,
             assign_amp_knobs=assign_amp_knobs,
+            assign_phase_knobs=assign_phase_knobs,
         )
     finally:
         tmp_path.unlink(missing_ok=True)

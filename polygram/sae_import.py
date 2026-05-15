@@ -569,6 +569,7 @@ def from_sae_lens(
     clustered: bool = False,
     block_formation: "BlockFormation | None" = None,
     assign_amp_knobs: bool | None = None,
+    assign_phase_knobs: bool | None = None,
 ) -> tuple["Dictionary | ClusteredDictionary", SelectionReport]:
     """Build a `Dictionary` from an explicit subset of SAE features.
 
@@ -615,6 +616,8 @@ def from_sae_lens(
         assign_gamma = cfg.assign_gamma
     if assign_amp_knobs is None:
         assign_amp_knobs = cfg.assign_amp_knobs
+    if assign_phase_knobs is None:
+        assign_phase_knobs = cfg.assign_phase_knobs
     if gamma_range is None:
         gamma_range = cfg.gamma_range
     # n_clusters default cascade: kwarg > config (only if config explicitly
@@ -693,6 +696,7 @@ def from_sae_lens(
             assign_gamma=assign_gamma,
             seed=0,
             assign_amp_knobs=assign_amp_knobs,
+            assign_phase_knobs=assign_phase_knobs,
             encoding=encoding,
         )
         cluster_per_feature = result.cluster_per_feature
@@ -705,6 +709,10 @@ def from_sae_lens(
             "psi_auxes": result.psi_auxes,
             "theta_amp_bs": result.theta_amp_bs,
             "psi_amp_bs": result.psi_amp_bs,
+        }
+        phase_knobs_explicit = {
+            "alphas": result.alphas,
+            "phis": result.phis,
         }
 
     cluster_order: list[str] = []
@@ -739,9 +747,9 @@ def from_sae_lens(
             gammas = [0.0] * len(selected)
             gamma_method = "zero"
         betas = [betas_by_cluster[c] for c in cluster_per_feature]
-        # Bypass path: still honour assign_amp_knobs by calling the
-        # helper directly on the raw projections. Keeps the flag's
-        # effect consistent across all paths.
+        # Bypass path: still honour assign_amp_knobs / assign_phase_knobs
+        # by calling the helpers directly on the raw projections. Keeps
+        # the flags' effect consistent across all paths.
         if assign_amp_knobs and encoding is not None:
             from polygram.geometry.amp_assignment import assign_amp_knobs_pca
 
@@ -753,6 +761,14 @@ def from_sae_lens(
                 "theta_amp_bs": None,
                 "psi_amp_bs": None,
             }
+        if assign_phase_knobs and encoding is not None:
+            from polygram.geometry.phase_assignment import (
+                assign_phase_knobs_pca,
+            )
+
+            phase_knobs_explicit = assign_phase_knobs_pca(projs, encoding)
+        else:
+            phase_knobs_explicit = {"alphas": None, "phis": None}
     else:
         betas = betas_explicit  # type: ignore[assignment]
         gammas = gammas_explicit  # type: ignore[assignment]
@@ -773,6 +789,8 @@ def from_sae_lens(
     psi_auxes_arr = amp_knobs_explicit["psi_auxes"]
     theta_amp_bs_arr = amp_knobs_explicit["theta_amp_bs"]
     psi_amp_bs_arr = amp_knobs_explicit["psi_amp_bs"]
+    alphas_arr = phase_knobs_explicit["alphas"]
+    phis_arr = phase_knobs_explicit["phis"]
 
     features = []
     for i, (r, c, b, g) in enumerate(
@@ -781,6 +799,10 @@ def from_sae_lens(
         # Build kwargs lazily so that None entries don't override the
         # Feature dataclass's encoding defaults.
         feat_kwargs: dict[str, float] = {}
+        if alphas_arr is not None:
+            feat_kwargs["alpha"] = alphas_arr[i]
+        if phis_arr is not None:
+            feat_kwargs["phi"] = phis_arr[i]
         if theta_amps_arr is not None:
             feat_kwargs["theta_amp"] = theta_amps_arr[i]
         if psi_auxes_arr is not None:

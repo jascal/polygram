@@ -122,9 +122,19 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Populate the encoding's amp-branch knobs from decoder "
-            "geometry (PCA-axis extension). When omitted, the loader "
-            "uses encoding defaults — which for Rung3/Rung4 produce "
-            "MPSRung1-equivalent gram, per the v2 results note."
+            "geometry (PC4-PC7). When omitted, the loader uses encoding "
+            "defaults — which for Rung3/Rung4 produce MPSRung1-"
+            "equivalent gram, per the v2 results note."
+        ),
+    )
+    p.add_argument(
+        "--assign-phase-knobs",
+        action="store_true",
+        help=(
+            "Populate the encoding's MPS-substrate α and φ from decoder "
+            "geometry (PC2/PC3, per add-phase-knob-assignment). Without "
+            "this, MPSRung1 collapses on activation-uncorrelated features "
+            "even at K=8 (per the 2026-05-15 GPT-2 bug report root cause)."
         ),
     )
     return p.parse_args()
@@ -196,14 +206,16 @@ def compute_gram_condition_metrics(
     *,
     name: str,
     assign_amp_knobs: bool = False,
+    assign_phase_knobs: bool = False,
 ) -> dict:
     """Build a `Dictionary` on `feature_ids` with `encoding`, compute
     `np.abs(gram)**2`, and report the off-diagonal mass + spectral
     extrema (load-bearing metrics for Axis 2).
 
-    `assign_amp_knobs` controls whether higher-rung amp-branch knobs
-    are populated from decoder geometry (PR for issue-58 follow-up).
-    Default False matches the v2 results note's measurements.
+    `assign_amp_knobs` controls higher-rung amp-branch knob assignment
+    (PC4-PC7 after add-phase-knob-assignment). `assign_phase_knobs`
+    controls MPS-substrate α/φ assignment (PC2/PC3). Default False on
+    both matches the v2 results note's pre-fix measurements.
     """
     if sae_path is not None:
         records = load_sae_safetensors(sae_path, feature_ids=feature_ids)
@@ -216,6 +228,7 @@ def compute_gram_condition_metrics(
         records, feature_ids, assign_gamma=True, name=name,
         encoding=encoding,
         assign_amp_knobs=assign_amp_knobs,
+        assign_phase_knobs=assign_phase_knobs,
     )
     gram = dictionary.gram()
     gram_sq = np.abs(gram) ** 2
@@ -270,6 +283,7 @@ def main(argv: list[str] | None = None) -> int:
         sae_path, feature_ids, encoding,
         name=f"RungGramCondition_{args.encoding}_k{k}",
         assign_amp_knobs=bool(args.assign_amp_knobs),
+        assign_phase_knobs=bool(args.assign_phase_knobs),
     )
 
     print("== Gram condition metrics ==")
@@ -306,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         "fixture": fixture_label,
         "selection_method": "top_cosine_cluster",
         "assign_amp_knobs": bool(args.assign_amp_knobs),
+        "assign_phase_knobs": bool(args.assign_phase_knobs),
         **metrics,
     }
     if args.output is not None:
@@ -324,6 +339,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--output", type=Path, default=None)
     p.add_argument("--assign-amp-knobs", action="store_true")
+    p.add_argument("--assign-phase-knobs", action="store_true")
     return p.parse_args(argv)
 
 

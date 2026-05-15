@@ -287,3 +287,105 @@ def test_assign_amp_knobs_false_default_keeps_from_sae_lens_default(tmp_path):
             f"from_sae_lens called with assign_amp_knobs={amp!r} under "
             f"the default EpochCompressor() configuration — should be False"
         )
+
+
+# ---------------------------------------------------------------------------
+# assign_phase_knobs plumbing — parallel to assign_amp_knobs (add-phase-knob-
+# assignment). Same monkeypatch pattern catches missed call sites.
+# ---------------------------------------------------------------------------
+
+
+def test_assign_phase_knobs_field_defaults_false():
+    """`EpochCompressor.assign_phase_knobs` defaults to False —
+    preserves byte-identity with pre-add-phase-knob-assignment
+    behaviour for every existing call site."""
+    import inspect
+
+    sig = inspect.signature(EpochCompressor)
+    param = sig.parameters.get("assign_phase_knobs")
+    assert param is not None, "EpochCompressor missing assign_phase_knobs field"
+    assert param.default is False
+
+
+def test_assign_phase_knobs_plumbed_into_per_panel_from_sae_lens(tmp_path):
+    """Load-bearing assertion: EpochCompressor.assign_phase_knobs
+    reaches every from_sae_lens call during compression. Mirrors the
+    assign_amp_knobs plumbing test."""
+    from polygram.encoding import MPSRung1
+
+    sae_path = build_rung3_synth_sae(tmp_path / "sae.safetensors")
+    captured_kwargs: list[dict] = []
+
+    from polygram import sae_import as _sae_import_mod
+
+    original_from_sae_lens = _sae_import_mod.from_sae_lens
+
+    def _capturing_from_sae_lens(*args, **kwargs):
+        captured_kwargs.append(dict(kwargs))
+        return original_from_sae_lens(*args, **kwargs)
+
+    epoch = EpochCompressor(
+        sae_checkpoint=sae_path,
+        prompts=CANONICAL_PROMPTS,
+        encoding=MPSRung1(),  # phase-knob path applies to MPSRung1 too
+        assign_phase_knobs=True,
+        **EPOCH_KWARGS,
+    )
+
+    with patch(
+        "polygram.compression.epoch._compute_firing_rates_and_residuals",
+        new=make_rung3_synth_prepass_patch(),
+    ), patch.object(
+        _sae_import_mod, "from_sae_lens", _capturing_from_sae_lens,
+    ):
+        out_path = tmp_path / "epoch_out.safetensors"
+        epoch.run(out_path)
+
+    assert captured_kwargs, "no from_sae_lens calls captured"
+    for kw in captured_kwargs:
+        assert kw.get("assign_phase_knobs") is True, (
+            f"from_sae_lens was called without assign_phase_knobs=True: "
+            f"{ {k: v for k, v in kw.items() if k != 'records'} }"
+        )
+
+
+def test_assign_phase_knobs_false_default_keeps_from_sae_lens_default(tmp_path):
+    """Default `assign_phase_knobs=False` propagates as False (or
+    absent) to every from_sae_lens call."""
+    from polygram.encoding import MPSRung1
+
+    sae_path = build_rung3_synth_sae(tmp_path / "sae.safetensors")
+    captured_kwargs: list[dict] = []
+
+    from polygram import sae_import as _sae_import_mod
+
+    original_from_sae_lens = _sae_import_mod.from_sae_lens
+
+    def _capturing_from_sae_lens(*args, **kwargs):
+        captured_kwargs.append(dict(kwargs))
+        return original_from_sae_lens(*args, **kwargs)
+
+    epoch = EpochCompressor(
+        sae_checkpoint=sae_path,
+        prompts=CANONICAL_PROMPTS,
+        encoding=MPSRung1(),
+        # assign_phase_knobs omitted → defaults to False
+        **EPOCH_KWARGS,
+    )
+
+    with patch(
+        "polygram.compression.epoch._compute_firing_rates_and_residuals",
+        new=make_rung3_synth_prepass_patch(),
+    ), patch.object(
+        _sae_import_mod, "from_sae_lens", _capturing_from_sae_lens,
+    ):
+        out_path = tmp_path / "epoch_out.safetensors"
+        epoch.run(out_path)
+
+    assert captured_kwargs
+    for kw in captured_kwargs:
+        phase = kw.get("assign_phase_knobs", False)
+        assert phase is False, (
+            f"from_sae_lens called with assign_phase_knobs={phase!r} "
+            f"under default EpochCompressor() — should be False"
+        )

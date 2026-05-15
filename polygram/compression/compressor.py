@@ -98,6 +98,7 @@ class Compressor:
     # values preserve byte-identity.
     encoding: object | None = None
     assign_amp_knobs: bool = False
+    assign_phase_knobs: bool = False  # add-phase-knob-assignment: parallel to assign_amp_knobs
 
     # Cached union-find clusters keyed by cluster_id; populated by
     # `plan()` and consulted by the `representatives` validator.
@@ -864,6 +865,7 @@ class Compressor:
             name=self.validation_report.dictionary_name,
             encoding=self.encoding,
             assign_amp_knobs=self.assign_amp_knobs,
+            assign_phase_knobs=self.assign_phase_knobs,
         )
 
         return CompressionResult(

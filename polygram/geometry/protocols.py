@@ -27,6 +27,13 @@ class KnobAssignmentResult:
     psi_auxes: list[float] | None = None
     theta_amp_bs: list[float] | None = None
     psi_amp_bs: list[float] | None = None
+    # add-phase-knob-assignment. None (default) signals "use encoding
+    # defaults" (typically α=0, φ=0); a populated list overrides the
+    # encoding's MPS-substrate phase knob per-feature. Length matches
+    # cluster_per_feature when populated. HEA_Rung2 leaves these as
+    # None.
+    alphas: list[float] | None = None
+    phis: list[float] | None = None
 
 
 @runtime_checkable
@@ -54,6 +61,7 @@ class KnobAssignment(Protocol):
         assign_gamma: bool,
         seed: int,
         assign_amp_knobs: bool = False,
+        assign_phase_knobs: bool = False,
         encoding: object = None,
     ) -> KnobAssignmentResult:
         ...
