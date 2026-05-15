@@ -13,109 +13,101 @@ to declare a tuning profile without breaking legacy call sites.
 ## Requirements
 ### Requirement: polygram.config exposes tuning dataclasses
 
-The `polygram.config` module SHALL export five frozen dataclasses
-representing the configurable knobs of polygram's public
-constructors:
+The `polygram.config` module SHALL export the same six frozen
+dataclasses as before. `CompressionConfig` SHALL grow two
+additional fields supporting target-feature-count compression and
+Pareto-path planning:
 
-- `CompressionConfig` — `strategy: str = "merge"`,
+- `CompressionConfig` —
+  `strategy: str = "merge"`,
   `rep_selection: str = "scale_aware"`,
-  `merge_mode: str = "freq_weighted"`, `confirmer: str | None = None`.
-- `EpochCompressionConfig` — `coverage_target: float = 0.5`,
-  `cosine_threshold: float = 0.30`,
-  `n_visits_per_feature: int = 1`,
-  `max_iterations: int = 1`,
-  `quality_delta_multiplier: float = 2.0`,
-  `validation: ValidationConfig | None = None`.
-- `CancellationConfig` — `tolerance: float = 0.05`,
-  `preserve_tiers: bool = True`,
-  `optimize: dict[str, Any] = {"method": "grid", "max_steps": 50}`,
-  `grid_outer: tuple[int, int] = (5, 5)`,
-  `min_amp_overlap: float = 0.0`.
-- `ValidationConfig` — `polygram_overlap_threshold: float = 0.7`,
-  `jaccard_threshold: float = 0.30`,
-  `min_firing_rate: float = 0.01`,
-  `min_both_fire: int = 5`,
-  `allow_layer_zero: bool = False`.
-- `RegrowConfig` — `strategy: str = "residual_kmeans"`,
-  `prompts: tuple[str, ...] | None = None`,
-  `seed: int = 0`, `n_init: int = 4`,
-  `model_name: str` (required, no default),
-  `layer: int` (required, no default),
-  `device: str | None = None`.
-- `SAEImportConfig` — `assign_gamma: bool = True`,
-  `gamma_range: tuple[float, float] = (-0.25, 0.25)`,
-  `n_clusters: int = 2`.
+  `merge_mode: str = "freq_weighted"`,
+  `confirmer: str | None = None`,
+  `target_n_features_kept: int | None = None`,
+  `score_field: str = "polygram_overlap"`.
 
-Each dataclass SHALL be frozen (`frozen=True`) so a single config
-instance can be shared across calls without mutation hazards. Each
-dataclass SHALL run range/value validation in `__post_init__`
-mirroring the validation that previously lived on the consuming
-constructor.
+The remaining five dataclasses (`EpochCompressionConfig`,
+`CancellationConfig`, `ValidationConfig`, `RegrowConfig`,
+`SAEImportConfig`) are unchanged in field set and defaults.
 
-#### Scenario: every config is importable from polygram.config
+`CompressionConfig.target_n_features_kept` semantic: matches the
+existing `CompressionReport.n_features_kept`, which counts cluster
+*representatives*, not the SAE's total surviving feature count. The
+field's docstring SHALL state this explicitly (see Decision 1 in
+`design.md`).
 
-- **WHEN** `from polygram.config import CompressionConfig,
-  EpochCompressionConfig, CancellationConfig, ValidationConfig,
-  RegrowConfig, SAEImportConfig` is executed
-- **THEN** all six names resolve and each is a `dataclass` whose
-  `__dataclass_params__.frozen` is `True`
+`__post_init__` validation SHALL additionally enforce:
 
-#### Scenario: invalid range raises in __post_init__
+- `target_n_features_kept` is either `None` or an integer `>= 1`.
+- `score_field` is one of `"polygram_overlap"`, `"jaccard"`,
+  `"decoder_overlap"` (the three CandidatePair fields that are
+  bounded `[0, 1]` similarity-like quantities — see Decision 3 in
+  `design.md`).
 
-- **WHEN** `EpochCompressionConfig(coverage_target=1.5)` is
+Existing range/value validation on `strategy`, `rep_selection`,
+`merge_mode` is unchanged.
+
+#### Scenario: CompressionConfig accepts target_n_features_kept
+
+- **WHEN** `CompressionConfig(target_n_features_kept=200)` is
+  constructed
+- **THEN** the resulting config exposes `target_n_features_kept == 200`
+  and `score_field == "polygram_overlap"` (the default)
+
+#### Scenario: CompressionConfig rejects non-positive target
+
+- **WHEN** `CompressionConfig(target_n_features_kept=0)` is
   constructed
 - **THEN** `__post_init__` raises `ValueError` naming
-  `coverage_target` and the valid range `(0, 1]`
+  `target_n_features_kept` and the valid range (`>= 1`)
 
-#### Scenario: RegrowConfig requires model_name and layer
+#### Scenario: CompressionConfig rejects unknown score_field
 
-- **WHEN** `RegrowConfig(model_name="gpt2-medium")` is
-  constructed without `layer`
-- **THEN** Python raises `TypeError` for the missing required
-  keyword argument; the same applies if `model_name` is omitted
+- **WHEN** `CompressionConfig(score_field="bogus")` is constructed
+- **THEN** `__post_init__` raises `ValueError` naming `score_field`
+  and listing the three supported values
+
+#### Scenario: CompressionConfig rejects KL score_fields
+
+- **WHEN** `CompressionConfig(score_field="kl_log_ratio_abs")` is
+  constructed (a real `CandidatePair` field, deliberately excluded
+  from valid `score_field` values)
+- **THEN** `__post_init__` raises `ValueError` listing the three
+  supported values
+
+#### Scenario: CompressionConfig is byte-identical when new fields are unset
+
+- **WHEN** `CompressionConfig()` is constructed without the new
+  fields
+- **THEN** `target_n_features_kept is None`,
+  `score_field == "polygram_overlap"`, and a `Compressor`
+  constructed from this config exhibits the historical `plan()` →
+  `apply()` byte output on the existing toy fixture (verified via
+  `CompressionReport.to_json()` reference comparison)
 
 ### Requirement: Configs round-trip through dict
 
-Each config dataclass SHALL expose `.to_dict()` and a classmethod
-`.from_dict(cls, data: Mapping[str, Any]) -> Self`.
+Each config dataclass SHALL continue to expose `.to_dict()` and
+`.from_dict(cls, data: Mapping[str, Any]) -> Self` via the existing
+`_ConfigMixin` field-iteration machinery
+(`polygram/config.py:55`). `CompressionConfig.to_dict()` SHALL
+include the two new fields automatically (via the mixin);
+`CompressionConfig.from_dict()` SHALL accept dicts missing those
+keys and fall back to defaults (`None` and `"polygram_overlap"`
+respectively).
 
-`.to_dict()` SHALL produce a JSON-serializable mapping (tuples
-serialised as lists, nested configs serialised recursively).
+#### Scenario: CompressionConfig.from_dict tolerates missing new fields
 
-`.from_dict()` SHALL:
+- **WHEN** `CompressionConfig.from_dict({"strategy": "merge", "rep_selection": "scale_aware", "merge_mode": "freq_weighted"})`
+  is called (no new fields)
+- **THEN** the result has `target_n_features_kept is None` and
+  `score_field == "polygram_overlap"`
 
-- Accept either tuples or lists for tuple-typed fields and coerce
-  to the declared type.
-- Recurse into nested-config fields (e.g.
-  `EpochCompressionConfig.validation`) when those keys are present.
-- Emit a `UserWarning` (via `warnings.warn`) and ignore the value
-  when an unknown key is supplied; this preserves forward
-  compatibility when a downstream caller's stored config predates
-  a knob being added.
+#### Scenario: CompressionConfig round-trips with new fields populated
 
-#### Scenario: dict round-trip preserves field values
-
-- **GIVEN** `cfg = EpochCompressionConfig(coverage_target=0.7,
-  validation=ValidationConfig(polygram_overlap_threshold=0.8))`
-- **WHEN** `EpochCompressionConfig.from_dict(cfg.to_dict())`
-  is evaluated
-- **THEN** the result equals `cfg` (including the nested
-  `validation`)
-
-#### Scenario: unknown key warns and is ignored
-
-- **WHEN** `CompressionConfig.from_dict({"strategy": "merge",
-  "futurefield": 42})` is called
-- **THEN** a `UserWarning` is emitted naming `futurefield`, and
-  the returned instance has `strategy == "merge"` and all other
-  fields at their defaults
-
-#### Scenario: list deserialises to tuple-typed field
-
-- **WHEN** `CancellationConfig.from_dict({"grid_outer": [3, 4]})`
-  is called
-- **THEN** the returned instance has
-  `grid_outer == (3, 4)` (a `tuple`, not a `list`)
+- **WHEN** `CompressionConfig(target_n_features_kept=500, score_field="jaccard").to_dict()`
+  is fed back through `CompressionConfig.from_dict`
+- **THEN** the resulting instance equals the original
 
 ### Requirement: Public constructors accept config= kwarg with override precedence
 
