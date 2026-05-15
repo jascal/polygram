@@ -49,7 +49,7 @@ from polygram.compression.strategies.zero import apply_zero
 
 _SUPPORTED_STRATEGIES: frozenset[str] = frozenset({"zero", "merge"})
 _SUPPORTED_REP_SELECTIONS: frozenset[str] = frozenset(
-    {"n_fires", "scale_aware"}
+    {"n_fires", "scale_aware", "kl_attribution"}
 )
 _SUPPORTED_MERGE_MODES: frozenset[str] = frozenset(
     {"freq_weighted", "simple_mean"}
@@ -203,7 +203,7 @@ class Compressor:
         # scale_aware. (See design.md performance note on lazy caching
         # if this ever becomes a bottleneck on huge SAEs.)
         if (
-            self.rep_selection == "scale_aware"
+            self.rep_selection in ("scale_aware", "kl_attribution")
             and self._cached_w_dec is None
         ):
             from polygram.sae_import import _load_sae_checkpoint
@@ -304,6 +304,15 @@ class Compressor:
                 n_fires_total=n_fires_total,
             )
 
+        if self.rep_selection == "kl_attribution":
+            assert self._cached_w_dec is not None
+            return _score_kl_attribution(
+                cluster=cluster,
+                pair_lookup=pair_lookup,
+                w_dec=self._cached_w_dec,
+                n_fires_total=n_fires_total,
+            )
+
         # Default: highest summed n_fires; tiebreak lowest fid.
         return min(cluster, key=lambda fid: (-n_fires_total[fid], fid))
 
@@ -362,7 +371,7 @@ class Compressor:
 
         # Lazy-load W_dec for scale_aware rep_selection (mirrors _build_plan).
         if (
-            self.rep_selection == "scale_aware"
+            self.rep_selection in ("scale_aware", "kl_attribution")
             and self._cached_w_dec is None
         ):
             from polygram.sae_import import _load_sae_checkpoint
@@ -611,7 +620,7 @@ class Compressor:
         )
 
         if (
-            self.rep_selection == "scale_aware"
+            self.rep_selection in ("scale_aware", "kl_attribution")
             and self._cached_w_dec is None
         ):
             from polygram.sae_import import _load_sae_checkpoint
@@ -980,6 +989,106 @@ def _score_scale_aware(
         max(range(len(members)), key=lambda i: (score[i], -members[i]))
     )
     return members[best_idx]
+
+
+def _score_kl_attribution(
+    *,
+    cluster: set[int],
+    pair_lookup: dict[tuple[int, int], CandidatePair],
+    w_dec: np.ndarray,
+    n_fires_total: dict[int, int],
+) -> int:
+    """Pick the cluster rep by pure behavioural-ablation importance.
+
+    Score per feature is the **mean** ``kl_ablate`` across the pairs
+    containing it (NaN values excluded from the mean). Tiebreak:
+    ``n_fires_total`` descending, then feature id ascending.
+
+    Per-feature NaN: when a feature's mean ``kl_ablate`` is NaN
+    (e.g. the feature fires too rarely for the validator's KL
+    measurement to be statistically meaningful) but at least one other
+    cluster member has a finite value, the NaN feature is scored via
+    a geometric proxy (norm proximity + log firing count, 50/50)
+    normalised across the NaN-only subset onto [0, 1]; the finite
+    features are normalised across the finite-only subset onto [0, 1].
+    Both subsets compete on the same [0, 1] axis.
+
+    All-cluster NaN: raises ``ValueError`` rather than silently
+    degrading. The report likely came through ``DecoderGeometryConfirmer``
+    or ``ClusterConfirmer``; callers SHALL use ``scale_aware`` or
+    ``n_fires`` for geometry-only reports.
+
+    See ``openspec/specs/recon-aware-rep-selection/spec.md`` for the
+    full contract.
+    """
+    members = sorted(cluster)
+
+    # Per-feature mean kl_ablate (non-NaN values only).
+    kl_sum: dict[int, float] = {fid: 0.0 for fid in members}
+    kl_count: dict[int, int] = {fid: 0 for fid in members}
+    for (a, b), pair in pair_lookup.items():
+        if a in cluster and b in cluster:
+            if not math.isnan(pair.kl_ablate_i):
+                kl_sum[a] += float(pair.kl_ablate_i)
+                kl_count[a] += 1
+            if not math.isnan(pair.kl_ablate_j):
+                kl_sum[b] += float(pair.kl_ablate_j)
+                kl_count[b] += 1
+
+    nan_features = [fid for fid in members if kl_count[fid] == 0]
+
+    if len(nan_features) == len(members):
+        raise ValueError(
+            "Compressor: rep_selection='kl_attribution' requires "
+            "behavioural confirmation; this cluster's kl_ablate values "
+            "are all NaN (likely came through DecoderGeometryConfirmer "
+            "or ClusterConfirmer). Use rep_selection='scale_aware' or "
+            "'n_fires' for geometry-only reports."
+        )
+
+    score: dict[int, float] = {}
+
+    # Finite-kl features: normalise their mean kl_ablate to [0, 1].
+    finite_features = [fid for fid in members if kl_count[fid] > 0]
+    finite_means = np.array(
+        [kl_sum[fid] / kl_count[fid] for fid in finite_features],
+        dtype=np.float64,
+    )
+    finite_norm = _normalise_minmax(finite_means)
+    for i, fid in enumerate(finite_features):
+        score[fid] = float(finite_norm[i])
+
+    # NaN-kl features: geometric proxy (norm proximity + log freq,
+    # 50/50) normalised across the NaN-only subset to [0, 1]. The
+    # subset normalisation lets a NaN feature compete on the same
+    # [0, 1] axis as the finite-kl features.
+    if nan_features:
+        norms = np.array(
+            [float(np.linalg.norm(w_dec[fid])) for fid in nan_features],
+            dtype=np.float64,
+        )
+        median_norm = float(np.median(norms))
+        norm_proximity = 1.0 - np.abs(norms - median_norm) / (
+            median_norm + _NORM_EPS
+        )
+        norm_proximity = np.clip(norm_proximity, 0.0, 1.0)
+        log_freq = np.log(
+            np.array(
+                [float(n_fires_total[fid]) + _NORM_EPS for fid in nan_features],
+                dtype=np.float64,
+            )
+        )
+        log_freq_norm = _normalise_minmax(log_freq)
+        geo_proxy = 0.5 * norm_proximity + 0.5 * log_freq_norm
+        geo_norm = _normalise_minmax(geo_proxy)
+        for i, fid in enumerate(nan_features):
+            score[fid] = float(geo_norm[i])
+
+    # Tiebreak: n_fires_total descending, feature_id ascending.
+    return min(
+        members,
+        key=lambda fid: (-score[fid], -n_fires_total[fid], fid),
+    )
 
 
 # ============================================================================

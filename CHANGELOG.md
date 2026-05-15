@@ -4,6 +4,62 @@
 
 (nothing yet)
 
+## 0.5.0 — 2026-05-15
+
+### Added
+
+- **`add-kl-attribution-rep-selection` shipped.** New opt-in third
+  value for `CompressionConfig.rep_selection`: `"kl_attribution"`.
+  Picks cluster representatives by **behavioural-ablation importance**
+  (existing `CandidatePair.kl_ablate_*` fields from
+  `BehaviouralValidator`) instead of by the geometric proxies
+  (`n_fires`, `scale_aware`). See
+  [`openspec/changes/add-kl-attribution-rep-selection/`](openspec/changes/add-kl-attribution-rep-selection/).
+  - **Algorithm**: per-feature mean `kl_ablate` across pairs
+    containing the feature; tiebreak `n_fires_total` descending, then
+    feature id ascending.
+  - **Per-feature NaN fallback**: a feature whose mean `kl_ablate`
+    is NaN (very-low-firing feature where validator KL is
+    statistically unreliable) competes via a geometric proxy
+    (50% norm proximity + 50% log firing count) normalised within
+    the NaN-only subset. Finite-kl features normalise within their
+    own subset; both compete on the [0, 1] axis.
+  - **All-NaN cluster**: raises `ValueError` with an actionable
+    message naming the supported alternatives. Surfaces caller
+    mis-configuration (e.g. `DecoderGeometryConfirmer`-produced
+    report fed to `kl_attribution`) loudly rather than silently
+    degrading.
+  - **Flows transparently through `plan()`, `plan_with_target()`,
+    and `plan_pareto()`** — rep_selection is a knob for any planning
+    path, not pareto-specific.
+  - **Default unchanged.** `CompressionConfig.rep_selection` remains
+    `"scale_aware"`; existing callers and tests byte-identical (866
+    pre-existing tests still pass).
+  - **No interface widening.** The behavioural signal is already in
+    `CandidatePair`; Compressor does not accept activations,
+    forward-pass machinery, or new dependencies. Numpy-only.
+  - **Capability**: new `recon-aware-rep-selection` capability spec
+    documenting the algorithm, NaN contract, tiebreak rule.
+
+### Corrected
+
+- The "deferred — requires interface widening" note in
+  `add-pareto-target-compression`'s proposal was wrong about a
+  recon-aware `rep_selection` needing Compressor to accept
+  activations. The required signal (`kl_ablate_*`) was already on
+  `CandidatePair` in 0.3.0; `add-kl-attribution-rep-selection` ships
+  it without any interface change.
+
+### Empirical motivation status
+
+- **Conceptually motivated, not empirically.** The proposal ships
+  the option so the question can be asked. Pareto-dominance over
+  `scale_aware` on real forge runs is an open research question. The
+  natural test bed is a sae-forge Axis-4 sweep with
+  `--rep-selection kl_attribution` filtered to
+  `quality_tier in {"good", "saturated"}` rows (sae-forge's
+  `add-forge-quality-diagnostics` capability).
+
 ## 0.4.0 — 2026-05-14
 
 ### Added
