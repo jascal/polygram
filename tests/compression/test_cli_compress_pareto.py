@@ -9,12 +9,9 @@ argparse dispatch and the dataclass round-trips end-to-end.
 
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 from pathlib import Path
-
-import pytest
 
 from polygram.compression.pareto import ParetoReport
 from polygram.compression.report import CompressionReport
