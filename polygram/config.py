@@ -473,6 +473,13 @@ class SAEImportConfig(_ConfigMixin):
     # polygram/geometry/amp_assignment.py). No-op for MPSRung1 /
     # HEA_Rung2.
     assign_amp_knobs: bool = False
+    # add-phase-knob-assignment. Default False preserves byte-identical
+    # behaviour. When True, the loader populates MPS-substrate α and φ
+    # knobs from decoder PCA (PC2 and PC3 — see
+    # polygram/geometry/phase_assignment.py). Applies to MPSRung1,
+    # Rung3, Rung4 (all share MPS-substrate phase knobs). No-op for
+    # HEA_Rung2 (different knob structure).
+    assign_phase_knobs: bool = False
 
     def __post_init__(self) -> None:
         if not (

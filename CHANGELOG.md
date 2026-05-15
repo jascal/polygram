@@ -4,6 +4,58 @@
 
 (nothing yet)
 
+## 0.6.0 — 2026-05-15
+
+### Added
+
+- **`add-phase-knob-assignment` shipped.** Resolves the root cause
+  of the 2026-05-15 GPT-2 bug report (MPSRung1.gram() saturating on
+  activation-uncorrelated features). New opt-in
+  `from_sae_lens(..., assign_phase_knobs=True)` populates
+  MPS-substrate α (PC2) and φ (PC3) per-feature from decoder PCA,
+  un-dormanting the second half of MPSRung1's state space.
+  - **Sanity-check effect** (toy fixture): mean off-diagonal |G|²
+    drops 0.76 → 0.28 (63% drop); pairs ≥ 0.9 drop 12 → 1.
+  - **Applies to all MPS-substrate encodings**: MPSRung1, Rung3,
+    Rung4. HEA_Rung2 is a structural no-op (different knob shape).
+  - **`SAEImportConfig.assign_phase_knobs`** parallel field with
+    the same precedence as `assign_gamma` / `assign_amp_knobs`.
+  - **`EpochCompressor` + `Compressor`** plumb the flag through
+    all three `from_sae_lens` call sites (same monkeypatch test
+    pattern catches missed sites).
+  - **`--assign-phase-knobs` CLI flag** on
+    `examples/rung_gram_condition.py` and
+    `examples/rung_compression_coverage.py`.
+  - **Two-flag orthogonality**: `assign_phase_knobs` and
+    `assign_amp_knobs` compose additively. With both on for Rung4,
+    every feature has non-default values across all six knob
+    channels (α, φ, theta_amp, psi_aux, theta_amp_b, psi_amp_b).
+  - **Default unchanged.** `assign_phase_knobs=False` is the
+    default; existing call sites byte-identical.
+- **`tests/test_phase_knob_assignment.py`** — 12 tests including
+  the cornerstone falsifying invariant (gram with phase-on must
+  differ from phase-off by Frobenius > 1.0 AND mean off-diagonal
+  drops below half).
+
+### Changed (Behavioural)
+
+- **`assign_amp_knobs` PCA-component allocation shifted PC2-PC5 → PC4-PC7.**
+  Phase knobs now own PC2-PC3 (they apply to all MPS-substrate
+  encodings, so they get the lowest available components after β).
+  Amp knobs (Rung3/Rung4) shift up. **This is a backward-incompat
+  change** for callers depending on exact PR-#63-era
+  gram-condition numbers with `assign_amp_knobs=True`: qualitative
+  invariants hold (amp-on differs measurably from amp-off, the
+  cornerstone test of PR #63 still passes), but exact values
+  change. v2.1 results note's `_amp_on` data files would need
+  regeneration if exact reproducibility matters.
+- **v2.2 Axis 1 results regeneration deferred to a follow-up.**
+  The Axis 1 PASS verdict was measured with the pre-shift amp-knob
+  allocation. The verdict's qualitative claim (Rung4 amp-on ≫ MPS
+  baseline) is expected to hold under the new allocation but
+  exact `n_features_zeroed` / CE-delta numbers will differ. A v2.3
+  re-run on a torch host is the recommended follow-up.
+
 ## 0.5.0 — 2026-05-15
 
 ### Added

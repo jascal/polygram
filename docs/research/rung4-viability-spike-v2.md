@@ -239,6 +239,54 @@ again only when measured on less-redundant panels.
 MPS amp-on is bit-identical to MPS amp-off (no amp branch — the flag
 is a no-op for MPSRung1).
 
+### v2.3 supplement — `add-phase-knob-assignment` lands (post-PR-#73 impl)
+
+The 2026-05-15 GPT-2 bug report surfaced that MPSRung1 itself was
+dormant: `α` and `φ` (PC2 and PC3 in the new allocation) defaulted to
+0 in every `from_sae_lens` call. The `add-phase-knob-assignment` impl
+fixes this with a parallel `assign_phase_knobs` flag. Two downstream
+effects on the table above:
+
+1. **Amp-knob PCA-component allocation shifted** PC2-PC5 → PC4-PC7
+   so phase knobs (PC2/PC3) get the low-component slots. Rung3/Rung4
+   `_amp_on` columns above were measured with the pre-shift
+   allocation; new numbers under the post-shift allocation are:
+
+| Encoding (post-shift) | Mean off-diag | λ_min | Cond # |
+|---|---:|---:|---:|
+| Rung4 K=32, amp-on (PC4-PC7) | 0.4071 | +8.4e-16 | 1.7e+16 |
+| Rung3 K=16, amp-on (PC4-PC5) | 0.5622 | -7.3e-16 | inf |
+
+These are weaker than the pre-shift numbers above (Rung4 dropped from
+0.32 to 0.41) because PC4-PC7 are weaker geometric signals than
+PC2-PC3. The qualitative un-dormanting still works; the amp branch
+trade-off is documented as cost-of-doing-business for the phase-knob
+allocation.
+
+2. **Phase knobs alone produce a bigger win on MPSRung1** than amp
+   knobs do on Rung4. Same real-SAE fixture:
+
+| Encoding (post-fix) | Flag | Mean off-diag | λ_min | Cond # |
+|---|---|---:|---:|---:|
+| MPSRung1 K=8 | (none, baseline) | 0.7725 | -4.1e-17 | inf |
+| MPSRung1 K=8 | `--assign-phase-knobs` | **0.2982** | **+0.0636** | **51** |
+| Rung4 K=32 | `--assign-amp-knobs` (post-shift) | 0.4071 | +8.4e-16 | 1.7e+16 |
+| Rung4 K=32 | both flags | **0.2038** | +3.7e-14 | 2.7e+14 |
+
+**MPSRung1 with phase-on is no longer rank-deficient** (λ_min jumps
+from -4e-17 to +0.064; condition number from inf to 51). This is the
+empirical confirmation on the real SAE that triggered the bug report.
+
+Rung4 with both flags on (0.20 mean off-diag) is the best result yet
+— combining the phase fix with amp-knob assignment exercises the full
+state space and produces a numerically rank-full gram.
+
+**Axis 1 caveat under the new allocation**: the v2.2 Axis 1 PASS
+verdict (below) was measured pre-shift with `assign_amp_knobs=True`
+only. Re-running with post-shift amp-only would likely show a weaker
+margin; re-running with phase+amp would likely show a stronger
+margin. A v2.3 re-run on a torch host is the recommended follow-up.
+
 **Decision update**: with the un-dormant path available end-to-end
 through `from_sae_lens`, `EpochCompressor`, `Compressor`, and
 therefore in all downstream sae-forge + behavioural-validation

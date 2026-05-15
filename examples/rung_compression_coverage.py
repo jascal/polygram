@@ -148,9 +148,20 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Populate higher-rung amp-branch knobs from decoder "
-            "geometry (PCA-axis extension). Without this flag, "
-            "Rung3/Rung4 dictionaries collapse to MPSRung1-equivalent "
-            "gram in the validator — see encoding-aware-knob-assignment."
+            "geometry (PC4-PC7 after add-phase-knob-assignment). "
+            "Without this flag, Rung3/Rung4 dictionaries collapse to "
+            "MPSRung1-equivalent gram in the validator — see "
+            "encoding-aware-knob-assignment."
+        ),
+    )
+    p.add_argument(
+        "--assign-phase-knobs",
+        action="store_true",
+        help=(
+            "Populate MPS-substrate α and φ from decoder geometry "
+            "(PC2/PC3, per add-phase-knob-assignment). Un-dormants "
+            "MPSRung1's full state space, addressing the gram-saturation "
+            "root cause from the 2026-05-15 GPT-2 bug report."
         ),
     )
     p.add_argument(
@@ -210,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"sae_checkpoint: {sae_path}")
         print(f"encoding: {args.encoding} (max_features={encoding.max_features})")
         print(f"assign_amp_knobs: {bool(args.assign_amp_knobs)}")
+        print(f"assign_phase_knobs: {bool(args.assign_phase_knobs)}")
         print(f"model: {args.model_name}, layer: {args.layer}")
         print(f"prompts: {len(prompts)}")
         print(f"epoch_kwargs: {epoch_kwargs}")
@@ -224,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
             model_name=args.model_name,
             encoding=encoding,
             assign_amp_knobs=bool(args.assign_amp_knobs),
+            assign_phase_knobs=bool(args.assign_phase_knobs),
             **epoch_kwargs,
         )
         result = epoch.run(out_path)
@@ -271,6 +284,7 @@ def main(argv: list[str] | None = None) -> int:
         "encoding": args.encoding,
         "max_features": encoding.max_features,
         "assign_amp_knobs": bool(args.assign_amp_knobs),
+        "assign_phase_knobs": bool(args.assign_phase_knobs),
         "sae_checkpoint": str(sae_path),
         "model_name": args.model_name,
         "layer": int(args.layer),
@@ -319,6 +333,7 @@ def _parse(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--n-prompts", type=int, default=len(CANONICAL_PROMPTS))
     p.add_argument("--output", type=Path, default=None)
     p.add_argument("--assign-amp-knobs", action="store_true")
+    p.add_argument("--assign-phase-knobs", action="store_true")
     p.add_argument("--quiet", action="store_true")
     return p.parse_args(argv)
 

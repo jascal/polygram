@@ -39,11 +39,11 @@
   "fixture": "scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors",
   "selection_method": "top_cosine_cluster",
   "assign_amp_knobs": true,
-  "assign_phase_knobs": false,
-  "gram_squared_mod_max_off_diagonal": 0.999999984790518,
-  "gram_squared_mod_mean_off_diagonal": 0.4071008540999846,
-  "gram_squared_mod_frobenius_off_diagonal": 2.7146066698316607,
-  "gram_squared_mod_lambda_min": 8.427254515094994e-16,
-  "gram_squared_mod_lambda_max": 14.735867301414828,
-  "gram_squared_mod_condition_number": 1.7485964468048018e+16
+  "assign_phase_knobs": true,
+  "gram_squared_mod_max_off_diagonal": 0.999999979177835,
+  "gram_squared_mod_mean_off_diagonal": 0.20382299629408965,
+  "gram_squared_mod_frobenius_off_diagonal": 1.917673360690067,
+  "gram_squared_mod_lambda_min": 3.72386744959784e-14,
+  "gram_squared_mod_lambda_max": 10.07045502282493,
+  "gram_squared_mod_condition_number": 270430007488921.0
 }
