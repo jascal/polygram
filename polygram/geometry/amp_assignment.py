@@ -10,6 +10,20 @@ This is the `encoding-aware-knob-assignment` v1 strategy. See
 `openspec/changes/encoding-aware-knob-assignment/design.md` Decision 1
 for the rationale (natural extension of the existing β strategy;
 continuous, decoder-derived, deterministic, single-pass).
+
+**Knob → PCA-component priority order**:
+
+    PC1 → β               (existing β strategy)
+    PC2 → α               (phase_assignment.py, MPS-substrate)
+    PC3 → φ               (phase_assignment.py, MPS-substrate)
+    PC4 → theta_amp       (this module, Rung3+)
+    PC5 → psi_aux         (this module, Rung3+)
+    PC6 → theta_amp_b     (this module, Rung4 only)
+    PC7 → psi_amp_b       (this module, Rung4 only)
+
+Amp knobs shifted to PC4-PC7 in `add-phase-knob-assignment` (was
+PC2-PC5 in the v1 of this helper) so that phase knobs — universal
+across MPS-substrate encodings — get the low slots.
 """
 
 from __future__ import annotations

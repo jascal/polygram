@@ -14,6 +14,21 @@ PCA notation: PC_k = the k-th principal component (1-indexed; PC1 is
 the top component). In code these correspond to `vt[k-1]` rows of the
 SVD output (0-indexed). PC1 is already consumed by β in the surrounding
 strategy; PC2 → α, PC3 → φ.
+
+**Knob → PCA-component priority order** (across all of polygram):
+
+    PC1 → β               (existing β strategy, surrounding helper)
+    PC2 → α               (this module, MPS-substrate)
+    PC3 → φ               (this module, MPS-substrate)
+    PC4 → theta_amp       (amp_assignment.py, Rung3+)
+    PC5 → psi_aux         (amp_assignment.py, Rung3+)
+    PC6 → theta_amp_b     (amp_assignment.py, Rung4 only)
+    PC7 → psi_amp_b       (amp_assignment.py, Rung4 only)
+
+Phase knobs take the low slots (PC2/PC3) because they apply to every
+encoding with MPS-substrate knobs. Amp knobs shifted to PC4-PC7 in
+add-phase-knob-assignment to make room. β is fixed at PC1 by the
+existing strategy and was never displaced.
 """
 
 from __future__ import annotations

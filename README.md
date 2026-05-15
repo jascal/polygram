@@ -265,10 +265,18 @@ Two opt-in flags un-dormant the rest of the encoding's expressivity:
   knobs (theta_amp, psi_aux, and Rung4's theta_amp_b/psi_amp_b)
   from PC4-PC7. No-op for MPSRung1 (no amp branch).
 
-The flags compose additively. For Rung4 with both on, every
-feature carries non-default values across all six knob channels.
-Defaults are `False` for both — existing call sites are
-byte-identical.
+The flags are **orthogonal and compose additively**:
+
+| `assign_phase_knobs` | `assign_amp_knobs` | Knobs populated (Rung4) |
+|---|---|---|
+| False | False | β, γ (current default) |
+| True | False | β, γ, **α, φ** |
+| False | True | β, γ, **theta_amp, psi_aux, theta_amp_b, psi_amp_b** |
+| True | True | β, γ, α, φ, theta_amp, psi_aux, theta_amp_b, psi_amp_b (FULL) |
+
+For Rung4 with both on, every feature carries non-default values
+across all six MPS-substrate + amp-branch knob channels. Defaults
+are `False` for both — existing call sites are byte-identical.
 
 ### Geometric profiles (`polygram.geometry`)
 
