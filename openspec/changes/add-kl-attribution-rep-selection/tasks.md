@@ -5,6 +5,7 @@
 - [ ] 1.1 In `polygram/compression/compressor.py`, extend the module-level `_SUPPORTED_REP_SELECTIONS` tuple from `("n_fires", "scale_aware")` to `("n_fires", "scale_aware", "kl_attribution")`.
 - [ ] 1.2 In `polygram/config.py`, extend the matching constant referenced by `CompressionConfig.__post_init__` to allow `"kl_attribution"`. (If polygram already centralises the constant, just update the one location.)
 - [ ] 1.3 No test changes needed for the constant itself; coverage comes from the rep-selection tests below.
+- [ ] 1.4 Extend the `CompressionConfig.rep_selection` docstring (in `polygram/config.py`) with a "when to use" guidance block. Required content: (a) `kl_attribution` requires a behaviourally-rich `ValidationReport` — pairs emitted by `DecoderGeometryConfirmer` / `ClusterConfirmer` have NaN `kl_ablate_*` and an all-NaN cluster raises `ValueError`; (b) the choice between `kl_attribution` and `scale_aware` is most meaningful in structurally-feasible forge regimes (sae-forge's `quality_tier in {"good", "saturated"}` rows from `add-forge-quality-diagnostics`); in degenerate regimes the rep choice is curiosity-level noise; (c) the default remains `scale_aware` until empirical evidence on real forge sweeps establishes a Pareto-dominant choice. Mirror this guidance into any `polygram compress` CLI help text that documents `--rep-selection` once the impl exposes that flag.
 
 ## Phase 2 — Algorithm
 
