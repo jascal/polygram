@@ -202,6 +202,10 @@ class Compressor:
         # ~36 MB for a 4k-feature SAE @ float32 — acceptable cost for
         # scale_aware. (See design.md performance note on lazy caching
         # if this ever becomes a bottleneck on huge SAEs.)
+        # kl_attribution also loads W_dec because the per-feature-NaN
+        # fallback path scores those features via the same geometric
+        # components scale_aware uses (norm proximity + log freq); see
+        # `_score_kl_attribution` for the contract.
         if (
             self.rep_selection in ("scale_aware", "kl_attribution")
             and self._cached_w_dec is None
@@ -1008,10 +1012,18 @@ def _score_kl_attribution(
     (e.g. the feature fires too rarely for the validator's KL
     measurement to be statistically meaningful) but at least one other
     cluster member has a finite value, the NaN feature is scored via
-    a geometric proxy (norm proximity + log firing count, 50/50)
-    normalised across the NaN-only subset onto [0, 1]; the finite
-    features are normalised across the finite-only subset onto [0, 1].
-    Both subsets compete on the same [0, 1] axis.
+    a geometric proxy mirroring ``_score_scale_aware``'s non-ablation
+    components (norm proximity + log firing count, 50/50 — the
+    ablation term that scale_aware would mix in is precisely what's
+    NaN here, so it's dropped and the remaining two terms are
+    reweighted from scale_aware's 0.4/0.2 to 0.5/0.5). The geometric
+    proxy is normalised across the NaN-only subset onto [0, 1]; the
+    finite features are normalised across the finite-only subset
+    onto [0, 1]. Both subsets compete on the same [0, 1] axis. The
+    spec calls this "fall back to scale_aware for that single
+    feature"; the implementation is a custom helper rather than a
+    literal call because scale_aware's per-cluster min-max
+    normalisation degenerates on a single-feature subset.
 
     All-cluster NaN: raises ``ValueError`` rather than silently
     degrading. The report likely came through ``DecoderGeometryConfirmer``
