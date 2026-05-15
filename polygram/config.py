@@ -242,7 +242,7 @@ class CancellationConfig(_ConfigMixin):
 
 
 _SUPPORTED_STRATEGIES = ("merge", "zero")
-_SUPPORTED_REP_SELECTIONS = ("n_fires", "scale_aware")
+_SUPPORTED_REP_SELECTIONS = ("n_fires", "scale_aware", "kl_attribution")
 _SUPPORTED_MERGE_MODES = ("freq_weighted", "simple_mean")
 _SUPPORTED_SCORE_FIELDS = ("polygram_overlap", "jaccard", "decoder_overlap")
 
@@ -267,6 +267,40 @@ class CompressionConfig(_ConfigMixin):
     union in target-K mode. Only the three bounded-`[0, 1]`
     similarity-like fields are accepted; KL- and count-based fields are
     excluded by Decision 3 of the same change.
+
+    `rep_selection` chooses how cluster representatives are picked
+    when more than one feature joins the same cluster. Three modes:
+
+    - ``"n_fires"`` — highest summed firing count; tiebreak lowest
+      feature id. Pure-frequency proxy.
+    - ``"scale_aware"`` (default) — weighted mix of decoder-norm
+      proximity (0.4), summed kl_ablate (0.4), and log firing count
+      (0.2). Falls back gracefully when kl_ablate is all-NaN.
+    - ``"kl_attribution"`` — opt-in; pure behavioural-ablation
+      importance. Picks the rep with the highest mean ``kl_ablate``
+      across the pairs containing it. Per-feature NaN falls back to a
+      geometric proxy for that one feature only; all-NaN cluster
+      raises ``ValueError`` (the report came from a geometry-only
+      confirmer that doesn't compute behavioural fields). Added in
+      ``add-kl-attribution-rep-selection`` (polygram 0.5.0).
+
+    **When to prefer ``kl_attribution``**: behaviourally-rich
+    ``ValidationReport`` (came through ``BehaviouralValidator``, not
+    ``DecoderGeometryConfirmer`` / ``ClusterConfirmer``) AND a
+    structurally-feasible forge regime (sae-forge's
+    ``quality_tier in {"good", "saturated"}`` rows from
+    ``add-forge-quality-diagnostics``). In ``degenerate``/``undersized``
+    regimes the rep choice is curiosity-level noise — no
+    rep_selection rescues a rank-1 basis against a 768-dim
+    residual. The default remains ``scale_aware`` until empirical
+    evidence on real Axis-4 forge sweeps establishes a
+    Pareto-dominant choice.
+
+    **When to prefer ``scale_aware`` or ``n_fires``**: geometry-only
+    reports (e.g. ``DecoderGeometryConfirmer``) lack the
+    ``kl_ablate_*`` columns ``kl_attribution`` requires — those paths
+    SHALL use ``scale_aware`` (graceful all-NaN fallback) or
+    ``n_fires`` (no behavioural input).
     """
 
     strategy: str = "merge"
