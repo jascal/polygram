@@ -48,29 +48,29 @@ def _render_mps_rung1_markdown(dictionary: Dictionary) -> str:
     slugs = [feature_slug(f.name) for f in feats]
 
     # Encoding label for the header. Rung3 and Rung4 both fall through
-    # this MPS renderer (the amp branch lives in the analytic
-    # `Dictionary.gram()` path, not in the emitted machine), but the
-    # header notes which encoding produced the file so downstream
-    # readers know to interpret the amp branch out-of-band.
+    # this MPS renderer for the (α, β, γ, φ) substrate; the amp branch
+    # is captured in the trailing `## amp branch` section below so the
+    # file round-trips through polygram without information loss.
+    # q-orca's parser tolerates the unknown section and ignores it,
+    # which is why `Dictionary.gram()` continues to apply the amp
+    # factor analytically rather than via the q-orca compile path.
     if isinstance(dictionary.encoding, Rung4):
         encoding_label = "rung-4 MPS-substrate"
         amp_note = (
-            " The rung-4 product-amp branch on q3/q4 is NOT emitted "
-            "into this machine — it lives in polygram's analytic "
-            "`Dictionary.gram()` path. Round-tripping this `.q.orca.md` "
-            "through q-orca gives the MPSRung1-equivalent gram on the "
-            "(α, β, γ, φ) subset; the analytic Rung4 gram applies the "
-            "product-amp factor on top per "
+            " The rung-4 product-amp branch on q3/q4 is captured in "
+            "the `## amp branch` section below; q-orca's gram path "
+            "ignores that section and returns the MPSRung1-equivalent "
+            "gram on (α, β, γ, φ). Polygram's `Dictionary.gram()` "
+            "applies the product-amp factor on top per "
             "`polygram.encoding.rung4_amp_overlap`."
         )
     elif isinstance(dictionary.encoding, Rung3):
         encoding_label = "rung-3 MPS-substrate"
         amp_note = (
-            " The rung-3 Bell-pattern amp branch on q3/q4 is NOT "
-            "emitted into this machine — it lives in polygram's "
-            "analytic `Dictionary.gram()` path. Round-tripping this "
-            "`.q.orca.md` through q-orca gives the MPSRung1-equivalent "
-            "gram on the (α, β, γ, φ) subset; the analytic Rung3 gram "
+            " The rung-3 Bell-pattern amp branch on q3/q4 is captured "
+            "in the `## amp branch` section below; q-orca's gram path "
+            "ignores that section and returns the MPSRung1-equivalent "
+            "gram on (α, β, γ, φ). Polygram's `Dictionary.gram()` "
             "applies the amp factor on top per "
             "`polygram.encoding.rung3_amp_overlap`."
         )
@@ -144,6 +144,27 @@ def _render_mps_rung1_markdown(dictionary: Dictionary) -> str:
     lines.append("- unitarity")
     lines.append("- mps_bond_2_with_phase_knob")
     lines.append("")
+
+    if isinstance(dictionary.encoding, (Rung3, Rung4)):
+        lines.append("## amp branch")
+        if isinstance(dictionary.encoding, Rung4):
+            lines.append(
+                "| concept | theta_amp | psi_aux | theta_amp_b | psi_amp_b |"
+            )
+            lines.append(
+                "|---------|-----------|---------|-------------|-----------|"
+            )
+            for f, slug in zip(feats, slugs):
+                lines.append(
+                    f"| {slug} | {f.theta_amp} | {f.psi_aux} "
+                    f"| {f.theta_amp_b} | {f.psi_amp_b} |"
+                )
+        else:
+            lines.append("| concept | theta_amp | psi_aux |")
+            lines.append("|---------|-----------|---------|")
+            for f, slug in zip(feats, slugs):
+                lines.append(f"| {slug} | {f.theta_amp} | {f.psi_aux} |")
+        lines.append("")
 
     return "\n".join(lines)
 
