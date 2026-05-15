@@ -2,44 +2,51 @@
 
 ## Unreleased
 
+(nothing yet)
+
+## 0.4.0 — 2026-05-14
+
 ### Added
 
-- **Pareto-path planning (Phase 2 of `add-pareto-target-compression`).**
-  Two new public dataclasses (`ParetoReport`, `ParetoOutcome`) and a
-  new `Compressor.plan_pareto(targets)` method. `plan_pareto` takes a
-  sequence of positive integer K values and produces one
-  `CompressionPlan` per K in **one shared sort plus one shared
-  union-find walk**, regardless of `len(targets)` — verified in the
-  test suite via a sort-spy. Snapshots `parent` at each K's stop
-  point (Phase 1 "must exceed then drop back" rule, applied per-K)
-  and falls back to the final state when a K is unreachable. The
-  returned `ParetoReport` bundles per-K
-  `ParetoOutcome(target_k, reached_target, plan)` outcomes plus
-  provenance (`sae_checkpoint`, `sae_checkpoint_sha256`,
-  `score_field`); `targets` are deduplicated and sorted descending,
-  with `outcomes[i].target_k == targets[i]`. JSON round-trip via
-  `to_json` / `from_json` mirrors `CompressionReport`'s serializer.
-  Both classes are exported from
-  [`polygram`](polygram/__init__.py). Phase 3 (CLI `--pareto` /
-  `--pareto-materialize` flags + 0.4.0 release) is the next
-  follow-up.
-- **Target-K compression (Phase 1 of `add-pareto-target-compression`).**
-  New public `Compressor.plan_with_target(target_n_features_kept=None)`
-  method ignores `validation_report.confirmed` and instead sorts
-  `validation_report.pairs` by a configurable score field
-  (`polygram_overlap` default; `jaccard` or `decoder_overlap` also
-  accepted), filters NaN scores, and greedy-unions until the
-  cluster count crosses back to `<= target_k` after exceeding it.
-  `CompressionConfig` gains `target_n_features_kept: int | None = None`
-  and `score_field: str = "polygram_overlap"` with `__post_init__`
-  validation. `CompressionPlan` gains a derived `@property
-  n_features_kept` (`= len(self.clusters)`) mirroring the existing
-  `CompressionReport.n_features_kept` semantic. Threshold path
-  (`Compressor.plan()`) is byte-identical when the new fields are
-  unset; full test suite (823) green. Phase 2 (`ParetoReport` +
-  `plan_pareto`) and Phase 3 (CLI flags + 0.4.0 release) are
-  separate follow-ups. See
+- **`add-pareto-target-compression` shipped (all three phases).**
+  Target-K and Pareto-path planning for `Compressor`. Threshold mode
+  is byte-identical to 0.3.0; new modes are opt-in. See
   [`openspec/changes/add-pareto-target-compression/`](openspec/changes/add-pareto-target-compression/).
+  - **Public Python API**: `Compressor.plan_with_target(target_n_features_kept=None)`
+    and `Compressor.plan_pareto(targets) -> ParetoReport`.
+    `ParetoReport` and `ParetoOutcome` are new frozen dataclasses
+    exported from [`polygram`](polygram/__init__.py) with JSON
+    round-trip via `to_json` / `from_json`.
+    `CompressionPlan.n_features_kept` is a new derived `@property`
+    (`= len(self.clusters)`) mirroring the existing
+    `CompressionReport.n_features_kept` semantic.
+  - **Config**: `CompressionConfig` gains
+    `target_n_features_kept: int | None = None` and
+    `score_field: str = "polygram_overlap"` with `__post_init__`
+    validation. Only the three bounded `[0, 1]` `CandidatePair`
+    score fields are accepted (`polygram_overlap`, `jaccard`,
+    `decoder_overlap`); KL- and count-based fields are excluded by
+    Decision 3 of the change.
+  - **Algorithm**: greedy union-find over score-sorted pairs;
+    `(−score, min(i,j), max(i,j))` deterministic tiebreak; "must
+    exceed then drop back" stop rule per K so very-high targets
+    don't return trivial empty plans. `plan_pareto` performs
+    **one shared sort plus one shared union-find walk** regardless
+    of `len(targets)` (sort-once invariant tested via spy);
+    snapshots `parent` per K and materialises plans through a
+    shared `_materialise_plan_from_parent` helper.
+  - **CLI** (`polygram compress`): four new flags —
+    `--target-features N`, `--pareto K1,K2,...` (mutually
+    exclusive), `--pareto-materialize` (opt-in SAE rewrite gate),
+    `--score-field {polygram_overlap,jaccard,decoder_overlap}`.
+    In `--pareto` mode, `--output` is treated as a directory
+    receiving `pareto.json` plus (with `--pareto-materialize`)
+    `pareto/k_{K}.safetensors` per K.
+  - **Tests**: 47 new tests across
+    `tests/compression/test_compressor_plan_with_target.py`
+    (15), `tests/compression/test_compressor_plan_pareto.py` (15),
+    `tests/compression/test_cli_compress_pareto.py` (12), and 5
+    new entries in `tests/test_config.py`. Full suite (850) green.
 - **Axis 1 (compression coverage) measurement landed (v2.2).** Ran
   the 4-cell battery (MPS baseline, Rung4 amp-off control, Rung4
   amp-on load-bearing, Rung3 amp-on generality) on the 2019 MBP

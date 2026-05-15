@@ -591,6 +591,7 @@ def _parse_representatives(raw: str | None) -> dict[int, int] | None:
 def _cmd_compress(args: argparse.Namespace) -> int:
     from polygram.behavioural import ValidationReport
     from polygram.compression import Compressor
+    from polygram.config import CompressionConfig
 
     vreport_path = Path(args.validation_report)
     if not vreport_path.is_file():
@@ -608,6 +609,19 @@ def _cmd_compress(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # Pareto mode uses --output as a directory; threshold and
+    # target-features modes use it as a JSON file path. Validate each
+    # mode's required flags upfront so we don't half-do work.
+    if args.pareto is not None:
+        return _cmd_compress_pareto(args, sae_path, vreport_path)
+
+    # Threshold or --target-features: existing flag shape.
+    if not args.output_checkpoint:
+        sys.stderr.write(
+            "polygram compress: --output-checkpoint is required for "
+            "threshold and --target-features modes\n"
+        )
+        return 2
     out_ckpt = Path(args.output_checkpoint).resolve()
     if out_ckpt == sae_path.resolve():
         sys.stderr.write(
@@ -631,13 +645,30 @@ def _cmd_compress(args: argparse.Namespace) -> int:
         )
         return 2
 
+    target_k = args.target_features
+    if target_k is not None and target_k < 1:
+        sys.stderr.write(
+            f"polygram compress: --target-features must be a positive "
+            f"integer; got {target_k!r}\n"
+        )
+        return 2
+
     sys.stderr.write("polygram compress: build plan ...\n")
     try:
+        config = (
+            CompressionConfig(
+                target_n_features_kept=target_k,
+                score_field=args.score_field,
+            )
+            if target_k is not None
+            else None
+        )
         compressor = Compressor(
             validation_report=vreport,
             sae_checkpoint=sae_path,
             strategy=args.strategy,
             representatives=representatives,
+            config=config,
         )
     except ValueError as exc:
         sys.stderr.write(f"polygram compress: {exc}\n")
@@ -647,7 +678,13 @@ def _cmd_compress(args: argparse.Namespace) -> int:
         f"polygram compress: rewrite weights → {out_ckpt} ...\n"
     )
     try:
-        result = compressor.run(out_ckpt)
+        if target_k is not None:
+            plan = compressor.plan_with_target()
+            result = compressor.apply(
+                plan=plan, output_checkpoint=out_ckpt
+            )
+        else:
+            result = compressor.run(out_ckpt)
     except (ValueError, KeyError, IndexError) as exc:
         sys.stderr.write(f"polygram compress: {exc}\n")
         return 2
@@ -662,9 +699,138 @@ def _cmd_compress(args: argparse.Namespace) -> int:
         f"output sha256={result.report.output_checkpoint_sha256[:12]}… "
         f"clusters={result.report.n_clusters} "
         f"zeroed={result.report.n_features_zeroed} "
-        f"kept={result.report.n_features_kept}\n"
+        f"kept={result.report.n_features_kept}"
     )
+    if target_k is not None:
+        sys.stderr.write(
+            f" target_k={target_k} "
+            f"reached={'yes' if result.report.n_features_kept <= target_k else 'no'}"
+        )
+    sys.stderr.write("\n")
     return 0
+
+
+def _cmd_compress_pareto(
+    args: argparse.Namespace, sae_path: Path, vreport_path: Path
+) -> int:
+    from polygram.behavioural import ValidationReport
+    from polygram.compression import Compressor
+    from polygram.config import CompressionConfig
+
+    try:
+        targets = _parse_pareto_targets(args.pareto)
+    except ValueError as exc:
+        sys.stderr.write(f"polygram compress: {exc}\n")
+        return 2
+
+    out_dir = Path(args.output).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if out_dir.is_file():
+        sys.stderr.write(
+            f"polygram compress: --output must be a directory in "
+            f"--pareto mode; got file: {out_dir}\n"
+        )
+        return 2
+
+    try:
+        representatives = _parse_representatives(args.representatives)
+    except SystemExit as exc:
+        return int(exc.code) if exc.code is not None else 2
+
+    sys.stderr.write("polygram compress: load validation report ...\n")
+    try:
+        vreport = ValidationReport.from_json(vreport_path)
+    except (ValueError, json.JSONDecodeError) as exc:
+        sys.stderr.write(
+            f"polygram compress: failed to parse --validation-report: "
+            f"{exc}\n"
+        )
+        return 2
+
+    try:
+        compressor = Compressor(
+            validation_report=vreport,
+            sae_checkpoint=sae_path,
+            strategy=args.strategy,
+            representatives=representatives,
+            config=CompressionConfig(score_field=args.score_field),
+        )
+    except ValueError as exc:
+        sys.stderr.write(f"polygram compress: {exc}\n")
+        return 2
+
+    sys.stderr.write(
+        f"polygram compress: plan_pareto(targets={targets}) ...\n"
+    )
+    try:
+        pareto = compressor.plan_pareto(targets)
+    except (ValueError, KeyError, IndexError) as exc:
+        sys.stderr.write(f"polygram compress: {exc}\n")
+        return 2
+
+    pareto_json_path = out_dir / "pareto.json"
+    pareto.to_json(pareto_json_path)
+    sys.stderr.write(
+        f"polygram compress: wrote pareto plan → {pareto_json_path}\n"
+    )
+    for outcome in pareto.outcomes:
+        sys.stderr.write(
+            f"polygram compress:   K={outcome.target_k} "
+            f"kept={outcome.plan.n_features_kept} "
+            f"reached={'yes' if outcome.reached_target else 'no'}\n"
+        )
+
+    if args.pareto_materialize:
+        per_k_dir = out_dir / "pareto"
+        per_k_dir.mkdir(parents=True, exist_ok=True)
+        for outcome in pareto.outcomes:
+            ckpt_path = per_k_dir / f"k_{outcome.target_k}.safetensors"
+            if ckpt_path.resolve() == sae_path.resolve():
+                sys.stderr.write(
+                    f"polygram compress: materialise path collides with "
+                    f"--sae-checkpoint at {ckpt_path}\n"
+                )
+                return 2
+            sys.stderr.write(
+                f"polygram compress: materialise K={outcome.target_k} "
+                f"→ {ckpt_path} ...\n"
+            )
+            try:
+                compressor.apply(
+                    plan=outcome.plan, output_checkpoint=ckpt_path
+                )
+            except (ValueError, KeyError, IndexError) as exc:
+                sys.stderr.write(f"polygram compress: {exc}\n")
+                return 2
+
+    return 0
+
+
+def _parse_pareto_targets(raw: str) -> list[int]:
+    """Parse a comma-separated list of positive integers for --pareto.
+
+    Raises `ValueError` (caught by the handler) for empty, non-integer,
+    or non-positive entries.
+    """
+    if not raw or not raw.strip():
+        raise ValueError("--pareto: empty target list")
+    parts = [s.strip() for s in raw.split(",") if s.strip()]
+    if not parts:
+        raise ValueError("--pareto: empty target list")
+    targets: list[int] = []
+    for s in parts:
+        try:
+            k = int(s)
+        except ValueError as exc:
+            raise ValueError(
+                f"--pareto: cannot parse {s!r} as integer ({exc})"
+            ) from exc
+        if k < 1:
+            raise ValueError(
+                f"--pareto: every K must be a positive integer; got {k}"
+            )
+        targets.append(k)
+    return targets
 
 
 def _cmd_regrow(args: argparse.Namespace) -> int:
@@ -1129,7 +1295,13 @@ def main(argv: list[str] | None = None) -> int:
         "compress",
         help="apply the compression action to an SAE checkpoint, "
              "consuming a ValidationReport and emitting a "
-             "CompressionReport plus a rewritten safetensors file",
+             "CompressionReport plus a rewritten safetensors file. "
+             "Threshold mode (default) consumes `confirmed` pairs and "
+             "produces byte-identical output to pre-0.4 releases. "
+             "Pass --target-features N to compress to ~N cluster "
+             "representatives, or --pareto K1,K2,... to plan a Pareto "
+             "sweep (cheap: writes only pareto.json by default — pass "
+             "--pareto-materialize to also write one safetensors per K).",
     )
     p_compress.add_argument(
         "--validation-report", required=True,
@@ -1142,24 +1314,64 @@ def main(argv: list[str] | None = None) -> int:
              "W_dec / b_dec",
     )
     p_compress.add_argument(
-        "--output-checkpoint", required=True,
-        help="path for the rewritten .safetensors; must differ from "
-             "--sae-checkpoint",
+        "--output-checkpoint", default=None,
+        help="path for the rewritten .safetensors. Required in "
+             "threshold and --target-features modes; not used with "
+             "--pareto (use --output as a directory in that case)",
     )
     p_compress.add_argument(
-        "--strategy", required=True, choices=("zero",),
+        "--strategy", default="zero", choices=("zero",),
         help="compression strategy (initial release: zero only; "
-             "merge is deferred to a follow-up change)",
+             "merge is deferred to a follow-up change). Defaults to "
+             "'zero'.",
     )
     p_compress.add_argument(
         "--output", required=True,
-        help="JSON output path for the CompressionReport",
+        help="In threshold and --target-features modes, JSON output "
+             "path for the CompressionReport. In --pareto mode, "
+             "directory path where pareto.json is written (plus "
+             "pareto/k_<K>.safetensors files when --pareto-materialize "
+             "is also passed).",
     )
     p_compress.add_argument(
         "--representatives", default=None,
         help="optional comma-separated `cluster_id=fid` pairs that "
              "override the default representative pick "
              "(e.g. --representatives 0=12999,1=4192)",
+    )
+    # ---- Phase 3 of add-pareto-target-compression ---------------------
+    mode_group = p_compress.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--target-features", type=int, default=None, metavar="N",
+        help="target-K mode: compress to ~N cluster representatives "
+             "via Compressor.plan_with_target(). Mutually exclusive "
+             "with --pareto. The threshold path is bypassed; see "
+             "openspec/changes/add-pareto-target-compression.",
+    )
+    mode_group.add_argument(
+        "--pareto", default=None, metavar="K1,K2,K3,...",
+        help="Pareto-sweep mode: comma-separated list of positive "
+             "integer K values. Writes <output>/pareto.json describing "
+             "one ParetoOutcome per K. By default, no SAE checkpoints "
+             "are materialised — pass --pareto-materialize to write "
+             "<output>/pareto/k_<K>.safetensors per K.",
+    )
+    p_compress.add_argument(
+        "--pareto-materialize", action="store_true",
+        help="With --pareto, also write one materialised SAE per K "
+             "under <output>/pareto/. Ignored without --pareto. "
+             "Opt-in because materialisation can be many GB on "
+             "production-size SAEs.",
+    )
+    p_compress.add_argument(
+        "--score-field", default="polygram_overlap",
+        choices=("polygram_overlap", "jaccard", "decoder_overlap"),
+        help="CandidatePair field used to sort the pair list in "
+             "--target-features and --pareto modes. Only the three "
+             "bounded [0, 1] similarity-like fields are accepted; "
+             "KL- and count-based fields are excluded by Decision 3 "
+             "of add-pareto-target-compression. Ignored in threshold "
+             "mode.",
     )
     p_compress.set_defaults(func=_cmd_compress)
 

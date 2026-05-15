@@ -14,13 +14,11 @@ Phase 1 of the `add-pareto-target-compression` openspec change. Covers:
 from __future__ import annotations
 
 import dataclasses
-import math
 from pathlib import Path
 
 import pytest
 
 from polygram import Compressor
-from polygram.behavioural.report import CandidatePair
 from polygram.compression.report import CompressionPlan
 from polygram.config import CompressionConfig
 from tests._synth_sae import synth_sae

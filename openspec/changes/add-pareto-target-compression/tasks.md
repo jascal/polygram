@@ -136,66 +136,61 @@ passes.
 
 ### 8. CLI surface
 
-- [ ] 8.1 `polygram compress` gains `--target-features N` (mutually
-  exclusive with `--pareto`); plumbs through to
-  `Compressor(..., config=CompressionConfig(target_n_features_kept=N, ...))`
-  and invokes `Compressor.apply(plan=Compressor.plan_with_target())`.
-- [ ] 8.2 `polygram compress` gains `--pareto K1,K2,K3,...`
-  (comma-separated ints); always emits `<out>/pareto.json`. SAE
-  materialisation is gated by `--pareto-materialize` (next task).
-- [ ] 8.3 `polygram compress` gains `--pareto-materialize`. When
-  passed alongside `--pareto`, the CLI writes
-  `<out>/pareto/k_{K}.safetensors` for every K via
-  `Compressor.apply(plan=outcome.plan)`. Without the flag, no
-  safetensors are written.
-- [ ] 8.4 `--score-field {polygram_overlap,jaccard,decoder_overlap}`
-  flag with default `polygram_overlap`. Honoured by both
+- [x] 8.1 `--target-features N` (mutually exclusive with `--pareto`)
+  plumbs through `CompressionConfig(target_n_features_kept=N,
+  score_field=...)` to `Compressor.plan_with_target()` +
+  `Compressor.apply(plan=...)`.
+- [x] 8.2 `--pareto K1,K2,...` invokes `Compressor.plan_pareto` and
+  always writes `<output>/pareto.json`. `--output` is treated as a
+  directory in this mode.
+- [x] 8.3 `--pareto-materialize` opt-in writes
+  `<output>/pareto/k_{K}.safetensors` for every K via
+  `Compressor.apply(plan=outcome.plan, output_checkpoint=...)`.
+- [x] 8.4 `--score-field {polygram_overlap,jaccard,decoder_overlap}`
+  defaults to `polygram_overlap`; honoured by both
   `--target-features` and `--pareto` modes.
-- [ ] 8.5 `polygram compress --help` documents all four flags and
-  mentions:
-  - the byte-identity guarantee for the threshold path,
-  - the cluster-representative-count semantic for
-    `--target-features`,
-  - the materialisation-cost note for `--pareto`.
+- [x] 8.5 `polygram compress --help` documents all four flags plus
+  the byte-identity guarantee for the threshold path, the
+  cluster-representative-count semantic, and the materialisation-
+  cost note.
 
 ### 9. Integration test
 
-- [ ] 9.1 End-to-end test: toy SAE fixture →
-  `BehaviouralValidator` (or `DecoderGeometryConfirmer`) →
-  `Compressor(config=CompressionConfig(target_n_features_kept=K))`
-  → `plan_with_target()` → `apply(plan=...)` → reload compressed
-  checkpoint → assert `CompressionReport.n_features_kept <= K`
-  (or report `reached_target == False` if infeasible).
-- [ ] 9.2 End-to-end Pareto test: same fixture →
-  `plan_pareto([4, 2, 1])` → `apply(plan=outcome.plan)` for each
-  outcome → assert nested compression (more zeroed rows at lower
-  K).
-- [ ] 9.3 CLI smoke test (subprocess via `pytest tmp_path`):
-  - `polygram compress --target-features K` writes one
-    safetensors + one report.
-  - `polygram compress --pareto K1,K2` writes only
-    `pareto.json` (no `pareto/` subdir).
-  - `polygram compress --pareto K1,K2 --pareto-materialize`
-    writes `pareto.json` + `pareto/k_{K1,K2}.safetensors`.
-  - `polygram compress --target-features K --pareto K1,K2`
-    exits non-zero with a mutual-exclusion error.
+15 tests in `tests/compression/test_cli_compress_pareto.py`
+covering both the in-process plan_with_target/plan_pareto + apply
+round-trips and the subprocess-dispatched CLI surface.
+
+- [x] 9.1 In-process target-K round-trip: `plan_with_target` →
+  `apply(plan=...)` → `CompressionReport.to_json` →
+  `CompressionReport.from_json` matches.
+- [x] 9.2 In-process Pareto: `plan_pareto([3, 1])` → `apply` per
+  outcome → `n_features_zeroed` weakly increases as K decreases
+  (nestedness materialises).
+- [x] 9.3 CLI subprocess: `--target-features K` writes
+  safetensors+report; `--pareto K1,K2` writes pareto.json only
+  (no `pareto/` subdir); `--pareto K1,K2 --pareto-materialize`
+  also writes per-K safetensors; `--target-features X --pareto Y`
+  exits non-zero via argparse mutual-exclusion. Plus rejection
+  paths for `--target-features 0`, `--pareto ""`,
+  `--pareto 3,abc`, and `--score-field kl_log_ratio_abs`.
 
 ### 10. Spec validation & release
 
-- [ ] 10.1 `openspec validate add-pareto-target-compression --strict`
+- [x] 10.1 `openspec validate add-pareto-target-compression --strict`
   is green.
-- [ ] 10.2 Bump `polygram.__version__` to `0.4.0`
-  (`polygram/__init__.py:77` plus `pyproject.toml` if it
-  duplicates the value). Minor bump: purely additive,
-  byte-identity preserved.
-- [ ] 10.3 `CHANGELOG.md` entry under a new `0.4.0` heading
-  summarising target-K + Pareto path additions, the
-  `CompressionPlan.n_features_kept` property, and the CLI flag
-  set. Link the
-  [`docs/research/rung4-viability-spike-v2.md`](../../../docs/research/rung4-viability-spike-v2.md)
-  v2.2 follow-up call-out.
+- [x] 10.2 `polygram.__version__` bumped `0.3.0 → 0.4.0` (single
+  source of truth in `polygram/__init__.py`; `pyproject.toml`
+  reads it dynamically via `[tool.hatch.version]`, so no
+  duplication to update).
+- [x] 10.3 `CHANGELOG.md` 0.4.0 section consolidates the three
+  phases under a single
+  `add-pareto-target-compression shipped` entry. Existing
+  unreleased entries (Axis 1, assign_amp_knobs, encoding-aware
+  knob assignment, etc.) move under 0.4.0 too since they were
+  pending the same release; new empty Unreleased section added
+  above.
 - [ ] 10.4 `openspec archive add-pareto-target-compression` after
-  merge.
+  this PR merges (run on `main`).
 
 ## Phase 4 — Out of scope (recorded so future work has a pointer)
 
