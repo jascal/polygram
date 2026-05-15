@@ -19,21 +19,24 @@ The fix mirrors PR #63's PCA-axis-extension pattern but targets phase knobs (α,
 
 ## Decisions
 
-### Decision 1: PCA-axis allocation — phase gets 2-3, amp gets 4-7
+### Decision 1: PCA-axis allocation — phase gets PC2/PC3, amp gets PC4-PC7
 
-| Flag | Knob | PCA axis (0-indexed: 0 = PC1 / β) |
-|---|---|---|
-| `assign_phase_knobs` | α | axis 1 (PC2) |
-| `assign_phase_knobs` | φ | axis 2 (PC3) |
-| `assign_amp_knobs` | theta_amp | axis 3 (PC4) |
-| `assign_amp_knobs` | psi_aux | axis 4 (PC5) |
-| `assign_amp_knobs` | theta_amp_b | axis 5 (PC6) |
-| `assign_amp_knobs` | psi_amp_b | axis 6 (PC7) |
+Throughout this doc, **PC_k** refers to the *k*-th principal component (1-indexed; PC1 is the top component, PC2 the second, etc.). In code, these correspond to `vt[k-1]` rows of the SVD output (0-indexed array access). Standard ML convention.
+
+| Flag | Knob | Component | Code reference |
+|---|---|---|---|
+| (existing β strategy) | β | PC1 | `vt[0]` |
+| `assign_phase_knobs` | α | PC2 | `vt[1]` |
+| `assign_phase_knobs` | φ | PC3 | `vt[2]` |
+| `assign_amp_knobs` | theta_amp | PC4 | `vt[3]` |
+| `assign_amp_knobs` | psi_aux | PC5 | `vt[4]` |
+| `assign_amp_knobs` | theta_amp_b | PC6 | `vt[5]` |
+| `assign_amp_knobs` | psi_amp_b | PC7 | `vt[6]` |
 
 Rationale:
-- Phase knobs apply to **all** encodings (MPSRung1, Rung3, Rung4 share the MPS substrate), so they take precedence on the lowest available PCA axes.
-- Amp knobs apply only to Rung3/Rung4. They shift to higher axes when phase knobs occupy axes 2-3.
-- When `assign_phase_knobs=False` and `assign_amp_knobs=True`, amp knobs STILL go to axes 4-7 (NOT 2-5 as in PR #63). This is the load-bearing break — the PR-#63 results note's exact gram-condition numbers would not reproduce.
+- Phase knobs apply to **all** encodings (MPSRung1, Rung3, Rung4 share the MPS substrate), so they take precedence on the lowest available PCA components after β.
+- Amp knobs apply only to Rung3/Rung4. They shift to PC4-PC7 when phase knobs occupy PC2-PC3.
+- When `assign_phase_knobs=False` and `assign_amp_knobs=True`, amp knobs STILL go to PC4-PC7 (NOT PC2-PC5 as in PR #63). This is the load-bearing break — the PR-#63 results note's exact gram-condition numbers would not reproduce.
 
 The break is acceptable because PR #63 is one PR old, the existing v2.1 results note's *qualitative* finding (un-dormanting works) survives, and the exact numbers were never load-bearing.
 
@@ -91,3 +94,13 @@ The last row is "FULL on Rung4" — every per-feature knob is populated from a d
 - **Users opted into `assign_amp_knobs=True`**: their exact gram-condition numbers change (axis shift). Qualitative behaviour same.
 - **New users wanting MPSRung1 to use its full state space**: pass `assign_phase_knobs=True`.
 - **New users wanting Rung4 with everything on**: pass both flags.
+
+### Default-flip path (future, not in scope here)
+
+The flags stay opt-in initially. A default-flip to `True` for higher-rung encodings would be considered only after:
+
+1. **Axis 1 (compression coverage)** on a torch-enabled host shows materially better compression for Rung4-amp+phase vs Rung4-default (the run plan in `openspec/changes/run-axis1-compression-coverage-mbp/`).
+2. **Axis 4 (sae-forge faithfulness)** confirms downstream forge-pipeline benefit on a real LM.
+3. Two-flag UX has settled with no surprise behaviour reports from external users.
+
+If those three conditions land, a follow-up change (e.g., `flip-phase-and-amp-defaults-for-higher-rungs`) proposes the default-flip with explicit migration guidance — existing `encoding=Rung4()` call sites would see different behaviour and need explicit `assign_*_knobs=False` to preserve pre-flip semantics. Out of scope here.

@@ -14,9 +14,9 @@ This is a parallel addition to PR #63's `assign_amp_knobs` (which targets amp-br
 
 When `assign_phase_knobs=False` (the default), the loader SHALL produce `Feature` objects with the encoding's default `α` and `φ` values (typically `0.0` for both). The resulting `Dictionary.gram()` SHALL be bit-identical to the pre-change loader on the same inputs.
 
-When `assign_phase_knobs=True`, the loader SHALL populate each `Feature.alpha` from PCA axis 2 (PC2) of the centered projection vectors, and `Feature.phi` from PCA axis 3 (PC3). Both are rescaled linearly into `[0, 2π]`.
+When `assign_phase_knobs=True`, the loader SHALL populate each `Feature.alpha` from PC2 of the centered projection vectors, and `Feature.phi` from PC3. Both are rescaled linearly into `[0, 2π]`. (PC_k = the k-th principal component, 1-indexed; in code these correspond to `vt[k-1]`.)
 
-When `assign_phase_knobs=True` and the encoding has no `α` and `φ` knobs (currently only `HEA_Rung2`), the flag SHALL be a no-op. The loader SHOULD emit a `logging.debug` (or INFO-once) message naming the encoding.
+When `assign_phase_knobs=True` and the encoding has no `α` and `φ` knobs (currently only `HEA_Rung2`, whose per-feature θ tensor has a different shape), the flag SHALL be a no-op. The loader SHALL emit a clear log message (INFO-once on first encounter per encoding type) explicitly naming `HEA_Rung2` and stating that its knob structure is incompatible with the phase-knob assignment pattern.
 
 #### Scenario: default `assign_phase_knobs=False` preserves byte-identity
 
@@ -113,10 +113,10 @@ The helper `polygram.geometry.amp_assignment.assign_amp_knobs_pca` SHALL allocat
 
 This is a backward-incompat change for `assign_amp_knobs=True` callers — exact gram-condition numbers from PR-#63-era artifacts will not reproduce. The qualitative invariant (amp-on differs measurably from amp-off) is preserved.
 
-#### Scenario: amp knobs after the shift use PCA axes 4-7
+#### Scenario: amp knobs after the shift use PC4-PC7
 
-- **WHEN** `from_sae_lens(records, encoding=Rung4(), assign_amp_knobs=True)` is called on a SAE with at least 7 non-zero PCA axes
-- **THEN** `Feature.theta_amp` derives from PCA axis 4 (PC4)
-- **AND** `Feature.psi_aux` derives from PCA axis 5 (PC5)
-- **AND** `Feature.theta_amp_b` derives from PCA axis 6 (PC6)
-- **AND** `Feature.psi_amp_b` derives from PCA axis 7 (PC7)
+- **WHEN** `from_sae_lens(records, encoding=Rung4(), assign_amp_knobs=True)` is called on a SAE with at least 7 non-zero PCA components
+- **THEN** `Feature.theta_amp` derives from PC4 (code: `vt[3]`)
+- **AND** `Feature.psi_aux` derives from PC5 (code: `vt[4]`)
+- **AND** `Feature.theta_amp_b` derives from PC6 (code: `vt[5]`)
+- **AND** `Feature.psi_amp_b` derives from PC7 (code: `vt[6]`)

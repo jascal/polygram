@@ -6,14 +6,14 @@ Reproduced locally on the bundled toy SAE fixture with the default loader path (
 
 | Metric | Value |
 |---|---|
-| Mean off-diagonal `|G|²` | **0.7567** (≈ the reporter's 0.758) |
-| Max off-diagonal `|G|²` | 0.9998 |
-| Pairs `|G|² ≥ 0.9` | **12 of 28** (≈ the reporter's 12 of 28) |
+| Mean off-diagonal \|G\|² | **0.7567** (≈ the reporter's 0.758) |
+| Max off-diagonal \|G\|² | 0.9998 |
+| Pairs \|G\|² ≥ 0.9 | **12 of 28** (≈ the reporter's 12 of 28) |
 | Per-feature α | 0 (always) |
 | Per-feature φ | 0 (always) |
 | Per-feature β | only ±0.5 (k=2 cluster ordinal) |
 
-**This is the same dormancy that PR #63 fixed for Rung3/Rung4 amp-branch knobs, at a lower level**: `from_sae_lens` assigns β (PCA axis 1) and γ (per-cluster PCA when `assign_gamma=True`), but α and φ default to 0 and are never assigned. MPSRung1's prepare-form circuit uses all four knobs; loading via `from_sae_lens` uses only two. The algebraic feature cap of 8 is real; the loader's effective discriminating capacity is closer to 2.
+**This is the same dormancy that PR #63 fixed for Rung3/Rung4 amp-branch knobs, at a lower level**: `from_sae_lens` assigns β (PC1) and γ (per-cluster PCA when `assign_gamma=True`), but α and φ default to 0 and are never assigned. MPSRung1's prepare-form circuit uses all four knobs; loading via `from_sae_lens` uses only two. The algebraic feature cap of 8 is real; the loader's effective discriminating capacity is closer to 2.
 
 Sanity check confirms the fix works: populating α and φ per-feature drops the gram metrics dramatically:
 
@@ -25,6 +25,8 @@ Sanity check confirms the fix works: populating α and φ per-feature drops the 
 
 This change is the natural extension of PR #63's `encoding-aware-knob-assignment` work: a parallel `assign_phase_knobs` flag for α/φ that applies to *any* encoding with those knobs (MPSRung1, Rung3, Rung4 — all share the MPS-substrate phase knobs). The amp-branch flag stays as it was; the new flag is independent.
 
+**PCA-component notation throughout this proposal**: PC_k denotes the *k*-th principal component (1-indexed; PC1 is the top component). In code, these correspond to `vt[k-1]` rows (0-indexed array access). Standard ML convention; sticky enough to avoid the "PC2 vs axis 1" confusion that mixed numbering creates.
+
 ## What Changes
 
 ### Scope (small, mirrors PR #63 shape)
@@ -32,10 +34,10 @@ This change is the natural extension of PR #63's `encoding-aware-knob-assignment
 - **`from_sae_lens`** gains `assign_phase_knobs: bool = False` kwarg. Default `False` preserves byte-identical behavior.
 - **`SAEImportConfig`** gains `assign_phase_knobs: bool = False` field. Same precedence as `assign_gamma`.
 - **`KnobAssignmentResult`** gains two new optional fields: `alphas: list[float] | None = None`, `phis: list[float] | None = None`.
-- **New helper**: `polygram/geometry/phase_assignment.py::assign_phase_knobs_pca(projections, encoding)` returns a dict with `alphas` and `phis`, populated from PCA axes 2 and 3 of the projection vectors. Encoding-agnostic — applies to MPSRung1, Rung3, Rung4 (all share the MPS-substrate α and φ).
+- **New helper**: `polygram/geometry/phase_assignment.py::assign_phase_knobs_pca(projections, encoding)` returns a dict with `alphas` and `phis`, populated from PC2 and PC3 of the projection vectors. Encoding-agnostic — applies to MPSRung1, Rung3, Rung4 (all share the MPS-substrate α and φ).
 - **`KnobAssignment.assign` signature**: extended with `assign_phase_knobs: bool = False`. Both shipped strategies (`ClusteredKnobAssignment`, `UniformSphereKnobAssignment`) honor the flag via the helper.
 - **`EpochCompressor`, `Compressor`** gain `assign_phase_knobs: bool = False` field plumbed through to internal `from_sae_lens` calls — same plumbing pattern as PR #64 did for `assign_amp_knobs`.
-- **Existing `assign_amp_knobs` PCA-axis allocation shifts** from axes 2-5 to axes 4-7. The two flags don't collide; phase always gets the lowest axes. This is a backward-compat break for the PR-#63-era exact numbers in `docs/research/rung_gram_condition_*_amp_on.json` — qualitative findings still hold but exact values change. The v2.1 results note flags this with a regenerate-and-update.
+- **Existing `assign_amp_knobs` PCA-component allocation shifts** from PC2-PC5 to PC4-PC7. The two flags don't collide; phase always gets the lowest PCs after β. This is a backward-compat break for the PR-#63-era exact numbers in `docs/research/rung_gram_condition_*_amp_on.json` — qualitative findings still hold but exact values change. The v2.1 results note flags this with a regenerate-and-update.
 
 ### Falsifying invariant
 
