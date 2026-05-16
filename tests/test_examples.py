@@ -441,3 +441,36 @@ def test_batch_animals_hea_runs(tmp_path: Path):
     for run in data["runs"]:
         sub = out / f"{run['source']}_x_{run['target']}"
         assert sub.is_dir()
+
+
+def test_rung5_rank_verification_smoke(tmp_path: Path):
+    """Smoke: examples/rung5_rank_verification.py runs at small k and
+    confirms rank saturation matches the predicted 8·2^k for each k."""
+    import json
+    import sys
+
+    from examples.rung5_rank_verification import main
+
+    json_out = tmp_path / "rung5_rank.json"
+    argv_save = sys.argv
+    try:
+        sys.argv = [
+            "rung5_rank_verification.py",
+            "--k", "2", "3",
+            "--seeds", "0",
+            "--json-out", str(json_out),
+        ]
+        rc = main()
+    finally:
+        sys.argv = argv_save
+    assert rc == 0
+    assert json_out.is_file()
+    artifact = json.loads(json_out.read_text())
+    assert artifact["schema"] == "polygram.rung5_rank_verification.v1"
+    for k in (2, 3):
+        runs = artifact["runs"][f"rung5_k{k}_seed0"]
+        cap = runs["cap"]
+        assert cap == 8 * 2 ** k
+        by_n = {r["n"]: r for r in runs["rows"]}
+        assert by_n[cap]["rank_1e_12"] == cap
+        assert by_n[2 * cap]["rank_1e_12"] == cap
