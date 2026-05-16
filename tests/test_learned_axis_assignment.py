@@ -342,6 +342,123 @@ class TestHEAFallback:
         assert len(result.betas) == len(labels)
 
 
+class TestFromSaeLensIntegration:
+    def _records(self, n_clusters=4, cluster_size=4, d_model=32, seed=0):
+        from polygram.sae_import import SAEFeatureRecord
+
+        projs, labels = _synth_clustered(
+            n_clusters=n_clusters, cluster_size=cluster_size,
+            d_model=d_model, seed=seed,
+        )
+        records = {
+            i: SAEFeatureRecord(
+                feature_id=i,
+                name=labels[i].replace("/", "_"),
+                label=None,  # bypass label-based clustering
+                projection=projs[i].astype(np.float32),
+                activation_mean=0.0,
+                activation_std=1.0,
+            )
+            for i in range(len(labels))
+        }
+        return records, list(range(len(labels)))
+
+    def test_default_behaviour_byte_identical(self):
+        # When learn_axis_assignment is None/False, the gram must
+        # match the pre-change pipeline. We can't compare against a
+        # frozen baseline here, so instead assert that the report
+        # field is None and the strategy path used by `from_sae_lens`
+        # remained the profile's default.
+        from polygram import from_sae_lens
+        from polygram.encoding import Rung4
+
+        records, ids = self._records()
+        _, report_none = from_sae_lens(records, ids, encoding=Rung4())
+        _, report_false = from_sae_lens(
+            records, ids, encoding=Rung4(), learn_axis_assignment=False,
+        )
+        assert report_none.learned_axis_assignment is None
+        assert report_false.learned_axis_assignment is None
+
+    def test_true_triggers_default_strategy(self):
+        from polygram import from_sae_lens
+        from polygram.encoding import Rung4
+
+        records, ids = self._records()
+        _, report = from_sae_lens(
+            records, ids, encoding=Rung4(), learn_axis_assignment=True,
+        )
+        info = report.learned_axis_assignment
+        assert info is not None
+        assert info["solver"] == "greedy"
+        assert info["objective_name"] == "spearman_objective"
+        assert isinstance(info["objective_value"], float)
+        assert isinstance(info["objective_baseline"], float)
+        # Default strategy's training score ≥ baseline.
+        assert (
+            info["training_objective_value"]
+            >= info["objective_baseline"] - 1e-6
+        )
+
+    def test_explicit_strategy_instance_honoured(self):
+        from polygram import from_sae_lens
+        from polygram.encoding import Rung4
+        from polygram.geometry import LearnedKnobAssignment, pearson_objective
+
+        records, ids = self._records()
+        strategy = LearnedKnobAssignment(
+            solver="greedy", objective=pearson_objective,
+        )
+        _, report = from_sae_lens(
+            records, ids, encoding=Rung4(),
+            learn_axis_assignment=strategy,
+        )
+        info = report.learned_axis_assignment
+        assert info is not None
+        assert info["objective_name"] == "pearson_objective"
+
+    def test_report_field_is_json_safe(self):
+        # The report must serialise to JSON without numpy types.
+        import json
+
+        from polygram import from_sae_lens
+        from polygram.encoding import Rung4
+
+        records, ids = self._records()
+        _, report = from_sae_lens(
+            records, ids, encoding=Rung4(), learn_axis_assignment=True,
+        )
+        s = json.dumps(report.learned_axis_assignment)
+        assert "axis_assignment" in s
+        # Round-trip — every value must come back to a plain Python type.
+        roundtripped = json.loads(s)
+        for v in roundtripped["axis_assignment"].values():
+            assert isinstance(v, (int, list))
+            if isinstance(v, list):
+                for x in v:
+                    assert isinstance(x, float)
+
+    def test_learned_path_produces_different_dictionary(self):
+        # Sanity: with learn_axis_assignment=True the strategy
+        # actually runs and produces a dictionary whose gram differs
+        # from the hardcoded baseline. Stronger equivalence tests
+        # are covered by direct LearnedKnobAssignment.assign() tests.
+        from polygram import from_sae_lens
+        from polygram.encoding import Rung4
+
+        records, ids = self._records()
+        d_baseline, _ = from_sae_lens(
+            records, ids, encoding=Rung4(),
+        )
+        d_learned, _ = from_sae_lens(
+            records, ids, encoding=Rung4(),
+            learn_axis_assignment=True,
+        )
+        # Some off-diagonal entries should differ (the strategy chose
+        # a non-baseline axis for at least one knob).
+        assert not np.allclose(d_baseline.gram(), d_learned.gram())
+
+
 class TestScipySolver:
     def test_initialises_from_greedy_no_regression(self):
         pytest.importorskip("scipy")

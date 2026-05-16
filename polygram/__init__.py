@@ -74,10 +74,15 @@ from polygram.encoding import (
 from polygram.experiment import Experiment, ExperimentResult, InterferenceSweep
 from polygram.geometry import (
     GeometricProfile,
+    LearnedAxisObjective,
+    LearnedKnobAssignment,
     available_profiles,
+    behavioural_objective,
     clustered,
     get_profile,
+    pearson_objective,
     register_profile,
+    spearman_objective,
     uniform_sphere,
 )
 from polygram.sae_import import (
@@ -88,7 +93,7 @@ from polygram.sae_import import (
     load_toy_sae,
 )
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 __all__ = [
     "BatchExperiment",
@@ -124,6 +129,8 @@ __all__ = [
     "GeometricProfile",
     "HEA_Rung2",
     "InterferenceSweep",
+    "LearnedAxisObjective",
+    "LearnedKnobAssignment",
     "MPSRung1",
     "Panel",
     "ParetoOutcome",
@@ -148,9 +155,12 @@ __all__ = [
     "ValidationReport",
     "ValidationSummary",
     "available_profiles",
+    "behavioural_objective",
     "clustered",
     "from_sae_lens",
     "get_profile",
+    "pearson_objective",
+    "spearman_objective",
     "load_sae_safetensors",
     "load_toy_sae",
     "register_profile",

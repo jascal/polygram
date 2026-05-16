@@ -283,6 +283,16 @@ class TestRoundTrip:
         assert cfg2 == cfg
         assert isinstance(cfg2.gamma_range, tuple)
 
+    def test_sae_import_learn_axis_assignment_default(self):
+        cfg = SAEImportConfig()
+        assert cfg.learn_axis_assignment is None
+
+    def test_sae_import_learn_axis_assignment_round_trip(self):
+        cfg = SAEImportConfig(learn_axis_assignment=True)
+        d = cfg.to_dict()
+        cfg2 = SAEImportConfig.from_dict(d)
+        assert cfg2.learn_axis_assignment is True
+
     def test_to_dict_is_json_serialisable(self):
         cfg = EpochCompressionConfig(
             coverage_target=0.7,

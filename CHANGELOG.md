@@ -4,6 +4,60 @@
 
 (nothing yet)
 
+## 0.8.0 — 2026-05-16
+
+### Added
+
+- **`add-learned-axis-assignment` shipped.** New
+  `polygram.geometry.LearnedKnobAssignment` strategy that calibrates
+  the decoder-PCA-to-polygram-knob projection from data instead of
+  using the hardcoded `PC2 → α / PC3 → φ / PC4..→ amp_knobs`
+  permutation. Greedy per-knob permutation search (default,
+  pure-numpy) or scipy continuous-optimisation (`polygram[opt]`)
+  initialised from the greedy result. Pluggable
+  `LearnedAxisObjective` protocol with three built-ins:
+  `spearman_objective` (default), `pearson_objective`,
+  `behavioural_objective(ref_matrix)` factory for sae-forge
+  co-activation matrices.
+  - `polygram.geometry`: new module
+    `polygram.geometry.learned_axis_assignment` with
+    `LearnedKnobAssignment`; new
+    `polygram.geometry.objectives` module with the three built-in
+    objectives.
+  - `polygram.geometry.protocols`: new `LearnedAxisObjective`
+    protocol; new optional fields on `KnobAssignmentResult`
+    (`axis_assignment`, `objective_value`, `objective_baseline`,
+    `training_objective_value`).
+  - `polygram.sae_import.from_sae_lens`: new
+    `learn_axis_assignment` kwarg (`bool | LearnedKnobAssignment |
+    None = None`). Strict opt-in; `None`/`False` preserves
+    byte-identical behaviour. `SelectionReport.learned_axis_assignment`
+    surfaces the chosen map (JSON-safe).
+  - `polygram.config.SAEImportConfig`: new
+    `learn_axis_assignment: bool | None = None` field; round-trips
+    through `to_dict()` / `from_dict()`.
+  - `polygram analyze --learn-axis-assignment` CLI flag wires the
+    opt-in through `predict_cancellation_depth`.
+  - Empirical motivation: `docs/research/rung5-pareto-scans.md`
+    scan 4 (greedy prototype ~3×s decoder-Gram Spearman on a
+    synthetic SAE).
+  - Production demo: `examples/learned_axis_assignment_demo.py` +
+    committed `docs/research/data/learned_axis_assignment_demo.json`
+    confirming the headline result on the same fixture.
+  - Research note: `docs/research/learned-axis-assignment.md`
+    documents API, promote-to-default gate (≥ 2 real SAEs,
+    downstream metric, calibration cost budget), and the §9 / §11
+    follow-ups in the theoretical treatment.
+
+### Notes
+
+Strict default-off. `HEA_Rung2` falls back to
+`ClusteredKnobAssignment` with an INFO-once log — learned
+assignment for HEA's per-feature θ tensor is out of scope for v1.
+Real-SAE replication (Gemma-Scope / GPT-2-small) is the next
+research-track follow-up; promote-to-default gate documented in
+the openspec proposal and `learned-axis-assignment.md`.
+
 ## 0.7.0 — 2026-05-16
 
 ### Added

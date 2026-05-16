@@ -303,6 +303,14 @@ class SelectionReport:
     n_blocks: int | None = None
     mean_block_size: float | None = None
     n_cross_block_edges: int | None = None
+    # add-learned-axis-assignment. Populated only when
+    # `from_sae_lens` is called with `learn_axis_assignment=...`.
+    # Carries the learned axis-to-knob map plus the achieved
+    # objective and the hardcoded-baseline objective for comparison.
+    # JSON-safe (no numpy types); see
+    # `LearnedKnobAssignment` in `polygram.geometry`. `None` for
+    # imports that used the hardcoded helpers.
+    learned_axis_assignment: dict[str, object] | None = None
 
 
 def _detect_decoder_key(
@@ -570,6 +578,7 @@ def from_sae_lens(
     block_formation: "BlockFormation | None" = None,
     assign_amp_knobs: bool | None = None,
     assign_phase_knobs: bool | None = None,
+    learn_axis_assignment: "bool | object | None" = None,
 ) -> tuple["Dictionary | ClusteredDictionary", SelectionReport]:
     """Build a `Dictionary` from an explicit subset of SAE features.
 
@@ -618,6 +627,8 @@ def from_sae_lens(
         assign_amp_knobs = cfg.assign_amp_knobs
     if assign_phase_knobs is None:
         assign_phase_knobs = cfg.assign_phase_knobs
+    if learn_axis_assignment is None:
+        learn_axis_assignment = cfg.learn_axis_assignment
     if gamma_range is None:
         gamma_range = cfg.gamma_range
     # n_clusters default cascade: kwarg > config (only if config explicitly
@@ -662,6 +673,9 @@ def from_sae_lens(
     betas_explicit: list[float] | None = None
     gammas_explicit: list[float] | None = None
     var_explained_explicit: float | None = None
+    # Populated only by the learned-strategy branch; stays None on
+    # cluster_assignments / from_labels / non-learned-strategy paths.
+    learned_axis_info: dict[str, object] | None = None
 
     if cluster_assignments is not None:
         bypass_strategy = True
@@ -688,7 +702,19 @@ def from_sae_lens(
                 f"n_clusters={n_for_warn} > selected={len(selected)}; "
                 f"clamping to {len(selected)}"
             )
-        result = resolved_profile.knob_assignment.assign(
+        # Resolve learn_axis_assignment kwarg:
+        #   None / False     → keep profile's strategy (existing behaviour)
+        #   True             → instantiate default LearnedKnobAssignment()
+        #   instance         → use as-is
+        strategy_used: object = resolved_profile.knob_assignment
+        if learn_axis_assignment:
+            from polygram.geometry import LearnedKnobAssignment
+
+            if learn_axis_assignment is True:
+                strategy_used = LearnedKnobAssignment()
+            else:
+                strategy_used = learn_axis_assignment
+        result = strategy_used.assign(
             projs,
             [r.name for r in selected],
             n_clusters=n_clusters,
@@ -715,6 +741,37 @@ def from_sae_lens(
             "alphas": result.alphas,
             "phis": result.phis,
         }
+        # Capture learned-axis metadata for SelectionReport. Empty
+        # (None) on every non-learned-strategy path.
+        if (
+            learn_axis_assignment
+            and result.axis_assignment is not None
+        ):
+            # Surface only JSON-safe primitives in the report.
+            ax = result.axis_assignment
+            json_safe_axes: dict[str, object] = {}
+            for k, v in ax.items():
+                if isinstance(v, list):
+                    json_safe_axes[k] = [float(x) for x in v]
+                else:
+                    json_safe_axes[k] = int(v)
+            solver_name = getattr(strategy_used, "solver", "unknown")
+            objective_callable = getattr(strategy_used, "objective", None)
+            objective_name = (
+                getattr(objective_callable, "__name__", repr(objective_callable))
+                if objective_callable is not None else "unknown"
+            )
+            learned_axis_info = {
+                "axis_assignment": json_safe_axes,
+                "objective_name": objective_name,
+                "objective_value": float(result.objective_value)
+                if result.objective_value is not None else None,
+                "objective_baseline": float(result.objective_baseline)
+                if result.objective_baseline is not None else None,
+                "training_objective_value": float(result.training_objective_value)
+                if result.training_objective_value is not None else None,
+                "solver": str(solver_name),
+            }
 
     cluster_order: list[str] = []
     seen: set[str] = set()
@@ -906,6 +963,7 @@ def from_sae_lens(
         n_blocks=n_blocks_stat,
         mean_block_size=mean_block_size_stat,
         n_cross_block_edges=n_cross_block_edges_stat,
+        learned_axis_assignment=learned_axis_info,
     )
     return result, report
 
