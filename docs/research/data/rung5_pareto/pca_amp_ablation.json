@@ -1,0 +1,61 @@
+{
+  "schema": "polygram.rung5_pareto.pca_amp_ablation.v1",
+  "config": {
+    "n_clusters": 16,
+    "cluster_size": 4,
+    "d_model": 32,
+    "seed": 0,
+    "k": [
+      3,
+      4
+    ]
+  },
+  "runs": [
+    {
+      "k": 3,
+      "n_features": 64,
+      "assign_amp_knobs": false,
+      "spearman_gram_vs_cosine": 0.13491378610886984,
+      "tier_separation": -0.2815984091574134,
+      "condition_number": 2.88206041382604e+18
+    },
+    {
+      "k": 3,
+      "n_features": 64,
+      "assign_amp_knobs": true,
+      "spearman_gram_vs_cosine": 0.10394471493076896,
+      "tier_separation": -0.05119539488186897,
+      "condition_number": 174709177.16847804
+    },
+    {
+      "k": 4,
+      "n_features": 64,
+      "assign_amp_knobs": false,
+      "spearman_gram_vs_cosine": 0.13491378610886984,
+      "tier_separation": -0.2815984091574134,
+      "condition_number": 2.88206041382604e+18
+    },
+    {
+      "k": 4,
+      "n_features": 64,
+      "assign_amp_knobs": true,
+      "spearman_gram_vs_cosine": 0.11622972868394846,
+      "tier_separation": -0.03298133401334746,
+      "condition_number": 11823.26442404143
+    }
+  ],
+  "deltas": [
+    {
+      "k": 3,
+      "spearman_off": 0.13491378610886984,
+      "spearman_on": 0.10394471493076896,
+      "delta_spearman": -0.030969071178100882
+    },
+    {
+      "k": 4,
+      "spearman_off": 0.13491378610886984,
+      "spearman_on": 0.11622972868394846,
+      "delta_spearman": -0.01868405742492138
+    }
+  ]
+}

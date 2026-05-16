@@ -1,0 +1,229 @@
+{
+  "schema": "polygram.rung5_pareto.capacity_quality.v1",
+  "config": {
+    "n_clusters": 64,
+    "cluster_size": 4,
+    "d_model": 64,
+    "seed": 0,
+    "targets": [
+      8,
+      16,
+      32,
+      64,
+      128,
+      256
+    ]
+  },
+  "runs": [
+    {
+      "n_features": 8,
+      "encoding": "MPSRung1",
+      "encoding_cap": 8,
+      "build_seconds": 0.09630100900540128,
+      "measure_seconds": 0.00464943700353615,
+      "spearman_gram_vs_cosine": -0.025725232621784347,
+      "tier_separation": null,
+      "condition_number": 13342.60433834428
+    },
+    {
+      "n_features": 8,
+      "encoding": "Rung3",
+      "encoding_cap": 16,
+      "build_seconds": 0.003167148999636993,
+      "measure_seconds": 0.004422693993547,
+      "spearman_gram_vs_cosine": 0.0755336617405583,
+      "tier_separation": null,
+      "condition_number": 125.09734651056685
+    },
+    {
+      "n_features": 8,
+      "encoding": "Rung4",
+      "encoding_cap": 32,
+      "build_seconds": 0.002940288992249407,
+      "measure_seconds": 0.004449594998732209,
+      "spearman_gram_vs_cosine": -0.047619047619047616,
+      "tier_separation": null,
+      "condition_number": 8.472319121354102
+    },
+    {
+      "n_features": 8,
+      "encoding": "Rung5(k=3)",
+      "encoding_cap": 64,
+      "build_seconds": 0.0031579899950884283,
+      "measure_seconds": 0.00464723700133618,
+      "spearman_gram_vs_cosine": -0.047619047619047616,
+      "tier_separation": null,
+      "condition_number": 8.472319121354102
+    },
+    {
+      "n_features": 8,
+      "encoding": "Rung5(k=4)",
+      "encoding_cap": 128,
+      "build_seconds": 0.0030113159882603213,
+      "measure_seconds": 0.004760808005812578,
+      "spearman_gram_vs_cosine": -0.047619047619047616,
+      "tier_separation": null,
+      "condition_number": 8.472319121354102
+    },
+    {
+      "n_features": 8,
+      "encoding": "Rung5(k=5)",
+      "encoding_cap": 256,
+      "build_seconds": 0.00279533100547269,
+      "measure_seconds": 0.004723388992715627,
+      "spearman_gram_vs_cosine": -0.047619047619047616,
+      "tier_separation": null,
+      "condition_number": 8.472319121354102
+    },
+    {
+      "n_features": 16,
+      "encoding": "Rung3",
+      "encoding_cap": 16,
+      "build_seconds": 0.004511228005867451,
+      "measure_seconds": 0.006796171001042239,
+      "spearman_gram_vs_cosine": 0.1608167233835683,
+      "tier_separation": null,
+      "condition_number": 48082.15513898737
+    },
+    {
+      "n_features": 16,
+      "encoding": "Rung4",
+      "encoding_cap": 32,
+      "build_seconds": 0.0050047569966409355,
+      "measure_seconds": 0.00697355400188826,
+      "spearman_gram_vs_cosine": 0.1778248489478436,
+      "tier_separation": null,
+      "condition_number": 302.8422835434404
+    },
+    {
+      "n_features": 16,
+      "encoding": "Rung5(k=3)",
+      "encoding_cap": 64,
+      "build_seconds": 0.005154988990398124,
+      "measure_seconds": 0.008191997010726482,
+      "spearman_gram_vs_cosine": 0.15692756441419542,
+      "tier_separation": null,
+      "condition_number": 26.535183957651114
+    },
+    {
+      "n_features": 16,
+      "encoding": "Rung5(k=4)",
+      "encoding_cap": 128,
+      "build_seconds": 0.004744854988530278,
+      "measure_seconds": 0.007975500004249625,
+      "spearman_gram_vs_cosine": 0.18729078408222793,
+      "tier_separation": null,
+      "condition_number": 8.226984532936612
+    },
+    {
+      "n_features": 16,
+      "encoding": "Rung5(k=5)",
+      "encoding_cap": 256,
+      "build_seconds": 0.00493139200261794,
+      "measure_seconds": 0.008012940001208335,
+      "spearman_gram_vs_cosine": 0.19656920619487464,
+      "tier_separation": null,
+      "condition_number": 4.420047978514489
+    },
+    {
+      "n_features": 32,
+      "encoding": "Rung4",
+      "encoding_cap": 32,
+      "build_seconds": 0.009215657992172055,
+      "measure_seconds": 0.014266935002524406,
+      "spearman_gram_vs_cosine": 0.04290031489031943,
+      "tier_separation": null,
+      "condition_number": 1752577.8418743222
+    },
+    {
+      "n_features": 32,
+      "encoding": "Rung5(k=3)",
+      "encoding_cap": 64,
+      "build_seconds": 0.009467864991165698,
+      "measure_seconds": 0.01599453999369871,
+      "spearman_gram_vs_cosine": 0.0651768873259105,
+      "tier_separation": null,
+      "condition_number": 1425.8399370781178
+    },
+    {
+      "n_features": 32,
+      "encoding": "Rung5(k=4)",
+      "encoding_cap": 128,
+      "build_seconds": 0.010349343006964773,
+      "measure_seconds": 0.017185937002068385,
+      "spearman_gram_vs_cosine": 0.0482177522613688,
+      "tier_separation": null,
+      "condition_number": 142.2428079689946
+    },
+    {
+      "n_features": 32,
+      "encoding": "Rung5(k=5)",
+      "encoding_cap": 256,
+      "build_seconds": 0.011205000002519228,
+      "measure_seconds": 0.02307987300446257,
+      "spearman_gram_vs_cosine": 0.08893065135682128,
+      "tier_separation": null,
+      "condition_number": 27.907632893133975
+    },
+    {
+      "n_features": 64,
+      "encoding": "Rung5(k=3)",
+      "encoding_cap": 64,
+      "build_seconds": 0.031041643989738077,
+      "measure_seconds": 0.049251291013206355,
+      "spearman_gram_vs_cosine": 0.04091631828969299,
+      "tier_separation": null,
+      "condition_number": 14659239.509888632
+    },
+    {
+      "n_features": 64,
+      "encoding": "Rung5(k=4)",
+      "encoding_cap": 128,
+      "build_seconds": 0.027290279991575517,
+      "measure_seconds": 0.04778213199460879,
+      "spearman_gram_vs_cosine": 0.03280336887138749,
+      "tier_separation": null,
+      "condition_number": 3736.7875840413894
+    },
+    {
+      "n_features": 64,
+      "encoding": "Rung5(k=5)",
+      "encoding_cap": 256,
+      "build_seconds": 0.028542631000163965,
+      "measure_seconds": 0.050407187998644076,
+      "spearman_gram_vs_cosine": 0.04503015576391878,
+      "tier_separation": null,
+      "condition_number": 239.44899787992185
+    },
+    {
+      "n_features": 128,
+      "encoding": "Rung5(k=4)",
+      "encoding_cap": 128,
+      "build_seconds": 0.08162174100289121,
+      "measure_seconds": 0.146494075001101,
+      "spearman_gram_vs_cosine": 0.08415224194145783,
+      "tier_separation": -0.299969996830698,
+      "condition_number": 566252280.1583205
+    },
+    {
+      "n_features": 128,
+      "encoding": "Rung5(k=5)",
+      "encoding_cap": 256,
+      "build_seconds": 0.09848115699423943,
+      "measure_seconds": 0.18480502399324905,
+      "spearman_gram_vs_cosine": 0.09426644801017367,
+      "tier_separation": -0.27008781055890185,
+      "condition_number": 14423.588655044101
+    },
+    {
+      "n_features": 256,
+      "encoding": "Rung5(k=5)",
+      "encoding_cap": 256,
+      "build_seconds": 0.31304015799832996,
+      "measure_seconds": 0.6112192589935148,
+      "spearman_gram_vs_cosine": 0.0737725658443618,
+      "tier_separation": -0.3228701608064956,
+      "condition_number": 41901385628.075554
+    }
+  ]
+}
