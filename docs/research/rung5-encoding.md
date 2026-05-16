@@ -112,15 +112,32 @@ shape needed (`k` columns per qubit indexed unambiguously).
 
 ## Future direction: the general (M, k) family — `Polygram(M, k)`
 
+The May 2026 theoretical treatment ("Polygrams: A Theoretical
+Treatment of Kronecker-Succinct Vector Families") formalises the
+Kronecker-product-of-single-qubits construction as a **Polygram of
+order n = M + k**, with M "base" and k "amplitude" factors. Key
+results:
+
+- Per-feature Hilbert dim `2^n` for `2n` real parameters
+  (Bloch-sphere angles `(θ_i, φ_i)` per factor) — the project's
+  central succinctness claim.
+- Factorised inner product `⟨f(P) | f(P')⟩ = ∏_i ⟨v_i | w_i⟩` —
+  the result that makes the whole data structure work (Thm 3.3).
+- Manifold codimension `2^{n+1} − 2n − 2` inside the unit sphere
+  (Prop 4.1) — confirms the empirical 8·2^k rank cap we measured
+  in this change at k ∈ {2, 3, 4}.
+- Identifiability from `4n + 1` overlap measurements modulo
+  the U(1)^{n-1} gauge (Thm 7.5).
+
 `Rung5` is one slice of a broader two-axis encoding family
-parameterised by `(M, k)` — `M` the MPS-core width (today fixed at
-3 qubits, bond_dim=2) and `k` the product-amp register width.
-`MPSRung1 = (3, 0)`, `Rung4 = (3, 2)`, `Rung5(k) = (3, k)`; per-
-feature Hilbert dim is `2^M · 2^k` in the general case. Reframing
-the encoding ladder as a `(M, k)` plane (rather than a 1D rung
-sequence) makes the design space's open directions explicit: this
-PR moves along the k-axis; future work can move along the M-axis
-or jointly.
+parameterised by `(M, k)` — `M` the MPS-substrate width (today
+fixed at 3 qubits, bond_dim=2) and `k` the product-amp register
+width. `MPSRung1 = (3, 0)`, `Rung4 = (3, 2)`, `Rung5(k) = (3, k)`;
+per-feature Hilbert dim is `2^M · 2^k` in the general case.
+Reframing the encoding ladder as a `(M, k)` plane (rather than a
+1D rung sequence) makes the design space's open directions
+explicit: this PR moves along the k-axis; future work can move
+along the M-axis or jointly.
 
 The natural landing for that family is a single
 `Polygram(n_mps_qubits=M, n_amp_qubits=k)` encoding — using the
@@ -128,8 +145,21 @@ project name as the canonical encoding name to signal that the
 `(M, k)` family *is* what polygram fundamentally encodes.
 `MPSRung1`, `Rung4`, and `Rung5` collapse to fixed slices:
 `Polygram(3, 0)`, `Polygram(3, 2)`, `Polygram(3, k)`. The
-named-rung classes can stay as thin aliases for back-compat — they
-don't ossify the design space.
+named-rung classes can stay as thin aliases for back-compat —
+they don't ossify the design space.
+
+**Hybrid vs strict Polygrams.** The theoretical treatment's
+order-n Polygram is the bond-dim-1 case — a pure product state on
+n qubits. Our `MPSRung1` is bond-dim-2 (the `Ry+CNOT` staircase on
+q0–q2 is entangled — not a product state). So the codebase's
+future `Polygram(M, k)` is operationally a **hybrid**: a
+bond-dim-2 MPS on the M base qubits ⊗ a strict (paper-sense)
+Polygram of order k on the amp qubits. Only the `M=0` slice
+`Polygram(0, k)` is a strict paper-Polygram. This is a useful
+naming alignment, not a sleight of hand: the strict Polygram and
+the MPS-bond-> 1 substrate share enough algebraic structure
+(factorised gram, k-fold amp product) that one class capturing
+both reads cleanly.
 
 Out of scope for this change. The `Rung5` name doesn't lock
 anything in: if `Polygram` lands, `Rung5(n_amp_qubits=k)` is
