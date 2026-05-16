@@ -42,19 +42,32 @@ def render_machine_markdown(dictionary: Dictionary) -> str:
 
 
 def _render_mps_rung1_markdown(dictionary: Dictionary) -> str:
-    from polygram.encoding import Rung3, Rung4
+    from polygram.encoding import Rung3, Rung4, Rung5
 
     feats = dictionary.features
     slugs = [feature_slug(f.name) for f in feats]
 
-    # Encoding label for the header. Rung3 and Rung4 both fall through
-    # this MPS renderer for the (α, β, γ, φ) substrate; the amp branch
-    # is captured in the trailing `## amp branch` section below so the
-    # file round-trips through polygram without information loss.
-    # q-orca's parser tolerates the unknown section and ignores it,
-    # which is why `Dictionary.gram()` continues to apply the amp
-    # factor analytically rather than via the q-orca compile path.
-    if isinstance(dictionary.encoding, Rung4):
+    # Encoding label for the header. Rung3, Rung4, and Rung5 all fall
+    # through this MPS renderer for the (α, β, γ, φ) substrate; the
+    # amp branch is captured in the trailing `## amp branch` section
+    # below so the file round-trips through polygram without
+    # information loss. q-orca's parser tolerates the unknown section
+    # and ignores it, which is why `Dictionary.gram()` continues to
+    # apply the amp factor analytically rather than via the q-orca
+    # compile path.
+    if isinstance(dictionary.encoding, Rung5):
+        k = dictionary.encoding.n_amp_qubits
+        encoding_label = f"rung-5 MPS-substrate (k={k} amp qubits)"
+        amp_note = (
+            f" The rung-5 product-amp branch on q3..q{3 + k - 1} "
+            f"({k} independent single-qubit amps) is captured in the "
+            f"`## amp branch` section below; q-orca's gram path "
+            f"ignores that section and returns the MPSRung1-equivalent "
+            f"gram on (α, β, γ, φ). Polygram's `Dictionary.gram()` "
+            f"applies the {k}-fold product-amp factor on top per "
+            f"`polygram.encoding.rung5_amp_overlap`."
+        )
+    elif isinstance(dictionary.encoding, Rung4):
         encoding_label = "rung-4 MPS-substrate"
         amp_note = (
             " The rung-4 product-amp branch on q3/q4 is captured in "
@@ -145,9 +158,27 @@ def _render_mps_rung1_markdown(dictionary: Dictionary) -> str:
     lines.append("- mps_bond_2_with_phase_knob")
     lines.append("")
 
-    if isinstance(dictionary.encoding, (Rung3, Rung4)):
+    if isinstance(dictionary.encoding, (Rung3, Rung4, Rung5)):
         lines.append("## amp branch")
-        if isinstance(dictionary.encoding, Rung4):
+        if isinstance(dictionary.encoding, Rung5):
+            k = dictionary.encoding.n_amp_qubits
+            # Per-amp-qubit (θ_i, ψ_i) columns. Column headers list
+            # each amp qubit by index so the table round-trips
+            # unambiguously for any k.
+            header_cols = ["concept"]
+            for i in range(k):
+                header_cols.append(f"theta_{i}")
+                header_cols.append(f"psi_{i}")
+            lines.append("| " + " | ".join(header_cols) + " |")
+            sep_cols = ["-" * max(7, len(c)) for c in header_cols]
+            lines.append("|" + "|".join(sep_cols) + "|")
+            for f, slug in zip(feats, slugs):
+                row = [slug]
+                for theta_i, psi_i in f.amp_knobs:
+                    row.append(str(theta_i))
+                    row.append(str(psi_i))
+                lines.append("| " + " | ".join(row) + " |")
+        elif isinstance(dictionary.encoding, Rung4):
             lines.append(
                 "| concept | theta_amp | psi_aux | theta_amp_b | psi_amp_b |"
             )

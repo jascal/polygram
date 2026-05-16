@@ -449,3 +449,152 @@ class Rung4State:
             theta_amp_b=theta_amp_b,
             psi_amp_b=psi_amp_b,
         )
+
+
+# Per-feature Hilbert dim for Rung5 is 8 * 2**k where k = n_amp_qubits.
+# Cap k at 16 → max_features = 524288. The cap is exposed as a module
+# constant so sae-forge (and other callers) can validate sweep ranges
+# without hard-coding the value.
+RUNG5_MAX_N_AMP_QUBITS: int = 16
+
+
+@dataclass(frozen=True)
+class Rung5:
+    """Rung-5 encoding: MPSRung1 on qubits 0–2 plus a product amplitude
+    branch of ``n_amp_qubits`` independent single-qubit amps on qubits
+    q3..q3+n_amp_qubits-1.
+
+    Generalises ``Rung4`` (the fixed ``n_amp_qubits=2`` case) to an
+    arbitrary amp-register width fixed at construction time. Per-feature
+    Hilbert dim is ``8 · 2^n_amp_qubits`` — ``max_features`` scales
+    accordingly.
+
+    Each feature's amp state factorises as
+
+        |amp(θ_0, ψ_0, …, θ_{k−1}, ψ_{k−1})⟩
+            = ⊗_{i=0}^{k−1} (cos(θ_i)|0⟩ + e^(iψ_i) sin(θ_i)|1⟩)_{q(3+i)}
+
+    where k = ``n_amp_qubits``. No entangling gates are applied between
+    amp qubits.
+
+    Default knobs (every ``(θ_i, ψ_i) == (0, 0)``) reduce each
+    single-qubit overlap factor to 1, so a default-knob Rung5
+    dictionary's gram equals the MPSRung1-equivalent gram on the same
+    (α, β, γ, φ) — the same fixed-point property Rung3/Rung4 ship.
+
+    ``n_amp_qubits=0`` is rejected: that case is numerically identical
+    to ``MPSRung1`` and should be spelled that way directly. The
+    discriminator on Rung5 is the *presence* of an amp branch.
+    """
+
+    bond_dim: int = 2
+    n_amp_qubits: int = 0
+
+    def __post_init__(self) -> None:
+        if self.bond_dim != 2:
+            raise ValueError(
+                f"Rung5.bond_dim must be 2 (rung-1 / χ=2 only in v0); "
+                f"got {self.bond_dim}"
+            )
+        if self.n_amp_qubits < 1:
+            raise ValueError(
+                f"Rung5.n_amp_qubits must be >= 1 "
+                f"(use MPSRung1 directly for the 3-qubit MPS-only case); "
+                f"got {self.n_amp_qubits}"
+            )
+        if self.n_amp_qubits > RUNG5_MAX_N_AMP_QUBITS:
+            raise ValueError(
+                f"Rung5.n_amp_qubits must be <= "
+                f"{RUNG5_MAX_N_AMP_QUBITS} "
+                f"(max_features = 8 * 2**{RUNG5_MAX_N_AMP_QUBITS} "
+                f"= {8 * 2 ** RUNG5_MAX_N_AMP_QUBITS}); "
+                f"got {self.n_amp_qubits}"
+            )
+
+    @property
+    def max_features(self) -> int:
+        """Per-encoding feature cap: ``8 · 2^n_amp_qubits`` (MPSRung1
+        core's 8-dim Hilbert space times each amp qubit's 2-dim
+        Hilbert space). Scales with the ``n_amp_qubits`` knob."""
+        return 8 * 2 ** self.n_amp_qubits
+
+
+def rung5_amp_overlap(
+    amp_a: tuple[tuple[float, float], ...],
+    amp_b: tuple[tuple[float, float], ...],
+) -> complex:
+    """Analytic complex ``⟨amp_a|amp_b⟩`` for the Rung5 product amp.
+
+    Product of ``len(amp_a)`` independent single-qubit overlaps:
+
+        ⟨amp_a|amp_b⟩ = ∏_i ⟨u_a_i | u_b_i⟩
+
+    where each factor is a ``_single_qubit_overlap`` evaluation on the
+    i-th amp-qubit's (θ, ψ) pair.
+
+    Raises ``ValueError`` if the two tuples have different lengths.
+    """
+    if len(amp_a) != len(amp_b):
+        raise ValueError(
+            f"rung5_amp_overlap: amp_a and amp_b must have the same "
+            f"length; got {len(amp_a)} and {len(amp_b)}"
+        )
+    result: complex = complex(1.0, 0.0)
+    for (theta_a, psi_a), (theta_b, psi_b) in zip(amp_a, amp_b):
+        result *= _single_qubit_overlap(theta_a, psi_a, theta_b, psi_b)
+    return result
+
+
+def rung5_amp_overlap_squared(
+    amp_a: tuple[tuple[float, float], ...],
+    amp_b: tuple[tuple[float, float], ...],
+) -> float:
+    """``|⟨amp_a|amp_b⟩|²`` for the Rung5 product amp.
+
+    Equivalent to ``abs(rung5_amp_overlap(...)) ** 2`` and also to the
+    product of the per-qubit *squared* overlaps.
+    """
+    z = rung5_amp_overlap(amp_a, amp_b)
+    return float(abs(z) ** 2)
+
+
+@dataclass(frozen=True)
+class Rung5State:
+    """Per-feature Rung5 state — parallel to ``Rung4State``.
+
+    Carries the MPSRung1-on-qubits-0–2 knobs (α, β, γ, φ) plus the
+    Rung5 product amp's ``k`` per-qubit (θ, ψ) pairs as a tuple. Not
+    part of ``Dictionary``'s persisted shape; constructed on demand by
+    ``Dictionary.gram()``'s Rung5 dispatch and the cancellation
+    primitive's joint optimiser.
+    """
+
+    alpha: float
+    beta: float
+    gamma: float
+    phi: float
+    amp_knobs: tuple[tuple[float, float], ...] = ()
+
+    def amp_overlap_squared(self, other: "Rung5State") -> float:
+        """Analytic ``|⟨amp_self|amp_other⟩|²`` for the Rung5 amp branch."""
+        return rung5_amp_overlap_squared(self.amp_knobs, other.amp_knobs)
+
+    @classmethod
+    def from_mps_knobs(
+        cls,
+        alpha: float,
+        beta: float,
+        gamma: float,
+        phi: float,
+        *,
+        amp_knobs: tuple[tuple[float, float], ...] = (),
+    ) -> "Rung5State":
+        """Construct a Rung5 state from MPSRung1-equivalent knobs plus
+        the product amp's per-qubit (θ, ψ) pairs."""
+        return cls(
+            alpha=alpha,
+            beta=beta,
+            gamma=gamma,
+            phi=phi,
+            amp_knobs=amp_knobs,
+        )

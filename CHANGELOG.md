@@ -4,6 +4,53 @@
 
 (nothing yet)
 
+## 0.7.0 — 2026-05-16
+
+### Added
+
+- **`add-rung5-encoding` shipped.** New `Rung5(n_amp_qubits=k)`
+  encoding generalises Rung4's fixed `k=2` product amp branch to a
+  configurable amp-register width. Per-feature Hilbert dim is
+  `8 · 2^k`; `max_features` scales accordingly (cap at
+  `RUNG5_MAX_N_AMP_QUBITS = 16` → 524288). Targets sae-forge pareto
+  sweeps over feature counts above Rung4's 32-feature cap.
+  - `polygram.encoding`: `Rung5`, `Rung5State`,
+    `rung5_amp_overlap`, `rung5_amp_overlap_squared`,
+    `RUNG5_MAX_N_AMP_QUBITS`.
+  - `polygram.dictionary.Feature`: new `amp_knobs` field
+    (`tuple[tuple[float, float], ...]`); new
+    `Feature.with_default_amp_knobs(encoding)` helper.
+  - `polygram.dictionary.Dictionary`: Rung5 length validation +
+    gram dispatch; extended `with_knob` grammar with
+    `<name>.amp_knobs[i].{theta,psi}` paths (per-feature and
+    cluster-shared).
+  - `polygram.cancellation.Cancellation`: `"rung5"` SUPPORTED;
+    `(2 + 2k)`-knob canonical list assembled from
+    `dictionary.encoding.n_amp_qubits`; new `_run_rung5_joint`
+    using scipy `differential_evolution`; k-independent
+    `structural_floor` via `_mps_equivalent_floor`.
+  - `polygram.emit.write_qorca`: Rung5 dictionaries write a
+    `## amp branch` table with indexed `(theta_i, psi_i)` columns
+    per amp qubit.
+  - `polygram.sae_import.from_sae_lens`: encoding type hint
+    broadened to accept every encoding class; new
+    `amp_knobs_list` plumbing through `KnobAssignmentResult` and
+    the `from_sae_lens` consumer site.
+  - `polygram.geometry.amp_assignment.assign_amp_knobs_pca`: new
+    Rung5 branch consumes PCA axes 4..(4 + 2k − 1) to populate
+    per-feature `amp_knobs` from decoder geometry.
+  - `examples/rung5_rank_verification.py` + committed
+    `docs/research/data/rung5_rank_verification.json` confirm
+    saturation at `8 · 2^k` for k ∈ {2, 3, 4} × seeds {0, 42}.
+  - `docs/research/rung5-encoding.md` — math, design choices,
+    forward-looking note on a potential unified
+    `RungMPS(n_mps_qubits, n_amp_qubits)`.
+
+No breaking changes. `Rung3`, `Rung4`, `MPSRung1`, `HEA_Rung2`
+encodings unchanged. Default encoding remains `MPSRung1`.
+`Feature.amp_knobs` defaults to `()` and is ignored by every
+non-Rung5 dispatch.
+
 ## 0.6.0 — 2026-05-15
 
 ### Added

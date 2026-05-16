@@ -49,12 +49,15 @@ def _info_once(encoding_name: str, message: str) -> None:
 def assign_amp_knobs_pca(
     projections: np.ndarray,
     encoding: object,
-) -> dict[str, list[float] | None]:
+) -> dict[str, list[float] | list[tuple[tuple[float, float], ...]] | None]:
     """Compute per-feature amp-branch knob values from decoder PCA.
 
-    Returns a dict with four keys: `theta_amps`, `psi_auxes`,
-    `theta_amp_bs`, `psi_amp_bs`. Each value is either a list of length
-    `n_features` or `None`.
+    Returns a dict with five keys: `theta_amps`, `psi_auxes`,
+    `theta_amp_bs`, `psi_amp_bs`, `amp_knobs_list`. Each value is
+    either a list of length `n_features` or `None`. The first four
+    keys are populated for Rung3/Rung4; `amp_knobs_list` is populated
+    for Rung5 only (and carries one length-k tuple of (θ, ψ) pairs
+    per feature).
 
     - `MPSRung1`: no amp branch → all four values are `None`. INFO-once
       log message naming the encoding.
@@ -93,6 +96,7 @@ def assign_amp_knobs_pca(
             "psi_auxes": None,
             "theta_amp_bs": None,
             "psi_amp_bs": None,
+            "amp_knobs_list": None,
         }
 
     # HEA_Rung2: per-feature θ tensor of shape (rotations, depth,
@@ -109,7 +113,13 @@ def assign_amp_knobs_pca(
             "psi_auxes": None,
             "theta_amp_bs": None,
             "psi_amp_bs": None,
+            "amp_knobs_list": None,
         }
+
+    # Rung5 has variable-width amp branch; handle separately before
+    # the fixed-width Rung3/Rung4 path.
+    if encoding_name == "Rung5":
+        return _assign_amp_knobs_pca_rung5(projections, encoding)
 
     # How many PCA axes do we need beyond axis-1 (already used for β)?
     #   Rung3: 2 amp knobs → need axes 2, 3
@@ -130,6 +140,7 @@ def assign_amp_knobs_pca(
             "psi_auxes": None,
             "theta_amp_bs": None,
             "psi_amp_bs": None,
+            "amp_knobs_list": None,
         }
 
     n_features = projections.shape[0]
@@ -140,6 +151,7 @@ def assign_amp_knobs_pca(
             "psi_auxes": None,
             "theta_amp_bs": None,
             "psi_amp_bs": None,
+            "amp_knobs_list": None,
         }
 
     # Compute PCA via SVD on centered projections. We need axes
@@ -160,16 +172,20 @@ def assign_amp_knobs_pca(
             "psi_auxes": None,
             "theta_amp_bs": None,
             "psi_amp_bs": None,
+            "amp_knobs_list": None,
         }
     noise_floor = sv[0] * 1e-9
     n_available_axes = int((sv > noise_floor).sum())
 
     # Axis-1 is for β; amp knobs start at axis-2 (zero-indexed: 1).
-    amp_arrays: dict[str, list[float] | None] = {
+    amp_arrays: dict[
+        str, list[float] | list[tuple[tuple[float, float], ...]] | None
+    ] = {
         "theta_amps": None,
         "psi_auxes": None,
         "theta_amp_bs": None,
         "psi_amp_bs": None,
+        "amp_knobs_list": None,
     }
 
     # Knob → (axis_index, range_lo, range_hi).
@@ -219,3 +235,87 @@ def assign_amp_knobs_pca(
         amp_arrays[key] = [float(v) for v in scaled]
 
     return amp_arrays
+
+
+def _assign_amp_knobs_pca_rung5(
+    projections: np.ndarray,
+    encoding: object,
+) -> dict[str, list[float] | list[tuple[tuple[float, float], ...]] | None]:
+    """Rung5 branch of `assign_amp_knobs_pca`.
+
+    Consumes PCA axes 4..(4 + 2k − 1) of the centered projection
+    matrix to populate per-feature ``amp_knobs`` — one (θ_i, ψ_i)
+    pair per amp qubit:
+
+    - axis (3 + 2i) → θ_i, rescaled linearly to [0, π/2]
+    - axis (3 + 2i + 1) → ψ_i, rescaled linearly to [0, 2π]
+
+    Axes 1–3 are reserved for β / α / φ (the existing β strategy +
+    phase-knob-assignment). When the decoder geometry is
+    rank-deficient and axis (3 + 2i + j) isn't available, the i-th
+    pair falls back to (0.0, 0.0) — the default knob that reduces
+    the Rung5 amp branch to identity overlap.
+
+    Returns a dict with the same five keys as `assign_amp_knobs_pca`;
+    the Rung3/Rung4 keys are all None and `amp_knobs_list` holds the
+    per-feature tuples.
+    """
+    k = encoding.n_amp_qubits  # type: ignore[attr-defined]
+    n_features = projections.shape[0]
+    out: dict[
+        str, list[float] | list[tuple[tuple[float, float], ...]] | None
+    ] = {
+        "theta_amps": None,
+        "psi_auxes": None,
+        "theta_amp_bs": None,
+        "psi_amp_bs": None,
+        "amp_knobs_list": None,
+    }
+    if n_features < 2:
+        return out
+
+    centered = projections - projections.mean(axis=0)
+    _, sv, vt = np.linalg.svd(centered, full_matrices=False)
+    if sv.size == 0 or sv[0] < 1e-12:
+        return out
+    noise_floor = sv[0] * 1e-9
+    n_available_axes = int((sv > noise_floor).sum())
+
+    # Default-padded per-feature pairs; we overwrite each pair as
+    # rank-sufficient PCA axes become available.
+    per_feature: list[list[tuple[float, float]]] = [
+        [(0.0, 0.0)] * k for _ in range(n_features)
+    ]
+
+    # Each amp qubit consumes two PCA axes (θ, ψ). Theta range
+    # [0, π/2]; psi range [0, 2π]. Axes 1..3 (0-indexed: 0..2) go to
+    # β / α / φ, so amp qubits start at axis 3 (0-indexed).
+    for i in range(k):
+        for j, (lo, hi) in enumerate(((0.0, math.pi / 2), (0.0, 2 * math.pi))):
+            axis_idx = 3 + 2 * i + j
+            if axis_idx >= n_available_axes:
+                logger.debug(
+                    f"_assign_amp_knobs_pca_rung5: requested axis "
+                    f"{axis_idx + 1} (zero-indexed {axis_idx}) for amp qubit "
+                    f"{i} (component {'theta' if j == 0 else 'psi'}), but "
+                    f"only {n_available_axes} non-zero PCA axes available; "
+                    f"falling back to default 0.0 for this slot"
+                )
+                continue
+            pc = vt[axis_idx]
+            coords = centered @ pc
+            abs_max = float(np.max(np.abs(coords)))
+            if abs_max < 1e-12:
+                continue
+            half = 0.5 * (hi - lo)
+            mid = 0.5 * (hi + lo)
+            scaled = (coords / abs_max) * half + mid
+            for feat_idx, v in enumerate(scaled):
+                pair = per_feature[feat_idx][i]
+                if j == 0:
+                    per_feature[feat_idx][i] = (float(v), pair[1])
+                else:
+                    per_feature[feat_idx][i] = (pair[0], float(v))
+
+    out["amp_knobs_list"] = [tuple(pairs) for pairs in per_feature]
+    return out

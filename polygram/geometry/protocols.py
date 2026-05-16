@@ -27,6 +27,11 @@ class KnobAssignmentResult:
     psi_auxes: list[float] | None = None
     theta_amp_bs: list[float] | None = None
     psi_amp_bs: list[float] | None = None
+    # Rung5 product-amp knobs as one length-k tuple-of-pairs per
+    # feature. `None` (default) signals "use encoding defaults"
+    # (which for Rung5 fails Dictionary validation unless populated).
+    # Non-Rung5 encodings leave this as None.
+    amp_knobs_list: list[tuple[tuple[float, float], ...]] | None = None
     # add-phase-knob-assignment. None (default) signals "use encoding
     # defaults" (typically α=0, φ=0); a populated list overrides the
     # encoding's MPS-substrate phase knob per-feature. Length matches

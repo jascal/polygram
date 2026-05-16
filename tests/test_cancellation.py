@@ -1046,3 +1046,164 @@ class TestRung4Cancellation:
         feasible_pool_existed = result.feasible_count > 0
         if feasible_pool_existed:
             assert amp_sq >= 0.3 - 1e-9, f"amp_sq={amp_sq} < 0.3"
+
+
+class TestRung5Cancellation:
+    def _rung5_pair(self, k=2):
+        from polygram import Dictionary, Feature
+        from polygram.encoding import Rung5
+
+        amp = ((0.5, 0.3),) * k
+        feats = [
+            Feature(
+                name="a", cluster="g", beta=-0.3,
+                alpha=0.1, gamma=0.05, phi=0.2, amp_knobs=amp,
+            ),
+            Feature(
+                name="b", cluster="g", beta=0.3,
+                alpha=-0.1, gamma=-0.05, phi=-0.2, amp_knobs=amp,
+            ),
+        ]
+        return Dictionary(
+            name="d",
+            features=feats,
+            hierarchy={"g": ["a", "b"]},
+            encoding=Rung5(n_amp_qubits=k),
+        )
+
+    def test_canonical_knob_list_at_k2(self):
+        d = self._rung5_pair(k=2)
+        c = Cancellation(dictionary=d, target_pair=("a", "b"))
+        assert c.knobs == [
+            "a.phi", "b.phi",
+            "b.amp_knobs[0].theta", "b.amp_knobs[0].psi",
+            "b.amp_knobs[1].theta", "b.amp_knobs[1].psi",
+        ]
+
+    def test_canonical_knob_list_at_k3(self):
+        d = self._rung5_pair(k=3)
+        c = Cancellation(dictionary=d, target_pair=("a", "b"))
+        assert len(c.knobs) == 8  # 2 phi + 2 * 3 amp
+        assert c.knobs[0] == "a.phi"
+        assert c.knobs[1] == "b.phi"
+        for i in range(3):
+            assert f"b.amp_knobs[{i}].theta" in c.knobs
+            assert f"b.amp_knobs[{i}].psi" in c.knobs
+
+    def test_canonical_knob_list_required(self):
+        d = self._rung5_pair(k=2)
+        with pytest.raises(ValueError, match="canonical 6-knob"):
+            Cancellation(
+                dictionary=d,
+                target_pair=("a", "b"),
+                knobs=["a.phi", "b.phi"],
+            )
+
+    def test_encoding_string_mismatch_rejected(self):
+        from polygram import Dictionary, Feature
+        from polygram.encoding import Rung4
+
+        # Rung4 dict but asking for "rung5" encoding string.
+        d = Dictionary(
+            name="d",
+            features=[
+                Feature(name="a", cluster="g", beta=-0.3),
+                Feature(name="b", cluster="g", beta=0.3),
+            ],
+            hierarchy={"g": ["a", "b"]},
+            encoding=Rung4(),
+        )
+        with pytest.raises(ValueError, match="requires a Rung5"):
+            Cancellation(
+                dictionary=d,
+                target_pair=("a", "b"),
+                encoding="rung5",
+            )
+
+    def test_joint_optimizer_lowers_overlap_k2(self):
+        pytest.importorskip("scipy")
+        d = self._rung5_pair(k=2)
+        c = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            optimize={"method": "scipy", "max_steps": 8},
+        )
+        result = c.run()
+        assert result.method == "rung5_joint"
+        assert result.after_overlap < result.before_overlap
+        assert result.cancellation_efficiency is not None
+
+    def test_joint_optimizer_lowers_overlap_k3(self):
+        pytest.importorskip("scipy")
+        d = self._rung5_pair(k=3)
+        c = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            optimize={"method": "scipy", "max_steps": 8},
+        )
+        result = c.run()
+        assert result.method == "rung5_joint"
+        assert result.after_overlap < result.before_overlap
+
+    def test_min_amp_overlap_constraint(self):
+        pytest.importorskip("scipy")
+        from polygram.encoding import rung5_amp_overlap_squared
+
+        d = self._rung5_pair(k=2)
+        c = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            optimize={"method": "scipy", "max_steps": 8},
+            min_amp_overlap=0.4,
+        )
+        result = c.run()
+        a_amp = d.features[0].amp_knobs
+        b_amp = (
+            (
+                result.optimized_knobs["b.amp_knobs[0].theta"],
+                result.optimized_knobs["b.amp_knobs[0].psi"],
+            ),
+            (
+                result.optimized_knobs["b.amp_knobs[1].theta"],
+                result.optimized_knobs["b.amp_knobs[1].psi"],
+            ),
+        )
+        amp_sq = rung5_amp_overlap_squared(a_amp, b_amp)
+        if result.feasible_count > 0:
+            assert amp_sq >= 0.4 - 1e-9, f"amp_sq={amp_sq} < 0.4"
+
+    def test_structural_floor_independent_of_k(self):
+        c2 = Cancellation(
+            dictionary=self._rung5_pair(k=2),
+            target_pair=("a", "b"),
+        )
+        c3 = Cancellation(
+            dictionary=self._rung5_pair(k=3),
+            target_pair=("a", "b"),
+        )
+        f2 = c2.structural_floor()
+        f3 = c3.structural_floor()
+        # MPS-phase-only floor depends on (α, β, γ) which is identical
+        # across our k=2 and k=3 fixtures; floors must match.
+        assert abs(f2 - f3) < 1e-9, (f2, f3)
+
+    def test_method_grid_silently_routes_to_joint(self):
+        # Like Rung3/Rung4, Rung5 always runs its joint optimizer
+        # regardless of the `optimize.method` kwarg. The grid backend
+        # never applies to the canonical (2 + 2k)-knob list because
+        # `run()` dispatches on `encoding == "rung5"` before consulting
+        # the method. Document this with an explicit test so future
+        # readers know the method kwarg is a no-op for rung5.
+        pytest.importorskip("scipy")
+        d = self._rung5_pair(k=2)
+        c = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        result = c.run()
+        assert result.method == "rung5_joint"

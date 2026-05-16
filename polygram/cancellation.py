@@ -34,13 +34,15 @@ from polygram.encoding import (
     MPSRung1,
     Rung3,
     Rung4,
+    Rung5,
     rung3_amp_overlap_squared,
     rung4_amp_overlap_squared,
+    rung5_amp_overlap_squared,
 )
 
 SUPPORTED_METHODS = ("grid", "scipy")
 SUPPORTED_PLOT_KINDS = ("grid", "scipy", "before_after")
-SUPPORTED_ENCODINGS = ("mps", "hea", "rung3", "rung4")
+SUPPORTED_ENCODINGS = ("mps", "hea", "rung3", "rung4", "rung5")
 INFEASIBLE_PENALTY = 1.0
 GRID_KNOB_LIMIT = 4
 
@@ -276,6 +278,13 @@ class Cancellation:
                 f"Cancellation(encoding='rung4') requires a Rung4 "
                 f"dictionary; got encoding={self.dictionary.encoding!r}"
             )
+        if self.encoding == "rung5" and not isinstance(
+            self.dictionary.encoding, Rung5
+        ):
+            raise ValueError(
+                f"Cancellation(encoding='rung5') requires a Rung5 "
+                f"dictionary; got encoding={self.dictionary.encoding!r}"
+            )
 
         if self.encoding == "rung3":
             default_knobs = [
@@ -310,6 +319,23 @@ class Cancellation:
                         f"{self.knobs!r}. Custom rung4 knob lists are not "
                         f"supported in v0."
                     )
+        elif self.encoding == "rung5":
+            k = self.dictionary.encoding.n_amp_qubits
+            default_knobs = [f"{a}.phi", f"{b}.phi"]
+            for i in range(k):
+                default_knobs.append(f"{b}.amp_knobs[{i}].theta")
+                default_knobs.append(f"{b}.amp_knobs[{i}].psi")
+            if self.knobs is None:
+                self.knobs = default_knobs
+            else:
+                self.knobs = list(self.knobs)
+                if self.knobs != default_knobs:
+                    raise ValueError(
+                        f"Cancellation(encoding='rung5') requires the "
+                        f"canonical {2 + 2 * k}-knob list "
+                        f"{default_knobs!r}; got {self.knobs!r}. "
+                        f"Custom rung5 knob lists are not supported in v0."
+                    )
         else:
             if self.knobs is None:
                 self.knobs = [f"{a}.phi", f"{b}.phi"]
@@ -319,7 +345,7 @@ class Cancellation:
         for path in self.knobs:
             self._validate_knob(path)
 
-        if self.encoding not in ("rung3", "rung4"):
+        if self.encoding not in ("rung3", "rung4", "rung5"):
             method = self.optimize.get("method", "grid")
             if method not in SUPPORTED_METHODS:
                 raise ValueError(
@@ -346,10 +372,13 @@ class Cancellation:
             raise ValueError(
                 f"min_amp_overlap must be in [0, 1]; got {self.min_amp_overlap!r}"
             )
-        if self.min_amp_overlap > 0.0 and self.encoding not in ("rung3", "rung4"):
+        if self.min_amp_overlap > 0.0 and self.encoding not in (
+            "rung3", "rung4", "rung5"
+        ):
             raise ValueError(
                 f"min_amp_overlap > 0 is only meaningful for "
-                f"encoding in {{'rung3', 'rung4'}}; got encoding={self.encoding!r}"
+                f"encoding in {{'rung3', 'rung4', 'rung5'}}; got "
+                f"encoding={self.encoding!r}"
             )
 
     def _validate_knob(self, path: str) -> None:
@@ -388,14 +417,28 @@ class Cancellation:
                     f"knob path {path!r}: .{kind} paths are Rung4-only; "
                     f"this Dictionary uses encoding={self.dictionary.encoding!r}"
                 )
+        if kind in ("amp_knobs_theta", "amp_knobs_psi"):
+            if not isinstance(self.dictionary.encoding, Rung5):
+                raise ValueError(
+                    f"knob path {path!r}: .amp_knobs[...] paths are "
+                    f"Rung5-only; this Dictionary uses "
+                    f"encoding={self.dictionary.encoding!r}"
+                )
+            (amp_idx,) = slot
+            k = self.dictionary.encoding.n_amp_qubits
+            if not (0 <= amp_idx < k):
+                raise ValueError(
+                    f"knob path {path!r}: amp index {amp_idx} is outside "
+                    f"[0, {k})"
+                )
 
     def _knob_bounds(self, path: str) -> tuple[float, float]:
         _, kind, _ = _parse_knob_path(path)
         if kind == "phi":
             return _PHI_BOUNDS
-        if kind in ("theta_amp", "theta_amp_b"):
+        if kind in ("theta_amp", "theta_amp_b", "amp_knobs_theta"):
             return _THETA_AMP_BOUNDS
-        if kind in ("psi_aux", "psi_amp_b"):
+        if kind in ("psi_aux", "psi_amp_b", "amp_knobs_psi"):
             return _PSI_AUX_BOUNDS
         return _THETA_BOUNDS
 
@@ -425,7 +468,7 @@ class Cancellation:
         proposal.
         """
         encoding = self.dictionary.encoding
-        if isinstance(encoding, (Rung3, Rung4)):
+        if isinstance(encoding, (Rung3, Rung4, Rung5)):
             return _mps_equivalent_floor(self.dictionary, self.target_pair)
         if not isinstance(encoding, MPSRung1):
             raise NotImplementedError(
@@ -458,6 +501,8 @@ class Cancellation:
             return self._run_rung3_joint()
         if self.encoding == "rung4":
             return self._run_rung4_joint()
+        if self.encoding == "rung5":
+            return self._run_rung5_joint()
         method = self.optimize.get("method", "grid")
         max_steps = int(self.optimize.get("max_steps", 50))
 
@@ -1031,15 +1076,175 @@ class Cancellation:
             psi_aux_optimum=float(final_psi_b3),
         )
 
+    def _run_rung5_joint(self) -> CancellationResult:
+        """Joint (φ_a, φ_b, [θ_i, ψ_i]_{i=0..k-1}) optimizer for Rung5
+        dictionaries.
+
+        Rung4's outer-grid approach explodes as ``(M*N)^k`` cells with
+        k = ``n_amp_qubits``; at k ≥ 3 the wall-clock becomes
+        impractical. Rung5 instead runs scipy
+        ``differential_evolution`` over the full ``(2 + 2k)``-dim
+        bounded space. ``differential_evolution`` is dimension-
+        agnostic and handles bounded boxes natively, which matches
+        sae-forge's pareto-sweep need to push k modestly without
+        bespoke per-k tuning.
+
+        Feature A's amp knobs stay anchored at their current values
+        (Rung5 default is all-zeros under
+        ``with_default_amp_knobs(encoding)`` — the |0⟩^⊗k state).
+        Feature B's full ``(φ, θ_0, ψ_0, …, θ_{k-1}, ψ_{k-1})`` slate
+        is optimised, plus feature A's φ.
+
+        ``min_amp_overlap`` applies to
+        ``rung5_amp_overlap_squared(a.amp_knobs, b.amp_knobs)`` — the
+        full k-fold product — preventing the trivial amp-zeroing
+        degenerate solution. Infeasible candidates receive
+        ``INFEASIBLE_PENALTY``.
+
+        Returned ``structural_floor`` is the MPS-phase-only floor of
+        (α, β, γ) — independent of k.
+
+        The optimiser RNG seed comes from ``optimize["seed"]`` (default
+        0). sae-forge sweeps that want per-trial variation should pass
+        a distinct seed per call.
+
+        **High-k cost:** ``differential_evolution`` scales roughly
+        linearly in dimension per generation, so wall-clock grows
+        with (2 + 2k). At k ≥ 10–12 the (2 + 2k)-dim solve becomes the
+        dominant cost of a sweep point. If that becomes load-bearing,
+        a coordinate-descent variant that alternates φ-only grid
+        search with per-amp-qubit Nelder-Mead refinement is a
+        cheaper alternative — left for a follow-up if profiling
+        justifies it.
+        """
+        try:
+            from scipy.optimize import differential_evolution
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError(_SCIPY_INSTALL_HINT) from exc
+
+        a_name, b_name = self.target_pair
+        a_idx = self.dictionary.feature_index(a_name)
+        b_idx = self.dictionary.feature_index(b_name)
+
+        k = self.dictionary.encoding.n_amp_qubits
+        a_feature = self.dictionary.features[a_idx]
+        # Anchor A's amp knobs at their current values; default-pad
+        # when the feature still holds the empty-tuple default.
+        a_amp = a_feature.with_default_amp_knobs(
+            self.dictionary.encoding
+        ).amp_knobs
+
+        before_gram = self.dictionary.gram()
+        before_overlap = float(np.abs(before_gram[a_idx, b_idx]) ** 2)
+
+        floor = _mps_equivalent_floor(self.dictionary, self.target_pair)
+
+        amp_threshold = float(self.min_amp_overlap)
+        amp_constrained = amp_threshold > 0.0
+
+        bounds = [self._knob_bounds(p) for p in self.knobs]
+        max_steps = int(self.optimize.get("max_steps", 50))
+        seed = int(self.optimize.get("seed", 0))
+
+        history: list[tuple[tuple[float, ...], float, bool]] = []
+
+        def _b_amp_from_x(x: np.ndarray) -> tuple[tuple[float, float], ...]:
+            return tuple(
+                (float(x[2 + 2 * i]), float(x[2 + 2 * i + 1]))
+                for i in range(k)
+            )
+
+        def objective(x: np.ndarray) -> float:
+            values = tuple(float(v) for v in x)
+            d = self._dictionary_at(*values)
+            g = d.gram()
+            ov = float(np.abs(g[a_idx, b_idx]) ** 2)
+            feasible = (
+                hierarchical_ordering_preserved(g, d, self.target_pair)
+                if self.preserve_tiers else True
+            )
+            if amp_constrained:
+                amp_sq = rung5_amp_overlap_squared(a_amp, _b_amp_from_x(x))
+                if amp_sq < amp_threshold:
+                    feasible = False
+            history.append((values, ov, feasible))
+            return ov + (0.0 if feasible else INFEASIBLE_PENALTY)
+
+        result = differential_evolution(
+            objective,
+            bounds=bounds,
+            seed=seed,
+            maxiter=max_steps,
+            polish=False,
+        )
+
+        n_cols = len(self.knobs) + 1
+        traj = np.array(
+            [list(values) + [ov] for values, ov, _ in history], dtype=float
+        )
+        feasible_mask = np.array([ok for *_, ok in history], dtype=bool)
+
+        if self.preserve_tiers and feasible_mask.any():
+            feasible_overlaps = np.where(
+                feasible_mask, traj[:, n_cols - 1], np.inf
+            )
+            best = int(np.argmin(feasible_overlaps))
+            best_values = tuple(
+                float(traj[best, col]) for col in range(len(self.knobs))
+            )
+        elif amp_constrained and feasible_mask.any():
+            feasible_overlaps = np.where(
+                feasible_mask, traj[:, n_cols - 1], np.inf
+            )
+            best = int(np.argmin(feasible_overlaps))
+            best_values = tuple(
+                float(traj[best, col]) for col in range(len(self.knobs))
+            )
+        else:
+            best_values = tuple(float(v) for v in result.x)
+
+        optimized_dict = self._dictionary_at(*best_values)
+        after_gram = optimized_dict.gram()
+        after_overlap = float(np.abs(after_gram[a_idx, b_idx]) ** 2)
+        efficiency = _compute_efficiency(before_overlap, after_overlap, floor)
+
+        return CancellationResult(
+            optimized_knobs={
+                path: float(val)
+                for path, val in zip(self.knobs, best_values)
+            },
+            before_gram=before_gram,
+            after_gram=after_gram,
+            before_overlap=before_overlap,
+            after_overlap=after_overlap,
+            tolerance_met=bool(after_overlap < self.tolerance),
+            method="rung5_joint",
+            trajectory=traj,
+            feasible_count=int(feasible_mask.sum()),
+            dictionary_at_optimum=optimized_dict,
+            target_pair=self.target_pair,
+            knobs=list(self.knobs),
+            feasible_mask=feasible_mask,
+            structural_floor=float(floor),
+            cancellation_efficiency=efficiency,
+            # theta_amp_optimum / psi_aux_optimum carry the first
+            # amp-qubit's pair for parity with Rung3/Rung4 result
+            # reporting; downstream consumers querying these for
+            # Rung5 should inspect optimized_knobs directly.
+            theta_amp_optimum=float(best_values[2]),
+            psi_aux_optimum=float(best_values[3]),
+        )
+
 
 def _is_hea(dictionary: Dictionary) -> bool:
     return isinstance(dictionary.encoding, HEA_Rung2)
 
 
 def _infer_encoding_string(encoding: object) -> str:
-    # Check Rung4 before Rung3 since neither is a subclass of the
-    # other (both are independent dataclasses), but inferring order
-    # matters if encodings ever subclass one another.
+    # Check rungs in descending order so the most specific class wins
+    # if encodings ever subclass one another.
+    if isinstance(encoding, Rung5):
+        return "rung5"
     if isinstance(encoding, Rung4):
         return "rung4"
     if isinstance(encoding, Rung3):

@@ -58,7 +58,19 @@ from polygram.compression import (
 )
 from polygram.dictionary import Dictionary, Feature
 from polygram.emit import write_qorca
-from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung3State, Rung4, Rung4State
+from polygram.encoding import (
+    HEA_Rung2,
+    MPSRung1,
+    RUNG5_MAX_N_AMP_QUBITS,
+    Rung3,
+    Rung3State,
+    Rung4,
+    Rung4State,
+    Rung5,
+    Rung5State,
+    rung5_amp_overlap,
+    rung5_amp_overlap_squared,
+)
 from polygram.experiment import Experiment, ExperimentResult, InterferenceSweep
 from polygram.geometry import (
     GeometricProfile,
@@ -76,7 +88,7 @@ from polygram.sae_import import (
     load_toy_sae,
 )
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "BatchExperiment",
@@ -121,10 +133,15 @@ __all__ = [
     "RegrowResult",
     "RegrowStrategy",
     "Regrower",
+    "RUNG5_MAX_N_AMP_QUBITS",
     "Rung3",
     "Rung3State",
     "Rung4",
     "Rung4State",
+    "Rung5",
+    "Rung5State",
+    "rung5_amp_overlap",
+    "rung5_amp_overlap_squared",
     "SAEFeatureRecord",
     "SelectionReport",
     "SlotPopulation",

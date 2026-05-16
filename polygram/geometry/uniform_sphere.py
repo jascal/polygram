@@ -116,11 +116,14 @@ class UniformSphereKnobAssignment:
         else:
             gammas = [0.0] * n
 
-        amp_assignments: dict[str, list[float] | None] = {
+        amp_assignments: dict[
+            str, list[float] | list[tuple[tuple[float, float], ...]] | None
+        ] = {
             "theta_amps": None,
             "psi_auxes": None,
             "theta_amp_bs": None,
             "psi_amp_bs": None,
+            "amp_knobs_list": None,
         }
         if assign_amp_knobs and encoding is not None:
             from polygram.geometry.amp_assignment import assign_amp_knobs_pca
@@ -144,10 +147,11 @@ class UniformSphereKnobAssignment:
             gammas=list(gammas),
             cluster_method="pca_axis",
             beta_variance_explained=float(np.clip(beta_var_explained, 0.0, 1.0)),
-            theta_amps=amp_assignments["theta_amps"],
-            psi_auxes=amp_assignments["psi_auxes"],
-            theta_amp_bs=amp_assignments["theta_amp_bs"],
-            psi_amp_bs=amp_assignments["psi_amp_bs"],
+            theta_amps=amp_assignments["theta_amps"],  # type: ignore[arg-type]
+            psi_auxes=amp_assignments["psi_auxes"],  # type: ignore[arg-type]
+            theta_amp_bs=amp_assignments["theta_amp_bs"],  # type: ignore[arg-type]
+            psi_amp_bs=amp_assignments["psi_amp_bs"],  # type: ignore[arg-type]
+            amp_knobs_list=amp_assignments["amp_knobs_list"],  # type: ignore[arg-type]
             alphas=phase_assignments["alphas"],
             phis=phase_assignments["phis"],
         )

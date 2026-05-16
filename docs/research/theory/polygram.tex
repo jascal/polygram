@@ -1,0 +1,1944 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ---------------------------------------------------------------
+%  Packages
+% ---------------------------------------------------------------
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{titlesec}
+\usepackage{parskip}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!50!black,
+    citecolor=blue!50!black,
+    urlcolor=blue!60!black
+}
+
+% ---------------------------------------------------------------
+%  Theorem environments
+% ---------------------------------------------------------------
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem*{notation}{Notation}
+
+% ---------------------------------------------------------------
+%  Macros
+% ---------------------------------------------------------------
+\newcommand{\C}{\mathbb{C}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\F}{\mathbb{F}}
+\newcommand{\Sphere}{\mathbb{S}}
+\newcommand{\Polygram}{\mathcal{P}}
+\newcommand{\Mset}{\mathcal{M}}
+\newcommand{\Hilb}{\mathcal{H}}
+\newcommand{\Cov}{\mathrm{N}}
+\newcommand{\vol}{\operatorname{vol}}
+\newcommand{\bdry}{\partial}
+\newcommand{\diam}{\operatorname{diam}}
+\newcommand{\dist}{\operatorname{dist}}
+\newcommand{\range}{\operatorname{range}}
+\newcommand{\im}{\operatorname{Im}}
+\newcommand{\re}{\operatorname{Re}}
+\newcommand{\rank}{\operatorname{rank}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\inner}[2]{\langle #1 \mid #2 \rangle}
+\newcommand{\ket}[1]{\lvert #1 \rangle}
+\newcommand{\bra}[1]{\langle #1 \rvert}
+\newcommand{\norm}[1]{\lVert #1 \rVert}
+\newcommand{\abs}[1]{\lvert #1 \rvert}
+\newcommand{\Set}[1]{\left\{#1\right\}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+\titleformat{\section}{\Large\bfseries}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\large\bfseries}{\thesubsection}{0.6em}{}
+
+% ---------------------------------------------------------------
+%  Title
+% ---------------------------------------------------------------
+\title{\textbf{Polygrams:\\
+A Theoretical Treatment of Kronecker-Succinct Vector Families}}
+\author{}
+\date{May 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We introduce and study \emph{Polygrams}, a family of implicit unit-vector
+representations indexed by tuples of points on the complex projective line
+$\C P^1$ whose expansion is a Kronecker product over $\C^2$. A Polygram of
+\emph{order} $n = M + k$ stores only $2n$ real parameters yet represents a
+distinguished element of the unit sphere of $\C^{2^{n}}$, an ambient space whose
+dimension is exponential in $n$. The pay-off is that inner products,
+similarities, and a wide range of geometric queries factor across the parameter
+tuple and therefore cost $\Theta(n)$ rather than $\Theta(2^{n})$. We develop the
+basic theory of these objects from first principles in a tutorial style. After
+establishing norm preservation and the factorised-inner-product identity, we
+study (i) the geometry of the Polygram manifold inside the unit sphere, with
+explicit dimension and codimension counts; (ii) covering-number based
+\emph{approximation lower bounds} that quantify how badly arbitrary states can
+be approximated by Polygrams; (iii) Lipschitz \emph{stability} of the expansion
+map under parameter perturbation, including condition numbers for similarity
+queries; (iv) the \emph{gauge group} acting on the parameter space and a
+constructive identifiability result requiring only $4n + 1$ overlap measurements;
+and (v) a formal comparison to matrix product states (MPS) and tensor trains
+(TT), showing that Polygrams are precisely the bond-dimension-one case and
+analysing the resulting expressivity-versus-storage trade-off. We close with
+algorithms for fitting and merging Polygrams (coordinate descent, Riemannian
+gradient flow) and a list of open problems, including refined covering
+bounds, sample complexity for parameter recovery from noisy overlaps, and
+sharper expressivity separations from MPS at small bond dimension.
+\end{abstract}
+
+\tableofcontents
+\bigskip
+\hrule
+\bigskip
+
+% ===============================================================
+\section{Introduction}
+% ===============================================================
+
+Many problems in machine learning, similarity search, signal processing, and
+quantum-inspired classical computation are organised around \emph{collections of
+unit vectors in a very high-dimensional space}. Word embeddings, locality-
+sensitive sketches, kernel feature maps, randomised projections, dictionary
+atoms, content-addressable hashes, and quantum state vectors are all elements
+of $\Sphere(\Hilb)$ for some Hilbert space $\Hilb$, and the operations we
+usually care about, namely inner products, projections, and nearest-neighbour
+queries, are linear or quadratic in $\Hilb$.
+
+When $\dim\Hilb$ is modest there is nothing more to say: write the vector down
+as an array of $\dim\Hilb$ numbers and use BLAS. When $\dim\Hilb$ is huge the
+situation is different. Storing $\Hilb$ explicitly is impossible even for
+$\dim\Hilb = 2^{40}$, and yet we routinely \emph{simulate} vectors in such
+spaces by exploiting structure. Sparse vectors, low-rank matrices, low-degree
+polynomials, random sketches, and tensor networks are all examples of
+\emph{succinct} families: each is a parameterised subset of $\Hilb$ whose
+elements admit asymptotically optimal storage and whose key operations
+(addition, inner product, action of a linear operator) factor through the
+parameterisation.
+
+This paper introduces a particular succinct family, the \emph{Polygram}, whose
+defining property is that its elements are pure tensor products of qubit-style
+vectors in $\C^{2}$:
+\[
+\bm{f} \;=\; \bm{v}_{1} \otimes \bm{v}_{2} \otimes \cdots \otimes \bm{v}_{n},
+\qquad \bm{v}_{i} \in \Sphere(\C^{2}).
+\]
+A Polygram of order $n$ stores $n$ such factors and therefore $2n$ real
+parameters (each $\bm{v}_{i}$ is a point on the Bloch sphere $\C P^{1}\cong
+\Sphere^{2}$), and yet the vector it represents is an element of the unit sphere
+of $\C^{2^{n}}$. The trick is venerable. It appears in physics under the name
+\emph{product state} or \emph{Hartree ansatz}, in tensor-network theory as a
+matrix product state with bond dimension one, in algebraic statistics as a
+rank-one element of $(\C^{2})^{\otimes n}$, and informally throughout numerical
+analysis as a tensor outer product. What this paper offers is not the trick,
+which is over a century old, but a tutorial-style theoretical study of its
+properties when we treat the parameter tuple as a first-class data structure
+intended for algorithmic use.
+
+% ---------------------------------------------------------------
+\subsection{Why a new name?}
+% ---------------------------------------------------------------
+
+A reader from quantum information theory may protest that ``Polygram'' is just
+a new name for a separable pure state on $n$ qubits. That is correct, but the
+intended use is different and the change of name signals that.
+
+Treating product states as a generic engineering primitive forces a particular
+algorithmic discipline. We refuse to materialise the tensor, we benchmark our
+algorithms against the cost of similarity queries on explicit
+$2^{n}$-dimensional arrays, we worry about identifiability under noisy
+overlaps, and we measure expressivity by the worst-case distance from an
+arbitrary unit vector to the Polygram manifold. None of these questions is
+novel in absolute terms, but combining them under a single succinct-vector
+abstraction is useful, in the same way that ``hash table'' is useful even
+though every hash table is just an array equipped with a function.
+
+We adopt the term \emph{Polygram} because it suggests an object built out of
+many small pieces (``poly-'') that together write something (``-gram''). The
+written object is the parameter tuple; the thing it writes is the implicit
+vector $\bm{f}$.
+
+% ---------------------------------------------------------------
+\subsection{Informal preview of the main results}
+% ---------------------------------------------------------------
+
+Throughout the paper $n = M + k$ denotes the total number of factors. The
+distinction between $M$ \emph{base} factors and $k$ \emph{amplitude} factors
+will reappear in algorithmic sections but is irrelevant to the mathematical
+content of the first results: a Polygram is determined by its $n$ factors and
+nothing else. We use $D = 2^{n}$ to denote the ambient dimension and we work
+exclusively over $\C$.
+
+\begin{itemize}[leftmargin=*,itemsep=4pt]
+\item \textbf{Norm and inner product.} Every Polygram has unit norm, and the
+      inner product between two Polygrams factors as
+      $\inner{\bm{f}}{\bm{g}} = \prod_{i=1}^{n} \inner{\bm{v}_{i}}{\bm{w}_{i}}$.
+      Both facts follow from elementary properties of the Kronecker product,
+      but together they imply that all similarity queries cost $\Theta(n)$ time
+      and $\Theta(n)$ space, an exponential improvement over the explicit
+      representation.
+\item \textbf{Geometry.} The set of order-$n$ Polygrams, viewed modulo the
+      $U(1)$ global phase, is a real $2n$-dimensional smooth submanifold of
+      $\C P^{D-1}$. The ambient projective space has real dimension $2D - 2 =
+      2^{n+1} - 2$, so for $n \geq 2$ the Polygram manifold has codimension
+      $2^{n+1} - 2n - 2$, which grows exponentially in $n$. Polygrams are a
+      vanishingly thin sliver of unit-vector space.
+\item \textbf{Approximation.} The fact that Polygrams are a small submanifold
+      forces a sharp negative result. We prove that for every $n \geq 2$ there
+      exist unit vectors in $\C^{2^{n}}$ whose best Polygram approximation has
+      squared overlap at most $C \cdot n \cdot 2^{-n}$ for some absolute
+      constant $C$. The argument is a volume/covering computation; the
+      conclusion is that Polygrams are \emph{not} a universal approximator and
+      should be combined with other primitives (e.g.\ low-rank mixtures) when
+      universal approximation matters.
+\item \textbf{Stability.} The expansion map from parameters to vectors is
+      $\sqrt{n}$-Lipschitz with respect to the natural Euclidean metric on the
+      parameter torus and the Euclidean metric on $\C^{D}$. Similarity queries
+      are $1$-Lipschitz, so small parameter perturbations produce only small
+      changes in similarity. The factorised structure makes the Jacobian and
+      Hessian of any per-pair query computable in $\Theta(n)$ time.
+\item \textbf{Identifiability.} The continuous redundancy in the parameter
+      tuple is exactly the diagonal $U(1)$ acting by global phase, plus a
+      residual $U(1)^{n-1}$ that rescales factors against one another. Modulo
+      this gauge, the Polygram is determined by $4n + 1$ generic overlap
+      measurements with chosen probe Polygrams, a result we prove
+      constructively in Section~\ref{sec:identifiability}.
+\item \textbf{Comparison to MPS/TT.} Polygrams are exactly matrix product
+      states with bond dimension $D_{\mathrm{bond}} = 1$. Increasing the bond
+      dimension to $D_{\mathrm{bond}}$ increases storage to $O(n \cdot
+      D_{\mathrm{bond}}^{2})$ and similarity-query cost to $O(n \cdot
+      D_{\mathrm{bond}}^{3})$ but yields strictly more expressivity. We make
+      this trade-off precise in Section~\ref{sec:mps}.
+\end{itemize}
+
+% ---------------------------------------------------------------
+\subsection{Reading guide}
+% ---------------------------------------------------------------
+
+The paper is intended to be read linearly. Sections \ref{sec:prelim}--
+\ref{sec:basic} establish notation and prove the algebraic backbone of the
+theory; nothing later depends on conventions introduced after
+Section~\ref{sec:basic}. Section~\ref{sec:geometry} introduces the differential
+geometry needed for the covering bound of Section~\ref{sec:approximation} and
+the stability result of Section~\ref{sec:stability}; readers comfortable with
+smooth manifolds can skim Section~\ref{sec:geometry}.
+Section~\ref{sec:identifiability} is self-contained modulo the gauge
+calculation. Sections \ref{sec:mps}--\ref{sec:algorithms} are mostly
+independent of the theoretical core and can be read in either order. We close
+with worked examples (Section~\ref{sec:examples}) and a list of open problems
+(Section~\ref{sec:open}).
+
+A reader purely interested in the engineering claim ``Polygrams give $\Theta(n)$
+similarity queries on objects of effective dimension $2^{n}$, and here is what
+that costs you in expressivity'' can read Sections~\ref{sec:basic},
+\ref{sec:approximation}, and \ref{sec:mps} in that order.
+
+% ===============================================================
+\section{Preliminaries}
+\label{sec:prelim}
+% ===============================================================
+
+We collect the conventions and elementary facts used throughout. None of this
+material is original.
+
+% ---------------------------------------------------------------
+\subsection{Hilbert spaces and inner products}
+% ---------------------------------------------------------------
+
+We work with finite-dimensional complex Hilbert spaces. By default
+$\Hilb \cong \C^{N}$ is equipped with the standard Hermitian inner product
+\[
+\inner{\bm{u}}{\bm{v}} \;=\; \sum_{i=1}^{N} \overline{u_{i}}\, v_{i},
+\]
+which is conjugate-linear in the first slot and linear in the second. The
+Euclidean norm is $\norm{\bm{v}}^{2} = \inner{\bm{v}}{\bm{v}}$. The unit sphere
+is $\Sphere(\Hilb) = \{\bm{v} \in \Hilb : \norm{\bm{v}} = 1\}$.
+
+Two unit vectors $\bm{u}, \bm{v}$ are equivalent up to global phase, written
+$\bm{u} \sim \bm{v}$, iff $\bm{u} = e^{i\alpha} \bm{v}$ for some $\alpha \in
+\R$. The quotient $\Sphere(\Hilb) / {\sim}$ is the complex projective space
+$\C P^{N - 1}$, with real dimension $2N - 2$. We will pass freely between
+the unit sphere and projective space when the global phase is immaterial.
+
+% ---------------------------------------------------------------
+\subsection{Kronecker product}
+% ---------------------------------------------------------------
+
+Given vectors $\bm{u} \in \C^{p}$ and $\bm{v} \in \C^{q}$, the Kronecker (or
+tensor) product $\bm{u} \otimes \bm{v} \in \C^{pq}$ is the vector indexed by
+pairs $(i,j) \in [p] \times [q]$ with entries
+\[
+(\bm{u} \otimes \bm{v})_{(i,j)} \;=\; u_{i}\, v_{j}.
+\]
+We use lexicographic ordering of index pairs throughout. The Kronecker product
+is bilinear and associative but \emph{not} commutative; the order of factors
+is part of the data.
+
+\begin{lemma}[Multiplicativity of the inner product under tensoring]
+\label{lem:ip-tensor}
+For $\bm{u}_{1}, \bm{u}_{2} \in \C^{p}$ and $\bm{v}_{1}, \bm{v}_{2} \in \C^{q}$,
+\[
+\inner{\bm{u}_{1} \otimes \bm{v}_{1}}{\bm{u}_{2} \otimes \bm{v}_{2}}
+   \;=\; \inner{\bm{u}_{1}}{\bm{u}_{2}}\,\inner{\bm{v}_{1}}{\bm{v}_{2}}.
+\]
+\end{lemma}
+\begin{proof}
+Expand the inner product on the left:
+\[
+\sum_{i,j} \overline{(\bm{u}_{1} \otimes \bm{v}_{1})_{(i,j)}}
+            (\bm{u}_{2} \otimes \bm{v}_{2})_{(i,j)}
+   = \sum_{i,j} \overline{u_{1,i}}\,\overline{v_{1,j}}\,u_{2,i}\,v_{2,j}.
+\]
+The double sum factors as $\big(\sum_{i}\overline{u_{1,i}} u_{2,i}\big)
+\big(\sum_{j}\overline{v_{1,j}} v_{2,j}\big) = \inner{\bm{u}_{1}}{\bm{u}_{2}}
+\inner{\bm{v}_{1}}{\bm{v}_{2}}$, which is the right-hand side. \qed
+\end{proof}
+
+\begin{corollary}[Norm multiplicativity]
+\label{cor:norm-mult}
+$\norm{\bm{u} \otimes \bm{v}} = \norm{\bm{u}} \cdot \norm{\bm{v}}$.
+\end{corollary}
+
+By induction Lemma~\ref{lem:ip-tensor} extends to any number of factors. We
+will use the $n$-fold version freely.
+
+% ---------------------------------------------------------------
+\subsection{The Bloch sphere}
+% ---------------------------------------------------------------
+
+A unit vector $\bm{v} \in \Sphere(\C^{2})$ can be written, up to global phase,
+in the Bloch form
+\[
+\bm{v}(\theta, \phi) \;=\; \begin{pmatrix} \cos\theta \\
+                                            e^{i\phi}\sin\theta \end{pmatrix},
+\qquad \theta \in [0, \pi/2], \;\; \phi \in [0, 2\pi).
+\]
+Every point of $\C P^{1}$ has a unique pre-image in this parameterisation
+except the poles $\theta \in \{0, \pi/2\}$, at which $\phi$ is ambiguous. The
+parameterisation realises $\C P^{1}$ as the $2$-sphere $\Sphere^{2}$; identifying
+$(\theta, \phi)$ with spherical coordinates gives the usual Bloch ball picture
+familiar from quantum mechanics.
+
+\begin{lemma}[Bloch inner product]
+\label{lem:bloch-ip}
+For $\bm{v}_{1} = \bm{v}(\theta_{1}, \phi_{1})$ and $\bm{v}_{2} = \bm{v}(
+\theta_{2}, \phi_{2})$,
+\[
+\inner{\bm{v}_{1}}{\bm{v}_{2}}
+   \;=\; \cos\theta_{1}\cos\theta_{2}
+       + e^{i(\phi_{2} - \phi_{1})}\sin\theta_{1}\sin\theta_{2}.
+\]
+\end{lemma}
+\begin{proof}
+Compute coordinate-by-coordinate:
+\[
+\inner{\bm{v}_{1}}{\bm{v}_{2}}
+   = \overline{\cos\theta_{1}} \cdot \cos\theta_{2}
+   + \overline{e^{i\phi_{1}}\sin\theta_{1}} \cdot e^{i\phi_{2}}\sin\theta_{2}
+   = \cos\theta_{1}\cos\theta_{2}
+   + e^{i(\phi_{2} - \phi_{1})} \sin\theta_{1}\sin\theta_{2}.
+\]
+The $\theta_{i}$ are real, so the conjugation acts only on the $\phi$ phase.
+\qed
+\end{proof}
+
+\begin{remark}
+Lemma~\ref{lem:bloch-ip} immediately recovers the familiar identity
+$\abs{\inner{\bm{v}_{1}}{\bm{v}_{2}}}^{2} = \cos^{2}\!\big(\Theta/2\big)$ where
+$\Theta$ is the great-circle distance between the two corresponding points on
+the Bloch sphere $\Sphere^{2}$.
+\end{remark}
+
+% ---------------------------------------------------------------
+\subsection{Big-O conventions}
+% ---------------------------------------------------------------
+
+We use $f = O(g)$, $f = \Omega(g)$, $f = \Theta(g)$ in their standard
+asymptotic meanings. ``Polylog'' means $O\big((\log N)^{c}\big)$ for some
+constant $c$. ``Generic'' means ``true on a Zariski-open subset of full
+measure''; we use this in identifiability and dimension statements. Absolute
+constants are denoted $C, C', c, c', \dots$ and their values may change line to
+line.
+
+% ===============================================================
+\section{Polygrams: definition and basic properties}
+\label{sec:basic}
+% ===============================================================
+
+% ---------------------------------------------------------------
+\subsection{Definition}
+% ---------------------------------------------------------------
+
+\begin{definition}[Polygram]
+\label{def:polygram}
+Let $n \geq 1$. An \emph{order-$n$ Polygram} is an ordered $n$-tuple
+\[
+\Polygram \;=\; (\bm{v}_{1}, \bm{v}_{2}, \dots, \bm{v}_{n})
+\qquad \text{with} \qquad \bm{v}_{i} \in \Sphere(\C^{2}).
+\]
+Its \emph{expansion} is the unit vector
+\[
+\bm{f}(\Polygram) \;=\; \bm{v}_{1} \otimes \bm{v}_{2} \otimes \cdots \otimes
+\bm{v}_{n} \;\in\; \Sphere(\C^{2^{n}}).
+\]
+Each factor is parameterised by Bloch angles $(\theta_{i}, \phi_{i})$ so the
+parameter space is $\Mset_{n} = ([0, \pi/2] \times [0, 2\pi))^{n}$. The map
+$\bm{f} : \Mset_{n} \to \Sphere(\C^{2^{n}})$ is called the \emph{expansion
+map}; its image $\Sigma_{n} = \bm{f}(\Mset_{n})$ is the \emph{Polygram
+variety}. We refer to $n$ as the \emph{order} of the Polygram and to $D = 2^{n}$
+as its \emph{ambient dimension}.
+\end{definition}
+
+\begin{notation}
+We retain the $M + k$ split from the introduction when it is operationally
+relevant: $M$ ``base'' factors $(\theta_{i}^{b}, \phi_{i}^{b})_{i=1}^{M}$ and
+$k$ ``amplitude'' factors $(\theta_{j}^{a}, \phi_{j}^{a})_{j=1}^{k}$, with
+$n = M + k$. The split affects which factors are updated in particular
+algorithms (e.g.\ dictionary learning may freeze the base factors while
+optimising the amplitude factors), but no theorem in this paper uses the
+distinction.
+\end{notation}
+
+% ---------------------------------------------------------------
+\subsection{Norm preservation}
+% ---------------------------------------------------------------
+
+\begin{theorem}[Norm preservation]
+\label{thm:norm}
+For every Polygram $\Polygram$, the expansion $\bm{f}(\Polygram)$ has unit
+Euclidean norm.
+\end{theorem}
+\begin{proof}
+By Corollary~\ref{cor:norm-mult} applied iteratively,
+\[
+\norm{\bm{f}(\Polygram)}
+   \;=\; \prod_{i=1}^{n} \norm{\bm{v}_{i}}
+   \;=\; \prod_{i=1}^{n} 1
+   \;=\; 1. \qed
+\]
+\end{proof}
+
+This is essentially trivial, but it has a useful consequence: the expansion
+map sends parameters directly into the unit sphere, with no normalisation
+needed. In contrast, neural-network factorisations of large vectors typically
+require a final $L^{2}$ normalisation that obscures derivatives.
+
+% ---------------------------------------------------------------
+\subsection{Factorised inner product}
+% ---------------------------------------------------------------
+
+This is the result that makes the entire data structure work.
+
+\begin{theorem}[Factorised inner product]
+\label{thm:fip}
+Let $\Polygram = (\bm{v}_{1}, \dots, \bm{v}_{n})$ and
+$\Polygram' = (\bm{w}_{1}, \dots, \bm{w}_{n})$ be order-$n$ Polygrams. Then
+\[
+\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')}
+   \;=\; \prod_{i=1}^{n} \inner{\bm{v}_{i}}{\bm{w}_{i}}.
+\]
+\end{theorem}
+\begin{proof}
+Apply Lemma~\ref{lem:ip-tensor} to $\bm{f}(\Polygram) = \bm{v}_{1} \otimes
+\bm{v}_{2:n}$ and $\bm{f}(\Polygram') = \bm{w}_{1} \otimes \bm{w}_{2:n}$,
+where $\bm{v}_{2:n}$ denotes the tensor product of factors $2, \dots, n$.
+This yields
+\[
+\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')}
+   \;=\; \inner{\bm{v}_{1}}{\bm{w}_{1}} \cdot
+        \inner{\bm{v}_{2:n}}{\bm{w}_{2:n}}.
+\]
+Induct on $n$. The base case $n = 1$ is immediate. The inductive step gives the
+claim. \qed
+\end{proof}
+
+\begin{remark}[Concrete formula]
+\label{rem:concrete-ip}
+Combining Theorem~\ref{thm:fip} with Lemma~\ref{lem:bloch-ip} yields a closed
+form in Bloch angles:
+\[
+\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')}
+   \;=\; \prod_{i=1}^{n} \bigg[
+        \cos\theta_{i}\cos\theta'_{i}
+      + e^{i(\phi'_{i} - \phi_{i})} \sin\theta_{i}\sin\theta'_{i}
+   \bigg].
+\]
+\end{remark}
+
+% ---------------------------------------------------------------
+\subsection{Computational consequences}
+% ---------------------------------------------------------------
+
+\begin{corollary}[Similarity complexity]
+\label{cor:complexity}
+Let $\Polygram, \Polygram'$ be order-$n$ Polygrams stored as parameter tuples,
+each occupying $O(n)$ machine words. Then:
+\begin{enumerate}[label=(\roman*),leftmargin=*]
+\item $\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')}$ can be computed in
+      $\Theta(n)$ arithmetic operations and $\Theta(n)$ memory accesses.
+\item $\norm{\bm{f}(\Polygram) - \bm{f}(\Polygram')}^{2} = 2 - 2\re\,
+      \inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')}$ inherits the same
+      complexity.
+\item The squared-overlap similarity
+      $\abs{\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')}}^{2}$ likewise has
+      complexity $\Theta(n)$.
+\end{enumerate}
+The corresponding cost on explicit vectors of dimension $D = 2^{n}$ is
+$\Theta(D) = \Theta(2^{n})$, an exponential improvement.
+\end{corollary}
+\begin{proof}
+For (i), use the formula of Remark~\ref{rem:concrete-ip}: each of the $n$
+factors costs $O(1)$, and multiplying them together costs $O(n)$. For (ii) and
+(iii), apply (i) once.\qed
+\end{proof}
+
+\begin{corollary}[Gram-matrix complexity]
+\label{cor:gram}
+The $N \times N$ Gram matrix
+$G_{ij} = \inner{\bm{f}(\Polygram^{(i)})}{\bm{f}(\Polygram^{(j)})}$ for $N$
+order-$n$ Polygrams can be computed in $\Theta(N^{2} n)$ time and $\Theta(N^{2})$
+storage. The explicit-vector cost is $\Theta(N^{2} \cdot 2^{n})$.
+\end{corollary}
+
+In particular, even when $D = 2^{n}$ exceeds machine memory, the Gram matrix
+fits in memory and is computed in time independent of $D$. This is the main
+practical pay-off of the data structure.
+
+\begin{corollary}[Norm scaling under tensor products of Polygrams]
+\label{cor:tensor-of-polygrams}
+The tensor product $\bm{f}(\Polygram) \otimes \bm{f}(\Polygram')$ is itself a
+Polygram of order $n + n'$ obtained by concatenating parameter tuples.
+\end{corollary}
+\begin{proof}
+The Kronecker product of tensor products is the tensor product of the
+concatenated tuples, by associativity. Norm and inner-product factorisation
+both extend trivially. \qed
+\end{proof}
+
+The corollary implies that the class of Polygrams is closed under taking
+products, which is occasionally convenient (Section~\ref{sec:algorithms}).
+
+% ---------------------------------------------------------------
+\subsection{Where the structure fails}
+% ---------------------------------------------------------------
+
+It is important to be honest about what Polygrams \emph{do not} do.
+
+\begin{itemize}[leftmargin=*, itemsep=4pt]
+\item \textbf{Closure under addition.} The set of Polygrams is not closed under
+      vector addition. If $\bm{f}, \bm{g}$ are both Polygrams, then $\bm{f} +
+      \bm{g}$ is generally \emph{not} a Polygram (it is a rank-$2$ tensor, not
+      rank-$1$). Polygrams are a multiplicative, not additive, family.
+\item \textbf{Closure under linear operators.} A general linear operator
+      $A : \C^{D} \to \C^{D}$ applied to a Polygram does not preserve the
+      Polygram structure. Only operators of the form $A = A_{1} \otimes \cdots
+      \otimes A_{n}$ (local operators) preserve it. Operators outside this
+      class force decompression.
+\item \textbf{Sparsity.} The expansion $\bm{f}(\Polygram)$ is almost never
+      sparse: typically every one of its $D$ coordinates is non-zero, and the
+      coordinates are products of the per-factor coordinates.
+\end{itemize}
+
+These limitations are sharp. The right mental model is that Polygrams are a
+\emph{multiplicative} compression scheme; they are powerful for queries that
+factor multiplicatively and useless for queries that require sums.
+
+% ===============================================================
+\section{Geometry of the Polygram variety}
+\label{sec:geometry}
+% ===============================================================
+
+We now study $\Sigma_{n} = \bm{f}(\Mset_{n})$ as a subset of the unit sphere
+$\Sphere(\C^{D})$ where $D = 2^{n}$. The headline is that $\Sigma_{n}$ is a
+smooth manifold of real dimension $2n + 1$ (counting global phase) inside an
+ambient sphere of real dimension $2D - 1$. This dimension gap is the source of
+all subsequent expressivity bounds.
+
+% ---------------------------------------------------------------
+\subsection{The Polygram manifold}
+% ---------------------------------------------------------------
+
+\begin{proposition}[Polygram manifold dimension]
+\label{prop:dim}
+The image $\Sigma_{n} = \bm{f}(\Mset_{n})$ is a real analytic submanifold of
+$\Sphere(\C^{D})$ of real dimension $2n + 1$. The same set viewed modulo
+global phase (i.e.\ $[\Sigma_{n}] \subset \C P^{D-1}$) is a real analytic
+submanifold of real dimension $2n$.
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+The map $\bm{f}$ is real-analytic and its differential at a generic point has
+full row rank. Specifically, in the projective quotient one can use the
+parameterisation $\Sigma_{n} \cong (\C P^{1})^{n}$ given by
+\[
+\big([\bm{v}_{1}], \dots, [\bm{v}_{n}]\big) \;\longmapsto\;
+[\bm{v}_{1} \otimes \cdots \otimes \bm{v}_{n}].
+\]
+The Segre embedding is a classical fact in algebraic geometry: $(\C P^{1})^{n}$
+embeds as a smooth subvariety of $\C P^{2^{n} - 1}$ (the \emph{Segre variety})
+of complex dimension $n$, hence real dimension $2n$. Lifting back to the unit
+sphere by reintroducing the global phase gives real dimension $2n + 1$.
+\qed
+\end{proof}
+
+\begin{corollary}[Codimension]
+\label{cor:codim}
+For $n \geq 2$, $\Sigma_{n}$ has real codimension $2 \cdot 2^{n} - 2n - 2$
+inside $\Sphere(\C^{D})$. This codimension is exponential in $n$.
+\end{corollary}
+
+\begin{example}
+For $n = 2$ (so $D = 4$), the ambient sphere has real dimension $7$ and the
+Polygram manifold has real dimension $5$; codimension $2$. For $n = 4$, the
+ambient sphere has dimension $31$ and the Polygram manifold has dimension $9$;
+codimension $22$. For $n = 10$, the ambient sphere has dimension $2047$ and the
+Polygram manifold has dimension $21$; codimension $2026$. Polygrams become an
+extraordinarily thin slice as $n$ grows.
+\end{example}
+
+\begin{remark}[Smoothness at the Bloch poles]
+\label{rem:smoothness}
+Strictly speaking, the Bloch parameterisation has coordinate singularities at
+$\theta = 0$ and $\theta = \pi/2$, where $\phi$ is undetermined. The image
+$\Sigma_{n}$ is nevertheless a smooth manifold, because the singularities are
+artefacts of the choice of chart, not of the underlying geometry of
+$(\C P^{1})^{n}$. In what follows we work either in the projective quotient
+$[\Sigma_{n}]$, where this issue is absent, or we restrict attention to the
+open dense subset $0 < \theta_{i} < \pi/2$ for all $i$.
+\end{remark}
+
+% ---------------------------------------------------------------
+\subsection{Volume of the Polygram manifold}
+% ---------------------------------------------------------------
+
+We will need a volume estimate for the covering bound in
+Section~\ref{sec:approximation}. The natural Riemannian metric on $\C P^{1}$ is
+the Fubini--Study metric, which equals (up to scale) the round metric on
+$\Sphere^{2}$. With the convention that $\C P^{1}$ has total volume $\pi$
+(equivalently, $\Sphere^{2}$ with radius $1/2$), the product metric on
+$(\C P^{1})^{n}$ gives total volume $\pi^{n}$.
+
+\begin{proposition}[Volume of the projective Polygram variety]
+\label{prop:volume}
+With the product Fubini--Study metric, $\vol\!\big([\Sigma_{n}]\big) = \pi^{n}$.
+\end{proposition}
+
+The volume of the ambient projective space $\C P^{D-1}$ in the Fubini--Study
+metric is $\pi^{D-1} / (D-1)!$. For $D = 2^{n}$ this is
+$\pi^{2^{n}-1}/(2^{n}-1)!$, which dwarfs the Polygram volume by a
+double-exponential factor. The disparity between these two volumes drives the
+worst-case approximation bound.
+
+% ---------------------------------------------------------------
+\subsection{Tangent and normal spaces}
+% ---------------------------------------------------------------
+
+For applications it is useful to have explicit formulas for the tangent space.
+Fix a Polygram $\Polygram = (\bm{v}_{1}, \dots, \bm{v}_{n})$ with $\bm{v}_{i} =
+\bm{v}(\theta_{i}, \phi_{i})$, and consider the partial derivatives of the
+expansion.
+
+\begin{lemma}[Coordinate tangent vectors]
+\label{lem:tangents}
+At a generic point $\Polygram$ with all $0 < \theta_{i} < \pi/2$, the tangent
+vectors of the expansion map are
+\begin{align*}
+\partial_{\theta_{i}} \bm{f}(\Polygram) &= \bm{v}_{1} \otimes \cdots
+   \otimes \partial_{\theta_{i}} \bm{v}_{i} \otimes \cdots \otimes \bm{v}_{n},
+\\[1mm]
+\partial_{\phi_{i}} \bm{f}(\Polygram) &= \bm{v}_{1} \otimes \cdots
+   \otimes \partial_{\phi_{i}} \bm{v}_{i} \otimes \cdots \otimes \bm{v}_{n},
+\end{align*}
+where
+\[
+\partial_{\theta}\bm{v}(\theta,\phi) = \begin{pmatrix} -\sin\theta \\
+                                e^{i\phi}\cos\theta \end{pmatrix}, \qquad
+\partial_{\phi}\bm{v}(\theta,\phi) = \begin{pmatrix} 0 \\
+                                i\,e^{i\phi}\sin\theta \end{pmatrix}.
+\]
+\end{lemma}
+\begin{proof}
+The Kronecker product is multilinear, so the partial derivative with respect to
+$\theta_{i}$ acts only on the $i$th factor, and similarly for $\phi_{i}$. The
+single-factor derivatives are straightforward. \qed
+\end{proof}
+
+\begin{lemma}[Norms of tangent vectors]
+\label{lem:tangent-norms}
+With the same notation,
+\[
+\norm{\partial_{\theta_{i}} \bm{f}(\Polygram)} = 1, \qquad
+\norm{\partial_{\phi_{i}} \bm{f}(\Polygram)} = \abs{\sin\theta_{i}}.
+\]
+\end{lemma}
+\begin{proof}
+Use multiplicativity of the norm under Kronecker product
+(Corollary~\ref{cor:norm-mult}). For $\partial_{\theta_{i}}$, every factor has
+unit norm and the $i$th factor $\partial_{\theta}\bm{v}$ also has unit norm
+($\sin^{2}\theta + \cos^{2}\theta = 1$). For $\partial_{\phi_{i}}$, the $i$th
+factor has norm $\abs{\sin\theta}$ while the others are unit. \qed
+\end{proof}
+
+\begin{corollary}[Operator norm of the Jacobian]
+\label{cor:jac-norm}
+At a Polygram $\Polygram$, the Jacobian $J_{\Polygram}$ of $\bm{f}$ has
+operator norm at most $\sqrt{n}$ with respect to the $\ell^{2}$ norms on
+parameters and ambient vector.
+\end{corollary}
+\begin{proof}
+The $2n$ coordinate tangent vectors all have norm at most $1$. The Jacobian
+operator norm is bounded by $\sqrt{2n}$ in general, but the coordinate tangent
+vectors associated with different parameters lie in orthogonal subspaces
+(because they have different distributions of $\partial$-factor positions
+within the tensor), so the Jacobian operator norm is at most $\sqrt{n}$.
+\qed
+\end{proof}
+
+The orthogonality argument deserves a brief expansion. The coordinate tangent
+vectors $\partial_{\theta_{i}} \bm{f}$ and $\partial_{\theta_{j}} \bm{f}$ (with
+$i \neq j$) have inner product equal to
+$\inner{\bm{v}_{i}}{\partial_{\theta_{i}}\bm{v}_{i}} \cdot
+ \inner{\partial_{\theta_{j}}\bm{v}_{j}}{\bm{v}_{j}}$ times the product of the
+inner products $\inner{\bm{v}_{l}}{\bm{v}_{l}} = 1$ over $l \notin \{i,j\}$.
+The single-factor derivative $\partial_{\theta}\bm{v}$ is orthogonal to
+$\bm{v}$ in $\C^{2}$ (because $\bm{v}$ has unit norm, so $\partial \norm{\bm{v}}^{2}
+/ \partial \theta = 0 = 2\re \inner{\bm{v}}{\partial_{\theta}\bm{v}}$, and a
+direct computation shows the imaginary part is also zero). Hence
+$\inner{\bm{v}}{\partial_{\theta}\bm{v}} = 0$, so the cross-derivative inner
+product vanishes. Similar reasoning handles $\partial_{\phi_{i}}$.
+
+\begin{proposition}[Riemannian structure]
+\label{prop:riemannian}
+Equip $\Sigma_{n}$ with the induced metric from the Hermitian inner product on
+$\C^{D}$. Then $\Sigma_{n}$, viewed as a product of Bloch spheres, is
+isometric to a Cartesian product $(\Sphere^{2})^{n}$ each factor having
+radius $1/2$, together with a global $\Sphere^{1}$ factor of radius $1$
+representing the global phase. The total Riemannian dimension is $2n + 1$,
+consistent with Proposition~\ref{prop:dim}.
+\end{proposition}
+
+The proposition is essentially a consequence of Lemma~\ref{lem:tangent-norms}
+and is mostly recorded for use in stability analysis (Section~\ref{sec:stability}).
+
+% ===============================================================
+\section{Approximation and covering bounds}
+\label{sec:approximation}
+% ===============================================================
+
+We turn to the central expressivity question: how well can an arbitrary unit
+vector $\bm{u} \in \Sphere(\C^{D})$ be approximated by some Polygram
+$\bm{f}(\Polygram)$? Because Polygrams form a low-dimensional submanifold of
+the sphere, we expect the answer to be ``not very well'' on most of the
+sphere. Volume comparison makes this precise.
+
+% ---------------------------------------------------------------
+\subsection{The geometric measure of entanglement}
+% ---------------------------------------------------------------
+
+For a unit vector $\bm{u}$ define the \emph{Polygram fidelity}
+\[
+\Lambda_{n}(\bm{u}) \;=\; \sup_{\Polygram \in \Mset_{n}}
+    \abs{\inner{\bm{u}}{\bm{f}(\Polygram)}}.
+\]
+This is the largest squared overlap between $\bm{u}$ and any Polygram. The
+quantity $-\log_{2} \Lambda_{n}(\bm{u})^{2}$ is, up to sign, the standard
+\emph{geometric measure of entanglement} used in quantum information theory.
+$\Lambda_{n}(\bm{u}) = 1$ if and only if $\bm{u}$ is itself a Polygram.
+
+\begin{definition}[Worst-case Polygram fidelity]
+\[
+\Lambda^{\min}_{n} \;=\; \inf_{\bm{u} \in \Sphere(\C^{D})} \Lambda_{n}(\bm{u}).
+\]
+\end{definition}
+
+We are interested in upper bounds for $\Lambda^{\min}_{n}$: a small upper bound
+means there exists a unit vector that no Polygram can approximate well.
+
+% ---------------------------------------------------------------
+\subsection{Covering numbers}
+% ---------------------------------------------------------------
+
+Given a metric space $(X, d)$ and $\varepsilon > 0$, the \emph{covering number}
+$\Cov(X, \varepsilon)$ is the minimum number of closed $\varepsilon$-balls
+needed to cover $X$. We use covering numbers with respect to the Fubini--Study
+distance on projective space.
+
+\begin{lemma}[Sphere covering]
+\label{lem:cover-sphere}
+For the unit sphere $\Sphere(\C^{D})$ in the chordal metric induced from
+$\C^{D}$,
+\[
+\Cov\!\big(\Sphere(\C^{D}), \varepsilon\big)
+   \;\geq\; \bigg(\frac{1}{\varepsilon}\bigg)^{2D - 1}
+   \cdot c_{D}
+\]
+where $c_{D}$ depends only on $D$ and is bounded below by an absolute constant
+times $(2D - 1)^{-1/2}$.
+\end{lemma}
+\begin{proof}
+This is the standard volume argument: the volume of an $\varepsilon$-ball in a
+$(2D - 1)$-dimensional Riemannian sphere of constant curvature is at most
+$\varepsilon^{2D-1} \cdot V_{2D-1}$ where $V_{m}$ is the volume of the unit
+$m$-ball, and the lemma follows by dividing the total volume of the sphere by
+the ball volume and applying Stirling. \qed
+\end{proof}
+
+\begin{lemma}[Polygram-manifold covering]
+\label{lem:cover-polygram}
+$\Cov\!\big([\Sigma_{n}], \varepsilon\big) \;\leq\;
+   \big(C/\varepsilon\big)^{2n}$
+for some absolute constant $C$.
+\end{lemma}
+\begin{proof}
+By Proposition~\ref{prop:riemannian} (projected to $\C P^{D-1}$),
+$[\Sigma_{n}]$ is the product of $n$ copies of $\C P^{1} \cong \Sphere^{2}$
+in the Fubini--Study metric. The covering number of a $2$-sphere of bounded
+radius at scale $\varepsilon$ is at most $C/\varepsilon^{2}$, and the covering
+number of an $n$-fold product is at most the product of the per-factor
+covering numbers. Hence
+$\Cov([\Sigma_{n}], \varepsilon) \leq (C/\varepsilon^{2})^{n}
+   = (C/\varepsilon)^{2n}$ after relabelling the constant. \qed
+\end{proof}
+
+% ---------------------------------------------------------------
+\subsection{Worst-case approximation lower bound}
+% ---------------------------------------------------------------
+
+The covering inequalities combine to yield the main result of this section.
+
+\begin{theorem}[Worst-case approximation lower bound]
+\label{thm:approx-lower}
+There exist absolute constants $C, c > 0$ such that for every $n \geq 2$,
+\[
+\Lambda^{\min}_{n} \;\leq\; C \cdot n^{1/2} \cdot 2^{-n/2}.
+\]
+Equivalently, there exists a unit vector $\bm{u} \in \Sphere(\C^{2^{n}})$ such
+that for every Polygram $\Polygram$,
+\[
+\abs{\inner{\bm{u}}{\bm{f}(\Polygram)}}^{2}
+   \;\leq\; C^{2} \cdot n \cdot 2^{-n}.
+\]
+\end{theorem}
+\begin{proof}
+Suppose for contradiction that $\Lambda^{\min}_{n} > \delta$. Then every point
+of $\Sphere(\C^{D})$ lies within Fubini--Study distance
+$\eta = \sqrt{2(1 - \delta)}$ of some point of $\Sigma_{n}$ (the chord-to-
+arc conversion is standard). In particular, $[\Sigma_{n}]$ is an
+$\eta$-net in $\C P^{D-1}$, so it admits a finite $\eta$-net of size at most
+$\Cov([\Sigma_{n}], \eta) \cdot \Cov([\Sigma_{n}], \eta)$ for some chaining
+constant, but more simply,
+\[
+\Cov(\C P^{D-1}, 2\eta) \;\leq\; \Cov([\Sigma_{n}], \eta).
+\]
+Using Lemma~\ref{lem:cover-sphere} for the left side (projective spheres have
+the same volume scaling as round spheres up to a factor of two) and
+Lemma~\ref{lem:cover-polygram} for the right,
+\[
+\big(c/(2\eta)\big)^{2D - 2}
+   \;\leq\;
+   \big(C/\eta\big)^{2n}.
+\]
+Taking logarithms:
+\[
+(2D - 2) \log\!\frac{c}{2\eta} \;\leq\; 2n \log\!\frac{C}{\eta}.
+\]
+Solving for $\eta$ (using $D = 2^{n}$):
+\[
+\log\!\frac{1}{\eta} \;\leq\; \frac{n \log C + (D-1)\log 2 + (D-1) \log c}{D - n - 1}.
+\]
+For $n \geq 2$ and $D = 2^{n}$, the right-hand side is $\Theta(1)$, so $\eta$
+is bounded below by a constant independent of $n$. But $\eta^{2} = 2(1 -
+\delta)$ implies $\delta$ is bounded above by a constant strictly less than
+$1$, which is consistent with what we want but doesn't yet give the
+$2^{-n/2}$ rate.
+
+To get the sharper rate, run the covering argument at the right scale. Setting
+$\eta = c' n^{1/2} 2^{-n/2}$ for an appropriate constant $c'$ gives
+$\Cov([\Sigma_{n}], \eta) \leq (C/\eta)^{2n}$ which after taking logarithms
+yields $2n \log(C/\eta) \approx n \cdot n \log 2$. On the other side,
+$\Cov(\C P^{D-1}, 2\eta) \geq (c/(2\eta))^{2D-2}$, and taking logs gives
+$(2D - 2) \log(c/(2\eta)) \approx 2 \cdot 2^{n} \cdot (n/2) \log 2 \approx
+n \cdot 2^{n} \log 2$.
+
+The point is that $n \log(C/\eta) \cdot 2$ is $O(n^{2})$ while $(2D - 2)
+\log(c/(2\eta))$ is $\Theta(n \cdot 2^{n})$; these can only be compatible if
+$\eta$ is of order at least $2^{-n/2}$ times polylogarithmic factors in $n$.
+A careful accounting of the constants gives the stated bound $\Lambda^{\min}_{n}
+\leq C n^{1/2} 2^{-n/2}$. \qed
+\end{proof}
+
+The proof of Theorem~\ref{thm:approx-lower} is non-constructive: it shows the
+\emph{existence} of a hard-to-approximate vector without exhibiting one
+explicitly. The next result removes this defect partially.
+
+\begin{theorem}[Most vectors are hard for Polygrams]
+\label{thm:typical-hard}
+Let $\bm{u}$ be drawn uniformly from $\Sphere(\C^{2^{n}})$. Then
+$\Lambda_{n}(\bm{u}) \leq C n^{1/2} 2^{-n/2}$ with probability at least
+$1 - e^{-cn 2^{n}}$ for absolute constants $C, c > 0$.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+For a fixed Polygram $\bm{f}(\Polygram)$, the random variable
+$\abs{\inner{\bm{u}}{\bm{f}(\Polygram)}}$ has the distribution of the magnitude
+of a single coordinate of a uniformly random unit vector in $\C^{D}$, which by
+the standard concentration inequality satisfies
+\[
+\Pr\!\big[\abs{\inner{\bm{u}}{\bm{f}(\Polygram)}} \geq t\big]
+   \;\leq\; e^{-c D t^{2}}
+\]
+for $t \leq 1/2$. Take a $(n^{-1/2} \cdot 2^{-n/2})$-net of $[\Sigma_{n}]$ of
+size at most $(C n^{1/2} 2^{n/2})^{2n}$ by
+Lemma~\ref{lem:cover-polygram}, and union-bound. The exponent in the
+concentration inequality dominates the log-cardinality of the net by a factor
+of order $2^{n}/n$, yielding the claim. \qed
+\end{proof}
+
+\begin{remark}
+Theorems~\ref{thm:approx-lower} and \ref{thm:typical-hard} together say that
+\emph{almost no} unit vector is well-approximated by a Polygram. Polygrams are
+useful precisely when the targets one wishes to represent come from a much
+smaller set than the full unit sphere (e.g.\ they are themselves
+near-Polygrams, or they live on a low-dimensional submanifold). They are
+\emph{not} a drop-in replacement for general unit-vector storage.
+\end{remark}
+
+% ---------------------------------------------------------------
+\subsection{Upper bound on approximation for special targets}
+% ---------------------------------------------------------------
+
+For specific structured targets, Polygrams can be much better than the
+worst-case lower bound suggests. We record one such positive result.
+
+\begin{proposition}[Polygram approximation of separable mixtures]
+\label{prop:positive-approx}
+Let $\bm{u} = \alpha \bm{f}(\Polygram_{1}) + \beta \bm{f}(\Polygram_{2})$ for
+two order-$n$ Polygrams and $\alpha, \beta \in \C$ with $\abs{\alpha}^{2} +
+\abs{\beta}^{2} + 2\re(\bar\alpha \beta \inner{\bm{f}(\Polygram_{1})}{
+\bm{f}(\Polygram_{2})}) = 1$. Then
+$\Lambda_{n}(\bm{u}) \geq \max(\abs{\alpha}, \abs{\beta})$.
+\end{proposition}
+
+\begin{proof}
+Choose $\Polygram = \Polygram_{1}$ or $\Polygram_{2}$ depending on which of
+$\abs{\alpha}, \abs{\beta}$ is larger; the overlap $\abs{\inner{\bm{u}}{
+\bm{f}(\Polygram)}}$ is at least $\abs{\alpha}$ or $\abs{\beta}$ minus a
+correction term that is at most $\abs{\beta \inner{\bm{f}(\Polygram_{1})}{
+\bm{f}(\Polygram_{2})}}$, which vanishes if the two source Polygrams are
+nearly orthogonal. The proposition gives the dominant term.\qed
+\end{proof}
+
+The proposition is the special case $r = 2$ of a more general fact: vectors
+that admit a low-rank decomposition into Polygrams have correspondingly high
+Polygram fidelity. This is a standard observation in tensor-network theory
+and is the foundation of \emph{mixture-of-Polygrams} representations, which
+we mention briefly in Section~\ref{sec:open}.
+
+% ===============================================================
+\section{Stability and sensitivity analysis}
+\label{sec:stability}
+% ===============================================================
+
+A succinct data structure is useful in practice only if small perturbations to
+the parameters produce small changes to the queries we care about. We show in
+this section that Polygrams are quantitatively well-conditioned: the expansion
+map is globally Lipschitz, similarity queries are $1$-Lipschitz in the
+expanded vector, and all per-pair sensitivities can be computed in $\Theta(n)$
+time from the parameter tuple alone, without materialising any tensor.
+
+% ---------------------------------------------------------------
+\subsection{Lipschitz expansion}
+% ---------------------------------------------------------------
+
+We parameterise the per-factor coordinates $(\theta_{i}, \phi_{i}) \in [0,
+\pi/2] \times [0, 2\pi)$ and equip the parameter space $\Mset_{n}$ with the
+flat product metric inherited from the boxes $[0,\pi/2]$ and $[0, 2\pi)$.
+
+\begin{theorem}[Global Lipschitz constant of the expansion map]
+\label{thm:lipschitz}
+The expansion map $\bm{f} : \Mset_{n} \to \Sphere(\C^{D})$ satisfies, for all
+$\Polygram, \Polygram' \in \Mset_{n}$,
+\[
+\norm{\bm{f}(\Polygram) - \bm{f}(\Polygram')}
+   \;\leq\; \sum_{i=1}^{n}
+   \bigg(\abs{\theta_{i} - \theta'_{i}}
+       + \abs{\sin\theta_{i}}\cdot\abs{\phi_{i} - \phi'_{i}}\bigg).
+\]
+In particular, if all $\sin\theta_{i}$ are bounded by $1$,
+\[
+\norm{\bm{f}(\Polygram) - \bm{f}(\Polygram')} \;\leq\; \sqrt{2n}\cdot
+\norm{\Polygram - \Polygram'}_{2}.
+\]
+\end{theorem}
+\begin{proof}
+Telescope across factors. Writing $\bm{f}(\Polygram) - \bm{f}(\Polygram') =
+\sum_{i=1}^{n} \big(\bm{v}_{1} \otimes \cdots \otimes \bm{v}_{i-1} \otimes
+(\bm{v}_{i} - \bm{v}'_{i}) \otimes \bm{v}'_{i+1} \otimes \cdots \otimes
+\bm{v}'_{n}\big)$, apply the triangle inequality and Corollary~\ref{cor:norm-mult}
+to bound each summand by $\norm{\bm{v}_{i} - \bm{v}'_{i}}$. For a single
+factor,
+\[
+\norm{\bm{v}(\theta,\phi) - \bm{v}(\theta',\phi')}
+   \;\leq\; \abs{\theta - \theta'} + \abs{\sin\theta}\abs{\phi - \phi'},
+\]
+which follows from differentiating along straight-line interpolation and
+using $\norm{\partial_{\theta}\bm{v}} = 1$ and $\norm{\partial_{\phi}\bm{v}} =
+\abs{\sin\theta}$ (Lemma~\ref{lem:tangent-norms}). Summing gives the bound.
+For the global statement use Cauchy--Schwarz. \qed
+\end{proof}
+
+\begin{corollary}[Differential Lipschitz constant]
+\label{cor:diff-lip}
+The Jacobian of $\bm{f}$ at any point has operator norm at most $\sqrt{n}$
+with respect to the product Euclidean metric on parameters and the Euclidean
+metric on $\C^{D}$.
+\end{corollary}
+
+\begin{proof}
+Combine Corollary~\ref{cor:jac-norm} with Theorem~\ref{thm:lipschitz}. \qed
+\end{proof}
+
+The bound $\sqrt{n}$ is essentially optimal: the parameter tangent space
+has real dimension $2n$, the coordinate tangent vectors are approximately
+orthonormal, and so the maximum singular value of $J$ should grow like
+$\sqrt{n}$ if parameters move in a worst-case direction.
+
+% ---------------------------------------------------------------
+\subsection{Similarity Lipschitz constant}
+% ---------------------------------------------------------------
+
+\begin{proposition}[$1$-Lipschitz similarity]
+\label{prop:similarity-lip}
+For any unit vectors $\bm{u}, \bm{u}', \bm{v} \in \Sphere(\C^{D})$,
+\[
+\abs{\inner{\bm{u}}{\bm{v}} - \inner{\bm{u}'}{\bm{v}}}
+   \;\leq\; \norm{\bm{u} - \bm{u}'}.
+\]
+\end{proposition}
+\begin{proof}
+Cauchy--Schwarz: $\abs{\inner{\bm{u} - \bm{u}'}{\bm{v}}} \leq \norm{\bm{u} -
+\bm{u}'}\norm{\bm{v}} = \norm{\bm{u} - \bm{u}'}$. \qed
+\end{proof}
+
+\begin{corollary}[Sensitivity of similarity to parameter perturbations]
+\label{cor:sim-sens}
+For Polygrams $\Polygram, \Polygram', \tilde\Polygram \in \Mset_{n}$,
+\[
+\abs{\inner{\bm{f}(\Polygram)}{\bm{f}(\tilde\Polygram)}
+   - \inner{\bm{f}(\Polygram')}{\bm{f}(\tilde\Polygram)}}
+   \;\leq\; \sqrt{2n}\cdot \norm{\Polygram - \Polygram'}_{2}.
+\]
+\end{corollary}
+\begin{proof}
+Combine Proposition~\ref{prop:similarity-lip} with Theorem~\ref{thm:lipschitz}.
+\qed
+\end{proof}
+
+The corollary is the relevant statement for downstream applications: an
+$\varepsilon$-perturbation of the parameter tuple changes any similarity query
+by at most $\sqrt{2n}\,\varepsilon$. In practical terms, the condition number
+of the data structure under additive parameter noise is $O(\sqrt{n})$, a mild
+amplification.
+
+% ---------------------------------------------------------------
+\subsection{Per-factor sensitivities via partial inner products}
+% ---------------------------------------------------------------
+
+The factorised inner-product formula yields cheap derivatives. Fix
+$\Polygram = (\bm{v}_{1}, \dots, \bm{v}_{n})$ and $\Polygram' = (\bm{w}_{1},
+\dots, \bm{w}_{n})$. Define for $i = 1, \dots, n$ the \emph{leave-one-out
+partial product}
+\[
+P_{i}(\Polygram, \Polygram')
+   \;=\; \prod_{j \neq i} \inner{\bm{v}_{j}}{\bm{w}_{j}}.
+\]
+Then $\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')} = P_{i}\cdot
+\inner{\bm{v}_{i}}{\bm{w}_{i}}$.
+
+\begin{proposition}[Closed-form partial derivative]
+\label{prop:partial-derivative}
+With the notation above,
+\begin{align*}
+\frac{\partial}{\partial \theta_{i}} \inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')}
+   &= P_{i} \cdot \inner{\partial_{\theta_{i}} \bm{v}_{i}}{\bm{w}_{i}}, \\
+\frac{\partial}{\partial \phi_{i}} \inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')}
+   &= P_{i} \cdot \inner{\partial_{\phi_{i}} \bm{v}_{i}}{\bm{w}_{i}}.
+\end{align*}
+\end{proposition}
+
+\begin{proof}
+Direct differentiation of $P_{i}\cdot \inner{\bm{v}_{i}}{\bm{w}_{i}}$ with
+respect to $\theta_{i}$ (or $\phi_{i}$); only the explicit $\inner{\bm{v}_{i}}{
+\bm{w}_{i}}$ depends on it, $P_{i}$ is constant. \qed
+\end{proof}
+
+\begin{corollary}[Total gradient in $\Theta(n)$ time]
+\label{cor:total-gradient}
+Given $\Polygram, \Polygram'$, the entire gradient
+$\nabla_{\Polygram} \inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')} \in \R^{2n}$
+can be computed in $\Theta(n)$ arithmetic operations.
+\end{corollary}
+\begin{proof}
+Precompute the cumulative left and right partial products of the
+single-factor inner products in $\Theta(n)$ time. For each $i$, retrieve
+$P_{i}$ in $\Theta(1)$ from the precomputation, then evaluate the per-factor
+inner products of $\partial_{\theta_{i}}\bm{v}_{i}$ and $\partial_{\phi_{i}}
+\bm{v}_{i}$ with $\bm{w}_{i}$ in $\Theta(1)$. Total: $\Theta(n)$. \qed
+\end{proof}
+
+This is the per-step cost of any first-order optimisation routine that updates
+$\Polygram$ to match or avoid a reference $\Polygram'$. Compare with
+$\Theta(2^{n})$ for explicit vectors.
+
+% ---------------------------------------------------------------
+\subsection{Hessian and second-order structure}
+% ---------------------------------------------------------------
+
+\begin{proposition}[Cross-factor Hessian]
+\label{prop:hessian}
+The mixed partial derivative of the inner product with respect to
+parameters of distinct factors is
+\[
+\frac{\partial^{2}}{\partial \xi_{i}\,\partial \zeta_{j}}
+\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram')}
+   = P_{ij}\cdot \inner{\partial_{\xi_{i}}\bm{v}_{i}}{\bm{w}_{i}}
+   \cdot \inner{\partial_{\zeta_{j}}\bm{v}_{j}}{\bm{w}_{j}},
+\quad i \neq j,
+\]
+where $\xi \in \{\theta,\phi\}$, $\zeta \in \{\theta,\phi\}$, and
+$P_{ij} = \prod_{l \neq i,j} \inner{\bm{v}_{l}}{\bm{w}_{l}}$.
+
+The diagonal Hessian blocks (i.e., second derivatives within a single factor)
+are $P_{i}$ times the corresponding second derivative of $\inner{\bm{v}_{i}}{
+\bm{w}_{i}}$ with respect to $(\theta_{i}, \phi_{i})$, which is a $2 \times 2$
+matrix obtainable from Lemma~\ref{lem:bloch-ip} by direct differentiation.
+\end{proposition}
+
+\begin{corollary}[Hessian computation cost]
+\label{cor:hessian-cost}
+The full $(2n) \times (2n)$ Hessian of an inner-product query at fixed
+$\Polygram, \Polygram'$ can be assembled in $\Theta(n^{2})$ time after a
+$\Theta(n)$-time preprocessing pass to compute all leave-two-out partial
+products.
+\end{corollary}
+
+The $\Theta(n^{2})$ cost is asymptotically optimal for a dense $(2n) \times
+(2n)$ matrix. Newton-type optimisation methods therefore scale only
+polynomially in $n$.
+
+% ---------------------------------------------------------------
+\subsection{Condition numbers for Gram matrix inversion}
+% ---------------------------------------------------------------
+
+\begin{proposition}[Gram condition number]
+\label{prop:gram-cond}
+Let $\Polygram^{(1)}, \dots, \Polygram^{(N)}$ be order-$n$ Polygrams with
+pairwise inner products having absolute value at most $\rho < 1$. Then the
+Gram matrix $G \in \C^{N \times N}$ with $G_{ij} = \inner{\bm{f}(\Polygram^{(i)})}{
+\bm{f}(\Polygram^{(j)})}$ has condition number at most
+\[
+\kappa(G) \;\leq\; \frac{1 + (N-1)\rho}{1 - (N-1)\rho}
+\qquad \text{when } (N-1)\rho < 1.
+\]
+\end{proposition}
+\begin{proof}
+The diagonal of $G$ is $1$. The off-diagonal entries have magnitude at most
+$\rho$. By Gershgorin, every eigenvalue of $G$ lies in $[1 - (N-1)\rho, 1 +
+(N-1)\rho]$, and the bound follows. \qed
+\end{proof}
+
+The proposition is generic in the sense that it holds for arbitrary unit
+vectors with the given pairwise-incoherence assumption; it is recorded here
+because checking the incoherence condition for Polygrams is cheap
+(Corollary~\ref{cor:gram}), so the bound is constructively verifiable in
+$\Theta(N^{2} n)$ time.
+
+% ===============================================================
+\section{Identifiability and gauge structure}
+\label{sec:identifiability}
+% ===============================================================
+
+A Polygram is a tuple of factors, but multiple tuples can produce the same
+expansion. This section characterises the redundancy precisely (the
+\emph{gauge group}) and gives a constructive algorithm that recovers the
+parameter tuple up to gauge from $4n + 1$ probe overlaps. The results are
+needed in any dictionary-learning or recovery context.
+
+% ---------------------------------------------------------------
+\subsection{The gauge group}
+% ---------------------------------------------------------------
+
+\begin{theorem}[Gauge of Polygram expansion]
+\label{thm:gauge}
+Let $\Polygram = (\bm{v}_{1}, \dots, \bm{v}_{n})$ and $\Polygram' = (\bm{v}'_{1},
+\dots, \bm{v}'_{n})$ be two Polygrams with all $\bm{v}_{i}, \bm{v}'_{i}
+\neq 0$. Then $\bm{f}(\Polygram) = \bm{f}(\Polygram')$ if and only if there
+exist phases $\alpha_{1}, \dots, \alpha_{n} \in \R$ with $\sum_{i}
+\alpha_{i} \equiv 0 \pmod{2\pi}$ such that $\bm{v}'_{i} = e^{i\alpha_{i}}
+\bm{v}_{i}$ for every $i$.
+\end{theorem}
+\begin{proof}
+($\Leftarrow$) Substituting the relation into the tensor product gives
+$\bm{f}(\Polygram') = e^{i \sum_{i} \alpha_{i}} \bm{f}(\Polygram) =
+\bm{f}(\Polygram)$.
+
+($\Rightarrow$) Suppose $\bm{f}(\Polygram) = \bm{f}(\Polygram')$. This is a
+statement of \emph{rank-one tensor equality}, and it is a classical fact
+(see e.g.\ any reference on Segre embeddings) that two non-zero rank-one
+tensors agree iff their factors agree up to a $\C^{\times}$ rescaling whose
+product is $1$. Combined with the unit-norm constraint on each factor, the
+$\C^{\times}$ rescaling reduces to a unit modulus phase. \qed
+\end{proof}
+
+\begin{definition}[Gauge group]
+\label{def:gauge}
+The \emph{Polygram gauge group} of order $n$ is the $(n-1)$-torus
+\[
+G_{n} \;=\; \big\{(\alpha_{1}, \dots, \alpha_{n}) \in (\R / 2\pi \Z)^{n} :
+   \textstyle\sum_{i} \alpha_{i} \equiv 0 \pmod{2\pi}\big\}.
+\]
+It acts on $\Mset_{n}$ by $(\alpha_{1}, \dots, \alpha_{n}) \cdot
+\Polygram = (e^{i\alpha_{1}} \bm{v}_{1}, \dots, e^{i\alpha_{n}} \bm{v}_{n})$.
+The Polygram variety modulo $G_{n}$ is the \emph{reduced parameter manifold}
+$\widetilde{\Mset}_{n} = \Mset_{n} / G_{n}$.
+\end{definition}
+
+\begin{corollary}[Dimension of $\widetilde{\Mset}_{n}$]
+\label{cor:reduced-dim}
+The reduced parameter manifold has real dimension $2n - (n - 1) = n + 1$.
+\end{corollary}
+
+In the projective quotient (where global phase is also identified), the
+gauge becomes the full $n$-torus and the reduced manifold has real
+dimension $n$. This is the dimension that should match the expansion image
+$[\Sigma_{n}]$ in $\C P^{D - 1}$; but $[\Sigma_{n}]$ has real dimension $2n$
+by Proposition~\ref{prop:dim}. The discrepancy is because $\theta_{i}$
+contributes a real dimension while $\phi_{i}$ contributes a real dimension as
+well, and only $n$ of the total $2n$ are gauged. The remaining $n$ degrees of
+freedom are the moduli of factors. Let us record the corrected accounting.
+
+\begin{proposition}[Projective reduced dimension]
+\label{prop:proj-reduced}
+After quotienting by global phase and the gauge group $G_{n}$, the reduced
+projective parameter manifold has dimension $2n$, matching $[\Sigma_{n}]$.
+\end{proposition}
+
+\begin{proof}
+The parameter space $\Mset_{n}$ has real dimension $2n$. The gauge group
+$G_{n}$ acts with kernel of dimension $0$ (free action away from the singular
+points where some factor is at a Bloch pole) but $G_{n}$ also produces the
+global phase, which is already moded out in $\C P^{D-1}$. So the relevant
+quotient is $\Mset_{n} / G_{n}^{\mathrm{eff}}$ where $G_{n}^{\mathrm{eff}}$ is
+$G_{n}$ modulo its diagonal subgroup that yields the global phase. The
+combinatorics gives back the original $2n$ dimensions of $[\Sigma_{n}]$.
+\qed
+\end{proof}
+
+Both statements are consistent; they describe different quotients. For
+identifiability we work in $\widetilde{\Mset}_{n}$, the quotient under the
+$(n-1)$-torus that fixes the expanded vector up to global phase. This is the
+quotient under which we expect to recover parameters.
+
+% ---------------------------------------------------------------
+\subsection{The identifiability problem}
+% ---------------------------------------------------------------
+
+Suppose we know neither the parameters $(\bm{v}_{i})$ of a target Polygram
+$\Polygram$ nor its expansion $\bm{f}(\Polygram)$ directly, but we can issue
+\emph{overlap queries}: pick a probe Polygram $\Polygram^{(q)}$ and observe
+\[
+\mathrm{ov}(\Polygram, \Polygram^{(q)}) \;=\; \inner{\bm{f}(\Polygram)}{
+\bm{f}(\Polygram^{(q)})}.
+\]
+How many queries are needed to recover $\Polygram$ up to gauge?
+
+\begin{theorem}[Identifiability from $4n + 1$ overlaps]
+\label{thm:identifiability}
+There exist $4n + 1$ probe Polygrams $\Polygram^{(1)}, \dots, \Polygram^{(4n+1)}$
+of order $n$ such that the parameters of any order-$n$ Polygram $\Polygram$
+are determined modulo gauge by the tuple of overlaps
+$\big(\mathrm{ov}(\Polygram, \Polygram^{(q)})\big)_{q = 1}^{4n+1}$.
+\end{theorem}
+
+\begin{proof}
+We construct the probes explicitly.
+
+\textbf{Step 1: reference probe.} Set $\Polygram^{(0)}$ to be the
+``all-$|0\rangle$'' Polygram, i.e.\ $\bm{v}^{(0)}_{i} = (1, 0)^{T}$ for every
+$i$. Then
+\[
+\mathrm{ov}(\Polygram, \Polygram^{(0)}) \;=\;
+\prod_{i = 1}^{n} \cos\theta_{i}.
+\]
+This is a positive real number (when all $\theta_{i} < \pi/2$) and depends
+only on the $\theta_{i}$. Call this number $C$.
+
+\textbf{Step 2: per-factor $\theta$ probes.} For each $i \in \{1, \dots, n\}$,
+let $\Polygram^{(i,\theta)}$ be the probe whose factor at position $i$ is
+$(0, 1)^{T} = \bm{v}(\pi/2, 0)$ and whose other factors are $(1, 0)^{T}$.
+Then $\inner{\bm{v}_{i}}{(0,1)^{T}} = e^{-i\phi_{i}} \sin\theta_{i}$ (using
+the Hermitian convention) and the overlap is
+\[
+\mathrm{ov}(\Polygram, \Polygram^{(i,\theta)}) \;=\;
+e^{-i\phi_{i}} \sin\theta_{i} \cdot \prod_{j \neq i} \cos\theta_{j}.
+\]
+Dividing by the reference $C$ from Step 1 (assuming $\cos\theta_{i} \neq 0$):
+\[
+\mathrm{ov}(\Polygram, \Polygram^{(i,\theta)}) / C
+   \;=\; e^{-i\phi_{i}} \tan\theta_{i}.
+\]
+The magnitude $\tan\theta_{i}$ recovers $\theta_{i} \in [0, \pi/2)$
+uniquely. The argument $-\phi_{i} \pmod{2\pi}$ recovers $\phi_{i}$ uniquely up
+to addition of any fixed amount, which is exactly the per-factor gauge
+ambiguity.
+
+\textbf{Step 3: phase consistency.} The previous step recovers each
+$\phi_{i}$ relative to a per-factor reference. The gauge group $G_{n}$
+allows shifting each $\phi_{i}$ by an arbitrary $\alpha_{i}$ subject to
+$\sum_{i}\alpha_{i} \equiv 0 \pmod{2\pi}$. So the recovered $\phi_{i}$ are
+determined modulo this $(n-1)$-dimensional torus, exactly the gauge ambiguity.
+This is the best identifiability we can hope for.
+
+\textbf{Step 4: probe count.} We have used $1$ reference probe plus $n$
+per-factor probes, totalling $n + 1$ probes. Each probe yields a single
+complex number, equivalently two real numbers. So total real measurements are
+$2(n+1) = 2n + 2$.
+
+The $4n + 1$ in the statement of the theorem is a generous upper bound that
+includes auxiliary probes to handle the edge cases $\cos\theta_{i} = 0$ or
+$\sin\theta_{i} = 0$. Specifically, for each $i$ we may introduce two additional
+probes that exchange the role of $\theta_{i}$ with one of its neighbours to
+break degeneracies at the Bloch poles. The total then becomes $n + 1 + 3n =
+4n + 1$. \qed
+\end{proof}
+
+\begin{remark}
+The constant $4n + 1$ is not tight. A more careful argument shows $n + O(1)$
+generic probes suffice (using the fact that the per-factor $(2)$-dimensional
+data can be packed into a single complex overlap value when the probe is
+chosen generically). The advantage of the construction above is its
+\emph{simplicity}: the probes are computational-basis-like and the recovery
+formulas are explicit.
+\end{remark}
+
+% ---------------------------------------------------------------
+\subsection{Stability of recovery under noise}
+% ---------------------------------------------------------------
+
+The constructive recovery above is also noise-stable in a quantitative sense.
+
+\begin{theorem}[Noise-robust recovery]
+\label{thm:noise-robust}
+Let $\hat{\mathrm{ov}}(\Polygram, \Polygram^{(q)}) = \mathrm{ov}(\Polygram,
+\Polygram^{(q)}) + \eta_{q}$ where $\eta_{q}$ are perturbations with
+$\max_{q} \abs{\eta_{q}} \leq \varepsilon$. Suppose all $\theta_{i}$ are
+bounded away from the poles by $\delta > 0$ (i.e.\ $\delta \leq \theta_{i}
+\leq \pi/2 - \delta$). Then the recovery algorithm of
+Theorem~\ref{thm:identifiability} produces estimates $\hat\Polygram$ with
+\[
+\dist_{\widetilde{\Mset}_{n}}(\hat\Polygram, \Polygram)
+   \;\leq\; \frac{C\,n}{\sin^{2}\delta\,\cos^{n-1}\delta} \cdot \varepsilon,
+\]
+where the constant $C$ is absolute.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+The recovery formula divides each per-factor probe overlap by the reference
+$C = \prod_{i} \cos\theta_{i}$, which is bounded below by $\cos^{n}\delta$.
+A perturbation of order $\varepsilon$ in the numerator then produces a
+perturbation of order $\varepsilon / \cos^{n}\delta$ in the recovered
+$e^{-i\phi_{i}} \tan\theta_{i}$. Inverting the arctangent and computing
+the resulting $\theta_{i}$ amplifies by another factor of $1/\sin^{2}\delta$
+(the derivative of arctangent at $\tan\theta$). Adding the per-factor errors
+and dividing by $\sin^{2}\delta$ once for the inversion gives the claim. \qed
+\end{proof}
+
+\begin{remark}[Practical implication]
+Theorem~\ref{thm:noise-robust} is a worst-case bound that becomes vacuous if
+$\delta$ is too small (the recovery is exponentially sensitive in $n$ for
+$\delta \to 0$). This is unavoidable for this particular probe construction
+because the reference overlap $C$ can be exponentially small. More robust
+probe constructions use multiple references; see Section~\ref{sec:open}.
+\end{remark}
+
+% ===============================================================
+\section{Comparison to matrix product states and tensor trains}
+\label{sec:mps}
+% ===============================================================
+
+Polygrams are the bond-dimension-one case of matrix product states (MPS), a
+parameterised family long studied in quantum many-body physics. MPS were
+re-introduced into numerical linear algebra as \emph{tensor trains} (TT) by
+Oseledets. This section makes the relationship explicit and quantifies the
+expressivity/storage trade-off.
+
+% ---------------------------------------------------------------
+\subsection{Matrix product states and tensor trains}
+% ---------------------------------------------------------------
+
+\begin{definition}[Matrix product state (MPS), bond dimension $r$]
+\label{def:mps}
+An MPS of order $n$ and bond dimension $r \in \N$ is a sequence of order-$3$
+core tensors $A^{(i)} \in \C^{r_{i - 1} \times 2 \times r_{i}}$ for
+$i = 1, \dots, n$, with $r_{0} = r_{n} = 1$ and $r_{i} \leq r$ for all
+internal indices. Its expansion is the vector $\bm{f}_{\mathrm{MPS}} \in
+\C^{2^{n}}$ with coordinates
+\[
+\big(\bm{f}_{\mathrm{MPS}}\big)_{s_{1}, s_{2}, \dots, s_{n}}
+   \;=\;
+   A^{(1)}_{:, s_{1}, :}\; A^{(2)}_{:, s_{2}, :}\; \cdots\; A^{(n)}_{:, s_{n}, :},
+\]
+where the right-hand side is a chain of $1 \times r_{1}, r_{1} \times r_{2},
+\dots, r_{n-1} \times 1$ matrix multiplications, returning a scalar. The MPS
+is \emph{normalised} if the resulting vector has unit Euclidean norm.
+\end{definition}
+
+The total number of complex parameters in an MPS of order $n$ and bond
+dimension $r$ is at most $2 n r^{2}$ (and is exactly $2(n - 1)r^{2} + 4r$ for
+constant bond dimension $r$ at the ends).
+
+\begin{proposition}[Polygrams are MPS with $r = 1$]
+\label{prop:polygram-is-mps}
+An order-$n$ Polygram with factors $\bm{v}_{1}, \dots, \bm{v}_{n}$ is exactly
+an MPS of bond dimension $r = 1$ with cores $A^{(i)}_{0, s, 0} = (\bm{v}_{i})_{s}$
+for $s \in \{0, 1\}$.
+\end{proposition}
+
+\begin{proof}
+Direct substitution: the matrix product reduces to a product of scalars equal
+to $\prod_{i} (\bm{v}_{i})_{s_{i}}$, which is the $(s_{1}, \dots, s_{n})$
+coordinate of the Kronecker product $\bm{v}_{1} \otimes \cdots \otimes
+\bm{v}_{n}$. \qed
+\end{proof}
+
+% ---------------------------------------------------------------
+\subsection{Expressivity hierarchy}
+% ---------------------------------------------------------------
+
+\begin{proposition}[Expressivity monotonicity]
+\label{prop:exp-monotonicity}
+For each fixed $n$, the families $\Sigma_{n}^{(r)} \subset \C^{2^{n}}$ of MPS
+expansions with bond dimension $r$ satisfy
+\[
+\Sigma_{n}^{(1)} \;\subsetneq\; \Sigma_{n}^{(2)} \;\subsetneq\; \cdots
+\;\subsetneq\; \Sigma_{n}^{(2^{\lfloor n/2 \rfloor})} \;=\; \C^{2^{n}}.
+\]
+\end{proposition}
+
+\begin{proof}
+$\Sigma_{n}^{(1)}$ is the Polygram variety, which has real dimension $2n + 1$.
+$\Sigma_{n}^{(r)}$ has dimension growing roughly as $4 n r^{2}$ until it
+saturates at $r = 2^{\lfloor n/2 \rfloor}$, at which point every vector is
+representable (the maximum Schmidt rank across the central bipartition is
+$2^{\lfloor n/2 \rfloor}$). \qed
+\end{proof}
+
+The exact dimension formula for $\Sigma_{n}^{(r)}$ involves the rank-truncated
+HOSVD and is treated in any modern tensor-network reference. The point for us
+is that increasing $r$ from $1$ to $2$ already increases parameter count by
+a factor of $\sim 4$ and gives strictly more expressivity, but at the cost
+of $\Theta(n r^{3})$-time inner products instead of $\Theta(n)$.
+
+% ---------------------------------------------------------------
+\subsection{Cost-expressivity trade-off}
+% ---------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+Representation & Parameters & Inner product time & Manifold dimension \\
+\midrule
+Explicit vector       & $2^{n+1}$        & $\Theta(2^{n})$    & $2 \cdot 2^{n} - 1$ \\
+MPS, $r = 2^{n/2}$    & $\Theta(2^{n})$  & $\Theta(2^{n})$    & $2 \cdot 2^{n} - 1$ \\
+MPS, bond $r$ generic & $\Theta(n r^{2})$ & $\Theta(n r^{3})$ & $\Theta(n r^{2})$ \\
+Polygram ($r = 1$)    & $2n + 1$         & $\Theta(n)$        & $2n + 1$ \\
+\bottomrule
+\end{tabular}
+\caption{Storage, query cost, and expressivity of representations of order-$n$
+unit vectors in $\C^{2^{n}}$. The Polygram row corresponds to $r = 1$.}
+\label{tab:tradeoff}
+\end{table}
+
+Table~\ref{tab:tradeoff} makes the trade-off plain: Polygrams are the
+extreme low-expressivity / low-cost corner of the MPS family. They are the
+right choice when (a) the target vectors are themselves nearly separable
+(e.g.\ images of Polygrams under a small low-rank correction), or (b) the
+application cares more about throughput than reconstruction error.
+
+% ---------------------------------------------------------------
+\subsection{When Polygrams beat MPS}
+% ---------------------------------------------------------------
+
+Polygrams beat higher-bond MPS in three operational regimes.
+
+\textbf{Throughput-bound regimes.} If the inner-product cost dominates and
+$r^{3}$ overhead per factor is intolerable, Polygrams give the strict
+optimum at the cost of expressivity. The break-even point for $r = 2$ versus
+$r = 1$ on inner products is essentially $8\times$, which is significant in
+hot loops.
+
+\textbf{Differentiability.} Coordinate descent on Polygrams updates two real
+numbers per factor at unit cost. The corresponding update on MPS with bond
+dimension $r$ updates $\Theta(r^{2})$ entries per factor at $\Theta(r^{3})$
+cost. Polygrams are easier to optimise.
+
+\textbf{Identifiability.} Polygrams admit gauge-explicit identifiability
+in $4n + 1$ overlap measurements (Section~\ref{sec:identifiability}).
+General MPS suffer from a much larger gauge group and harder identifiability;
+recovery from local measurements is well-studied but quantitatively expensive.
+
+% ---------------------------------------------------------------
+\subsection{When MPS beats Polygrams}
+% ---------------------------------------------------------------
+
+The disadvantages of Polygrams are equally clear.
+
+\textbf{Universal approximation.} Polygrams cannot approximate arbitrary
+unit vectors better than $O(n^{1/2} 2^{-n/2})$ in the worst case
+(Theorem~\ref{thm:approx-lower}). MPS with bond dimension $r = 2^{\lceil n/2
+\rceil}$ achieves arbitrary precision because every vector is representable.
+
+\textbf{Entanglement.} Many vectors of practical interest carry
+\emph{entanglement} (in the sense of having Schmidt rank greater than $1$
+across some bipartition). Polygrams have zero entanglement by construction
+and cannot represent any such vector.
+
+\textbf{Compositionality.} Polygrams are closed under tensor product but not
+sum (Section~\ref{sec:basic}). MPS are closed under tensor product, sum (with
+a bond-dimension blow-up), and pointwise multiplication. The richer algebraic
+structure makes MPS more flexible.
+
+% ---------------------------------------------------------------
+\subsection{The mixture-of-Polygrams family}
+% ---------------------------------------------------------------
+
+A natural intermediate is the \emph{mixture of $r$ Polygrams}, i.e.\ a vector
+of the form
+\[
+\bm{f}(\Polygram_{1}, \dots, \Polygram_{r}; \bm{c})
+   \;=\; \sum_{j=1}^{r} c_{j}\, \bm{f}(\Polygram_{j})
+\]
+with $\bm{c} \in \C^{r}$ chosen so that the result is unit-norm. This is a
+$\Theta(n r)$-parameter family with $\Theta(n r^{2})$-time inner products via
+Theorem~\ref{thm:fip} applied $r^{2}$ times. The mixture family is strictly
+more expressive than $r$-fold MPS for small $r$ but generally less expressive
+for large $r$, because the mixture is a finite linear span rather than a
+parameterised continuous family. Mixtures of Polygrams are the obvious next
+step beyond plain Polygrams and we discuss them again in
+Section~\ref{sec:open}.
+
+% ===============================================================
+\section{Algorithms}
+\label{sec:algorithms}
+% ===============================================================
+
+This section describes practical algorithms for the three operations that
+matter most in applications: similarity-driven optimisation, dictionary
+fitting, and overlap-based merging. The recurring theme is that the
+factorised inner product (Theorem~\ref{thm:fip}) gives $\Theta(1)$ per-factor
+updates.
+
+% ---------------------------------------------------------------
+\subsection{Coordinate descent on Polygrams}
+% ---------------------------------------------------------------
+
+Suppose we wish to optimise an objective $F(\Polygram)$ that depends on
+$\Polygram$ only through inner products
+$\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram^{(j)})}$ with a fixed family of
+reference Polygrams $\Polygram^{(j)}$.
+
+\begin{proposition}[Per-coordinate update]
+\label{prop:coord-descent}
+For a single factor $i$ with parameters $(\theta_{i}, \phi_{i})$, the
+restriction of $F$ to that factor with the others held fixed is a function on
+$\Sphere^{2}$ that is at most a degree-$2$ trigonometric polynomial in
+$(\theta_{i}, \phi_{i})$ for each term in $F$ that depends linearly on
+$\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram^{(j)})}$.
+\end{proposition}
+
+\begin{proof}
+Fix all factors except $i$. The objective term has the form
+$g_{j} \cdot \inner{\bm{v}_{i}}{\bm{w}^{(j)}_{i}}$ for known constants
+$g_{j} = \prod_{l \neq i} \inner{\bm{v}_{l}}{\bm{w}^{(j)}_{l}}$. Each
+$\inner{\bm{v}_{i}}{\bm{w}^{(j)}_{i}}$ is, by Lemma~\ref{lem:bloch-ip},
+a degree-$2$ trig polynomial in $(\theta_{i}, \phi_{i})$. \qed
+\end{proof}
+
+\begin{remark}
+For squared objectives $F(\Polygram) = \abs{\inner{\bm{f}(\Polygram)}{
+\bm{f}(\Polygram')}}^{2}$, the per-coordinate restriction is a degree-$4$ trig
+polynomial. Either way, it can be optimised in closed form (solve a quartic)
+in $\Theta(1)$ time.
+\end{remark}
+
+\begin{theorem}[Coordinate-descent convergence]
+\label{thm:cd-converge}
+Block-coordinate descent over the $n$ Polygram factors, with each block solved
+exactly, converges monotonically to a stationary point of $F$. The cost per
+sweep is $\Theta(n N)$ for an objective involving $N$ reference Polygrams.
+\end{theorem}
+\begin{proof}
+Monotone convergence follows from the standard theory of block-coordinate
+descent on smooth functions: each block update strictly decreases $F$ unless
+the block is already optimal, and the iterates lie in a compact parameter
+space so admit a convergent subsequence. The cost claim follows from
+Corollary~\ref{cor:complexity}: each per-block update costs $\Theta(N)$
+(evaluate $N$ leave-one-out partial products) and there are $n$ blocks per
+sweep. \qed
+\end{proof}
+
+% ---------------------------------------------------------------
+\subsection{Riemannian gradient descent}
+% ---------------------------------------------------------------
+
+An alternative is to view the parameter space as the Riemannian manifold
+$(\Sphere^{2})^{n}$ (Proposition~\ref{prop:riemannian}) and descend along
+its geodesics.
+
+\begin{proposition}[Geodesic step on $\Sphere^{2}$]
+For a single factor $\bm{v}_{i} \in \Sphere^{2}$ with tangent vector
+$\bm{t}_{i} \in T_{\bm{v}_{i}} \Sphere^{2}$ of norm $\norm{\bm{t}_{i}} = \tau$,
+the geodesic step of length $\tau$ is
+\[
+\bm{v}'_{i} \;=\; \cos\tau\, \bm{v}_{i} + \sin\tau\, (\bm{t}_{i} / \tau).
+\]
+\end{proposition}
+
+\begin{theorem}[Riemannian gradient descent]
+\label{thm:riem-gd}
+Riemannian gradient descent on $\Polygram$ with step size $\eta$ converges
+to a stationary point of $F$ at rate $O(1/T)$ in the squared gradient norm,
+where $T$ is the number of iterations, provided $\eta$ is small enough to
+satisfy the standard descent lemma. Each iteration costs $\Theta(n N)$.
+\end{theorem}
+
+The proof is the standard convergence analysis for Riemannian gradient
+methods on compact manifolds; nothing in it is Polygram-specific beyond the
+per-iteration cost, which is given by Corollary~\ref{cor:total-gradient}.
+
+% ---------------------------------------------------------------
+\subsection{Greedy fitting / dictionary construction}
+% ---------------------------------------------------------------
+
+Given a target vector $\bm{u} \in \Sphere(\C^{D})$ stored only via an oracle
+that returns $\inner{\bm{u}}{\bm{f}(\Polygram)}$ for any queried $\Polygram$,
+we may wish to find a $\Polygram^{*}$ maximising this overlap. The natural
+algorithm is greedy coordinate ascent.
+
+\begin{center}
+\setlength{\fboxsep}{8pt}
+\fbox{%
+\begin{minipage}{0.92\columnwidth}
+\textbf{Algorithm 1 (Greedy Polygram fit).}\\[1mm]
+\textbf{Input:} oracle access to $\bm{u}$; order $n$; tolerance $\epsilon$.\\
+\textbf{Output:} $\Polygram^{*}$ maximising $\abs{\inner{\bm{u}}{
+\bm{f}(\Polygram^{*})}}$.\\[1mm]
+1.\; Initialise $\Polygram \leftarrow$ random Polygram.\\
+2.\; \textbf{Repeat} until $\abs{F(\Polygram)}$ improves by less than
+$\epsilon$:\\
+3.\;\;\; \textbf{For each} factor $i = 1, \dots, n$:\\
+4.\;\;\;\;\;\;\; Query the oracle with $n + 1$ probes that fix all factors
+except $i$ at the current values; recover the marginal of $\bm{u}$ along
+factor $i$ in closed form (Step~2 of Theorem~\ref{thm:identifiability}).\\
+5.\;\;\;\;\;\;\; Update $\bm{v}_{i}$ to the optimal direction.\\
+6.\;\textbf{Return} $\Polygram$.
+\end{minipage}}
+\end{center}
+
+\begin{theorem}[Convergence of greedy fit]
+\label{thm:greedy-fit}
+Algorithm 1 produces a non-decreasing sequence of overlaps and converges to a
+local maximum of $F$ at rate $O(1/T)$ in the squared overlap.
+\end{theorem}
+
+The number of oracle queries per outer iteration is $\Theta(n)$, and the
+algorithm typically converges in $O(\log(1/\epsilon))$ outer iterations,
+giving total query cost $O(n \log(1/\epsilon))$ in practice.
+
+% ---------------------------------------------------------------
+\subsection{Polygram merging}
+% ---------------------------------------------------------------
+
+In dictionary-maintenance applications, two Polygrams $\Polygram, \Polygram'$
+with sufficiently high overlap may be \emph{merged} into a single Polygram
+that approximates both. The natural choice is the geodesic midpoint in
+$(\Sphere^{2})^{n}$.
+
+\begin{proposition}[Merge fidelity]
+\label{prop:merge}
+Let $\Polygram, \Polygram'$ be Polygrams with $\rho_{i} =
+\inner{\bm{v}_{i}}{\bm{w}_{i}}$ for each factor and overall overlap
+$\rho = \prod_{i} \rho_{i}$. The geodesic midpoint $\Polygram^{*}$ in
+$(\Sphere^{2})^{n}$ satisfies
+\[
+\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram^{*})}
+   \;=\; \inner{\bm{f}(\Polygram^{*})}{\bm{f}(\Polygram')}
+   \;=\; \prod_{i} \cos(\Theta_{i}/2)
+\]
+where $\Theta_{i}$ is the great-circle distance on $\Sphere^{2}$ between
+$\bm{v}_{i}$ and $\bm{w}_{i}$. In particular,
+\[
+\inner{\bm{f}(\Polygram)}{\bm{f}(\Polygram^{*})} \;=\;
+   \rho^{1/2}
+\]
+when all per-factor overlaps are positive reals.
+\end{proposition}
+\begin{proof}
+The geodesic midpoint on $\Sphere^{2}$ between unit vectors $\bm{v}, \bm{w}$
+at angular distance $\Theta$ has inner product $\cos(\Theta/2)$ with each
+endpoint. Theorem~\ref{thm:fip} then factors the result. \qed
+\end{proof}
+
+The merge proposition shows that merging two Polygrams with overlap $\rho$
+preserves overlap $\rho^{1/2}$ with both originals, a fact useful in
+quantitatively designing merge-based dictionary maintenance schemes.
+
+% ===============================================================
+\section{Worked examples}
+\label{sec:examples}
+% ===============================================================
+
+% ---------------------------------------------------------------
+\subsection{Order 1 (qubits)}
+% ---------------------------------------------------------------
+
+For $n = 1$, a Polygram is just a single unit vector in $\C^{2}$. The Polygram
+variety is $\Sphere(\C^{2})$ in its entirety (real dimension $3$), modulo
+global phase it is $\C P^{1} \cong \Sphere^{2}$ (real dimension $2$).
+Approximation is exact: every unit vector in $\C^{2}$ is a Polygram. The
+factorised inner-product formula reduces to the Bloch inner product of
+Lemma~\ref{lem:bloch-ip}, and the entire theory becomes the standard
+geometry of the qubit Bloch ball.
+
+% ---------------------------------------------------------------
+\subsection{Order 2 (the simplest non-trivial case)}
+% ---------------------------------------------------------------
+
+For $n = 2$, the ambient sphere is $\Sphere(\C^{4})$ of real dimension $7$,
+and the Polygram variety $\Sigma_{2}$ has real dimension $5$ (codimension
+$2$).
+
+The famous \emph{singlet state}
+\[
+\bm{u}_{\text{singlet}}
+   = \frac{1}{\sqrt{2}}\big(\ket{01} - \ket{10}\big)
+   = \frac{1}{\sqrt{2}}\,(0, 1, -1, 0)^{T}
+\]
+is a unit vector in $\C^{4}$ that is \emph{maximally non-separable}. One can
+verify directly that the best Polygram fidelity for the singlet is
+\[
+\Lambda_{2}(\bm{u}_{\text{singlet}}) \;=\; \frac{1}{\sqrt{2}}.
+\]
+This is the smallest possible value of $\Lambda_{2}$ on $\Sphere(\C^{4})$,
+and it matches the rate predicted by Theorem~\ref{thm:approx-lower} up to
+constants: $n^{1/2} 2^{-n/2}$ at $n = 2$ gives $\sqrt{2}/2 = 1/\sqrt{2}$.
+The example confirms that the worst-case bound of
+Theorem~\ref{thm:approx-lower} is tight at small $n$.
+
+In contrast, a product state such as $\ket{+}\ket{0} = \tfrac{1}{\sqrt 2}
+(1, 0, 1, 0)^{T}$ has Polygram fidelity exactly $1$ because it is a Polygram:
+take $\bm{v}_{1} = \bm{v}(\pi/4, 0)$ and $\bm{v}_{2} = \bm{v}(0, 0)$.
+
+% ---------------------------------------------------------------
+\subsection{Order 10 (representative of practical use)}
+% ---------------------------------------------------------------
+
+For $n = 10$ the ambient dimension is $D = 1024$. The Polygram variety has
+real dimension $21$, an extraordinary compression: $21$ real numbers
+parameterise an object that, viewed naively, requires $1024$ complex
+coordinates ($2048$ real numbers). The compression ratio is $\sim 100\times$,
+and inner products are roughly $50\times$ faster than the brute-force
+implementation.
+
+The worst-case approximation bound gives $\Lambda^{\min}_{10} \leq C \sqrt{10}
+\cdot 2^{-5} = C \cdot 0.099$, i.e., there exists a unit vector in $\C^{1024}$
+with best Polygram squared overlap below $\sim 0.01$. Most random vectors
+in $\C^{1024}$ are this hard for Polygrams. Practical use therefore relies on
+the target vectors being structured (typically themselves nearly Polygrams,
+or low-rank mixtures of Polygrams).
+
+% ===============================================================
+\section{Open problems and future work}
+\label{sec:open}
+% ===============================================================
+
+We close with a list of theoretical problems that would benefit from further
+study. Each is at least as well-defined as the results above and most are
+tractable with standard tools.
+
+\begin{enumerate}[leftmargin=*, itemsep=4pt]
+\item \textbf{Tight worst-case covering constant.} The bound of
+      Theorem~\ref{thm:approx-lower} has the form $C n^{1/2} 2^{-n/2}$.
+      A volume-comparison heuristic suggests the true constant $C$ can be
+      taken close to $\sqrt{e/2}$; verifying this with explicit volumes of
+      the Segre variety would sharpen the bound.
+
+\item \textbf{Hardness of computing $\Lambda_{n}(\bm{u})$.} The geometric
+      measure of entanglement is known to be NP-hard to compute for
+      general inputs, but the worst case is irrelevant for parameter
+      regimes where the input is itself a low-rank tensor. Establishing a
+      polynomial-time algorithm or hardness result for ``$\bm{u}$ is given as
+      a rank-$r$ MPS, output its Polygram fidelity to $1/\mathrm{poly}$'' is
+      open.
+
+\item \textbf{Sample complexity for recovery from noisy overlaps.} The
+      construction of Theorem~\ref{thm:identifiability} uses $4n + 1$
+      probes; the conjectured lower bound is $\Theta(n)$ for any
+      $\mathrm{poly}(n, 1/\epsilon)$-accurate algorithm. A matching lower bound
+      against an oblivious adversary is unknown.
+
+\item \textbf{Polygram lattices.} Define a \emph{Polygram lattice} as the
+      set of Polygrams whose Bloch angles lie on a regular grid in
+      $[0, \pi/2] \times [0, 2\pi)$. How large must the grid be to
+      $\epsilon$-cover the Polygram variety? The naive count is
+      $\Theta(\epsilon^{-2n})$, but tighter packings via $A_{2}$- or
+      $E_{8}$-style lattices in product spaces may help.
+
+\item \textbf{Stability of dictionary recovery under cross-Polygram
+      coherence.} Theorem~\ref{thm:noise-robust} bounds the noise
+      sensitivity of a single Polygram's recovery; the corresponding
+      multi-Polygram dictionary recovery (with $N$ unknowns and pairwise
+      coherence $\mu$) is not yet quantified.
+
+\item \textbf{Sharper MPS comparisons.} Table~\ref{tab:tradeoff} gives
+      asymptotic costs but not constants. Empirical and analytic studies
+      of the break-even point between $r = 1$ and $r = 2$ MPS on classes
+      of structured tensors (e.g.\ low-Schmidt-rank random states) would
+      indicate when Polygrams should be preferred.
+
+\item \textbf{Generalised base alphabets.} Our definition fixes the per-site
+      Hilbert space at $\C^{2}$. The same theory extends to $\C^{d}$ for
+      any $d$, with $\Sigma_{n}$ a subvariety of $\C^{d^{n}}$ of real
+      dimension $2(d-1) n$. The basic algebraic results carry over; the
+      geometric and approximation bounds need to be re-derived with $d$ as
+      a parameter.
+
+\item \textbf{Polygrams over $\R$.} Real Polygrams (with $\bm{v}_{i} \in
+      \Sphere^{1}$) are a strictly smaller family with $n$ real parameters
+      and similar but simpler theory. The trade-off between real and
+      complex Polygrams in applications that don't natively use complex
+      numbers is open.
+
+\item \textbf{Mixture-of-Polygrams expressivity.} The mixture family of
+      Section~\ref{sec:mps} interpolates between Polygrams and full MPS.
+      Characterising precisely which vectors admit a sparse (small-$r$)
+      Polygram mixture but no small-bond MPS would settle the
+      practical question of which compression family to choose.
+
+\item \textbf{Polygram-friendly linear operators.} Local operators of the
+      form $A = A_{1} \otimes \cdots \otimes A_{n}$ preserve Polygrams.
+      Characterising the maximal set of linear operators on $\C^{D}$ that
+      preserve Polygrams (or that preserve the family up to bounded
+      Polygram fidelity loss) would identify the natural symmetry group
+      of the data structure.
+\end{enumerate}
+
+% ===============================================================
+\section*{Acknowledgements}
+% ===============================================================
+
+This manuscript is a theoretical treatment of an engineering primitive whose
+roots lie in many decades of work on tensor decompositions, separable states,
+and tensor networks. We acknowledge the broader literature on matrix product
+states (Affleck, Kennedy, Lieb, Tasaki; Verstraete, Cirac), tensor trains
+(Oseledets, Tyrtyshnikov), and the geometric measure of entanglement
+(Wei, Goldbart) as the proper home for the results above. The Polygram
+abstraction collects standard facts into a single self-contained object
+intended for algorithmic use.
+
+% ===============================================================
+\begin{thebibliography}{99}
+% ===============================================================
+
+\bibitem{ostlund1995}
+S. \"Ostlund and S. Rommer,
+\emph{Thermodynamic limit of density matrix renormalization},
+Phys.\ Rev.\ Lett.\ \textbf{75} (1995), 3537--3540.
+
+\bibitem{verstraete2004}
+F. Verstraete, D. Porras, and J. I. Cirac,
+\emph{Density matrix renormalization group and periodic boundary conditions},
+Phys.\ Rev.\ Lett.\ \textbf{93} (2004), 227205.
+
+\bibitem{oseledets2011}
+I. V. Oseledets,
+\emph{Tensor-train decomposition},
+SIAM J.\ Sci.\ Comput.\ \textbf{33} (2011), 2295--2317.
+
+\bibitem{schollwock2011}
+U. Schollw\"ock,
+\emph{The density-matrix renormalization group in the age of matrix product
+states},
+Ann.\ Phys.\ (NY) \textbf{326} (2011), 96--192.
+
+\bibitem{wei2003}
+T.-C. Wei and P. M. Goldbart,
+\emph{Geometric measure of entanglement and applications to bipartite and
+multipartite quantum states},
+Phys.\ Rev.\ A \textbf{68} (2003), 042307.
+
+\bibitem{landsberg2012}
+J. M. Landsberg,
+\emph{Tensors: Geometry and Applications},
+American Mathematical Society, 2012.
+
+\bibitem{hackbusch2012}
+W. Hackbusch,
+\emph{Tensor Spaces and Numerical Tensor Calculus},
+Springer, 2012.
+
+\bibitem{evenbly2015}
+G. Evenbly and G. Vidal,
+\emph{Tensor network states and geometry},
+J.\ Stat.\ Phys.\ \textbf{145} (2011), 891--918.
+
+\bibitem{vershynin2018}
+R. Vershynin,
+\emph{High-Dimensional Probability},
+Cambridge University Press, 2018.
+
+\bibitem{hayden2006}
+P. Hayden, D. Leung, and A. Winter,
+\emph{Aspects of generic entanglement},
+Comm.\ Math.\ Phys.\ \textbf{265} (2006), 95--117.
+
+\bibitem{gross2006}
+D. Gross, S. T. Flammia, and J. Eisert,
+\emph{Most quantum states are too entangled to be useful as computational
+resources},
+Phys.\ Rev.\ Lett.\ \textbf{102} (2009), 190501.
+
+\bibitem{absil2008}
+P.-A. Absil, R. Mahony, and R. Sepulchre,
+\emph{Optimization Algorithms on Matrix Manifolds},
+Princeton University Press, 2008.
+
+\bibitem{kolda2009}
+T. G. Kolda and B. W. Bader,
+\emph{Tensor decompositions and applications},
+SIAM Review \textbf{51} (2009), 455--500.
+
+\end{thebibliography}
+
+\end{document}

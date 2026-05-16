@@ -235,3 +235,119 @@ class TestRung3AmpOverlapBackcompat:
         # Rung3 default knobs (π/4, 0) give amp factor = 1.
         z = rung3_amp_overlap(math.pi / 4, 0.0, math.pi / 4, 0.0)
         assert abs(z - 1.0) < 1e-12
+
+
+class TestRung5Encoding:
+    def test_constructible_with_explicit_k(self):
+        from polygram.encoding import Rung5
+
+        r = Rung5(n_amp_qubits=3)
+        assert r.bond_dim == 2
+        assert r.n_amp_qubits == 3
+        assert r.max_features == 64
+
+    def test_max_features_scales_with_k(self):
+        from polygram.encoding import Rung5
+
+        expected = {1: 16, 2: 32, 3: 64, 4: 128, 5: 256, 16: 524288}
+        for k, mf in expected.items():
+            assert Rung5(n_amp_qubits=k).max_features == mf
+
+    def test_bond_dim_not_2_rejected(self):
+        from polygram.encoding import Rung5
+
+        with pytest.raises(ValueError, match="bond_dim must be 2"):
+            Rung5(bond_dim=3, n_amp_qubits=2)
+
+    def test_n_amp_qubits_zero_rejected_with_mpsrung1_hint(self):
+        from polygram.encoding import Rung5
+
+        with pytest.raises(ValueError, match="MPSRung1 directly"):
+            Rung5(n_amp_qubits=0)
+
+    def test_n_amp_qubits_negative_rejected(self):
+        from polygram.encoding import Rung5
+
+        with pytest.raises(ValueError, match="n_amp_qubits must be >= 1"):
+            Rung5(n_amp_qubits=-1)
+
+    def test_n_amp_qubits_above_cap_rejected(self):
+        from polygram.encoding import RUNG5_MAX_N_AMP_QUBITS, Rung5
+
+        with pytest.raises(ValueError, match="n_amp_qubits must be <="):
+            Rung5(n_amp_qubits=RUNG5_MAX_N_AMP_QUBITS + 1)
+
+    def test_n_amp_qubits_at_cap_accepted(self):
+        from polygram.encoding import RUNG5_MAX_N_AMP_QUBITS, Rung5
+
+        r = Rung5(n_amp_qubits=RUNG5_MAX_N_AMP_QUBITS)
+        assert r.max_features == 8 * 2 ** RUNG5_MAX_N_AMP_QUBITS
+
+    def test_rung5_amp_overlap_kfold_product(self):
+        from polygram.encoding import (
+            _single_qubit_overlap,
+            rung5_amp_overlap,
+        )
+
+        amp_a = ((0.3, 0.1), (0.5, 0.2), (0.7, 0.4))
+        amp_b = ((0.4, 0.0), (0.6, 0.5), (0.8, 0.3))
+        expected = complex(1.0, 0.0)
+        for (ta, pa), (tb, pb) in zip(amp_a, amp_b):
+            expected *= _single_qubit_overlap(ta, pa, tb, pb)
+        assert abs(rung5_amp_overlap(amp_a, amp_b) - expected) < 1e-12
+
+    def test_rung5_amp_overlap_default_is_one(self):
+        from polygram.encoding import rung5_amp_overlap
+
+        for k in (1, 2, 3, 5):
+            amp = ((0.0, 0.0),) * k
+            assert abs(rung5_amp_overlap(amp, amp) - 1.0) < 1e-12
+
+    def test_rung5_amp_overlap_length_mismatch_rejected(self):
+        from polygram.encoding import rung5_amp_overlap
+
+        with pytest.raises(ValueError, match="same length"):
+            rung5_amp_overlap(((0.0, 0.0),), ((0.0, 0.0), (0.0, 0.0)))
+
+    def test_rung5_amp_overlap_squared_equals_abs_squared(self):
+        import math
+
+        from polygram.encoding import rung5_amp_overlap, rung5_amp_overlap_squared
+
+        amp_a = ((0.3, 0.1), (0.5, 0.2))
+        amp_b = ((0.4, 0.0), (0.6, 0.5))
+        z = rung5_amp_overlap(amp_a, amp_b)
+        assert math.isclose(
+            rung5_amp_overlap_squared(amp_a, amp_b),
+            abs(z) ** 2,
+            abs_tol=1e-12,
+        )
+
+    def test_rung5state_amp_overlap_squared_matches_helper(self):
+        import math
+
+        from polygram.encoding import (
+            Rung5State,
+            rung5_amp_overlap_squared,
+        )
+
+        a = Rung5State(0.1, 0.2, 0.3, 0.4, amp_knobs=((0.3, 0.1), (0.5, 0.2)))
+        b = Rung5State(0.1, 0.2, 0.3, 0.4, amp_knobs=((0.4, 0.0), (0.6, 0.5)))
+        assert math.isclose(
+            a.amp_overlap_squared(b),
+            rung5_amp_overlap_squared(a.amp_knobs, b.amp_knobs),
+            abs_tol=1e-12,
+        )
+
+    def test_rung5state_from_mps_knobs_defaults_to_empty_tuple(self):
+        from polygram.encoding import Rung5State
+
+        s = Rung5State.from_mps_knobs(0.1, 0.2, 0.3, 0.4)
+        assert s.amp_knobs == ()
+
+    def test_rung5state_from_mps_knobs_with_amp_knobs(self):
+        from polygram.encoding import Rung5State
+
+        amp = ((0.3, 0.1), (0.5, 0.2))
+        s = Rung5State.from_mps_knobs(0.1, 0.2, 0.3, 0.4, amp_knobs=amp)
+        assert s.amp_knobs == amp
