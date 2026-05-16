@@ -375,7 +375,7 @@ class TestRung5Emit:
         # the analytic level.
         import numpy as np
 
-        from polygram.encoding import MPSRung1, Rung5, rung5_amp_overlap
+        from polygram.encoding import MPSRung1, rung5_amp_overlap
 
         d = self._rung5_pair(k=2)
         g_r5 = d.gram()
