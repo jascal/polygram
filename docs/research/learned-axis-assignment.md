@@ -41,8 +41,12 @@ dictionary, report = from_sae_lens(
     records, ids, encoding=Rung4(),
     learn_axis_assignment=True,
 )
-print(report.learned_axis_assignment["objective_value"])
-print(report.learned_axis_assignment["axis_assignment"])
+# Inspect what was learned and how much it bought:
+info = report.learned_axis_assignment
+print(f"baseline Spearman: {info['objective_baseline']:+.4f}")
+print(f"learned  Spearman: {info['objective_value']:+.4f}")
+print(f"Δ = {info['objective_value'] - info['objective_baseline']:+.4f}")
+print(f"axis_assignment = {info['axis_assignment']}")
 
 # Or pass a configured instance for control over solver / objective.
 strategy = LearnedKnobAssignment(
@@ -78,6 +82,19 @@ encoding (e.g. `Rung5(n_amp_qubits=k)`), the strategy:
 3. Returns a `KnobAssignmentResult` with the chosen knob → axis map
    in `axis_assignment`, plus the achieved `objective_value` and the
    hardcoded-baseline `objective_baseline` for comparison.
+
+The shape of `axis_assignment` depends on the solver:
+
+- `solver="greedy"` (default) → `dict[str, int]` mapping each knob
+  name to a single chosen PCA-axis index. One-to-one permutation.
+- `solver="scipy"` → `dict[str, list[float]]` mapping each knob
+  name to a per-axis coefficient vector. The integer applier picks
+  the dominant axis (`argmax`); the full weight vector is surfaced
+  for inspection.
+
+In both cases `objective_value` is the validation-set score when
+`validation_fraction > 0` and the training-set score otherwise;
+`training_objective_value` always carries the training score.
 
 The greedy solver locks each knob's axis sequentially with early-stop
 on flat marginal gains. The scipy solver (opt-in, `polygram[opt]`)
@@ -138,6 +155,18 @@ on the synth is deterministic given the seed).
   with the same headline result.
 - **Theoretical treatment:** [`theory/polygram.pdf`](theory/polygram.pdf)
   §9 (Algorithms) and §11 (Open Problems).
+
+## Future-proofing: scaling beyond N ~ 1000 features
+
+The greedy solver is `Θ(n_knobs × n_axes × N²)` per import — fine
+for the current target regime (≤ 32 knobs, ≤ 1000 features), but
+the `N²` factor is the gram-rebuild cost and dominates at large N.
+If real-SAE workloads start pushing N above ~1000, a cached-PCA
+or low-rank-Gram-approximation variant of `_build_analytic_gram`
+would lift the headroom without changing the strategy's
+public-facing semantics. Tracked as a follow-up; the scipy solver
+already pays attention to dimension-aware cost via the `n_knobs ≥ 8`
+branch.
 
 ## Known limitations
 

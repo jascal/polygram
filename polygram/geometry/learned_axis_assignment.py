@@ -56,6 +56,16 @@ _SCIPY_INSTALL_HINT = (
 )
 
 
+# Threshold below which a PCA axis is treated as degenerate (all
+# coords ≈ 0). Configurable module-level constant so future callers
+# with extreme-precision projection matrices can override without
+# patching `_project_to_knob` directly. Matches the FP-noise floor
+# used by `assign_amp_knobs_pca`'s `abs_max < 1e-12` check; raise it
+# if your projection matrix sits closer to that floor for legitimate
+# data reasons.
+_DEGENERATE_AXIS_ABS_MAX_EPS: float = 1e-12
+
+
 # Knob → linear-rescale range (matches the hardcoded helpers'
 # convention so callers see consistent magnitudes regardless of which
 # strategy populated the knobs).
@@ -154,7 +164,7 @@ def _project_to_knob(
     pc = vt[axis_idx]
     coords = centered @ pc
     abs_max = float(np.max(np.abs(coords)))
-    if abs_max < 1e-12:
+    if abs_max < _DEGENERATE_AXIS_ABS_MAX_EPS:
         return np.full(n, 0.5 * (lo + hi))
     half = 0.5 * (hi - lo)
     mid = 0.5 * (hi + lo)
@@ -315,6 +325,13 @@ def _validation_mask(
     upper-triangle off-diagonal pairs of an n×n matrix. Both masks
     have shape ``(C(n, 2),)``. When ``fraction == 0`` returns a
     full-True train mask and a full-False val mask.
+
+    ``seed`` is the same value ``assign()`` receives from its caller
+    (typically ``from_sae_lens``'s seed=0 default). Reusing the same
+    seed each call makes the validation split deterministic and
+    reproducible. Callers who want stochastic per-call splits should
+    pass a varying ``seed`` to ``from_sae_lens`` (or construct
+    multiple ``LearnedKnobAssignment`` instances and average).
     """
     n_pairs = n_features * (n_features - 1) // 2
     train = np.ones(n_pairs, dtype=bool)
