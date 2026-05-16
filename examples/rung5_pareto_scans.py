@@ -50,7 +50,6 @@ import numpy as np
 from polygram import (
     Dictionary,
     Feature,
-    HEA_Rung2,
     MPSRung1,
     Rung3,
     Rung4,
