@@ -110,7 +110,7 @@ Forward-looking: if a future version wants q-orca to compile the amp
 qubits into actual gates, the table format already carries the data
 shape needed (`k` columns per qubit indexed unambiguously).
 
-## Future direction: the general (M, k) family
+## Future direction: the general (M, k) family — `Polygram(M, k)`
 
 `Rung5` is one slice of a broader two-axis encoding family
 parameterised by `(M, k)` — `M` the MPS-core width (today fixed at
@@ -122,14 +122,20 @@ sequence) makes the design space's open directions explicit: this
 PR moves along the k-axis; future work can move along the M-axis
 or jointly.
 
-A unified `RungMPS(n_mps_qubits=M, n_amp_qubits=k)` encoding would
-be the cleanest landing for that family, with `MPSRung1`, `Rung4`,
-and `Rung5` recoverable as fixed slices. Out of scope for this
-change. The `Rung5` name doesn't ossify the design space — if
-`RungMPS` lands, `Rung5` can be re-expressed as
-`RungMPS(n_mps_qubits=3, n_amp_qubits=k)` with no caller breakage,
-since `Rung5`'s public API is its `n_amp_qubits` field and the
-amp-overlap functions.
+The natural landing for that family is a single
+`Polygram(n_mps_qubits=M, n_amp_qubits=k)` encoding — using the
+project name as the canonical encoding name to signal that the
+`(M, k)` family *is* what polygram fundamentally encodes.
+`MPSRung1`, `Rung4`, and `Rung5` collapse to fixed slices:
+`Polygram(3, 0)`, `Polygram(3, 2)`, `Polygram(3, k)`. The
+named-rung classes can stay as thin aliases for back-compat — they
+don't ossify the design space.
+
+Out of scope for this change. The `Rung5` name doesn't lock
+anything in: if `Polygram` lands, `Rung5(n_amp_qubits=k)` is
+equivalent to `Polygram(n_mps_qubits=3, n_amp_qubits=k)` with no
+caller breakage, since `Rung5`'s public API is exactly its
+`n_amp_qubits` field and the amp-overlap functions.
 
 ## Files
 
