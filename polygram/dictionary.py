@@ -17,8 +17,10 @@ from polygram.encoding import (
     RUNG4_DEFAULT_THETA_AMP_B,
     Rung3,
     Rung4,
+    Rung5,
     rung3_amp_overlap,
     rung4_amp_overlap,
+    rung5_amp_overlap,
 )
 
 
@@ -54,6 +56,28 @@ class Feature:
     # Field-level default values preserve Rung3 gram bit-for-bit.
     theta_amp_b: float = RUNG4_DEFAULT_THETA_AMP_B
     psi_amp_b: float = RUNG4_DEFAULT_PSI_AMP_B
+    # Rung5 product-amp knobs as a length-k tuple of (theta, psi) pairs.
+    # Empty tuple (the default) is the no-op shape for every non-Rung5
+    # encoding; Dictionary.__post_init__ validates length against
+    # encoding.n_amp_qubits when the encoding is Rung5. Stored as a
+    # tuple-of-tuples so the dataclass remains hashable.
+    amp_knobs: tuple[tuple[float, float], ...] = ()
+
+    def with_default_amp_knobs(self, encoding: object) -> Feature:
+        """Return a copy with ``amp_knobs`` padded to the encoding's width.
+
+        For ``Rung5(n_amp_qubits=k)`` encodings, returns a copy with
+        ``amp_knobs`` set to ``((0.0, 0.0),) * k`` whenever the field
+        is currently the empty-tuple default. Already-populated
+        ``amp_knobs`` are preserved unchanged (length mismatch is the
+        caller's problem — ``Dictionary.__post_init__`` validates).
+
+        For every non-Rung5 encoding, returns ``self`` unchanged.
+        """
+        if isinstance(encoding, Rung5) and self.amp_knobs == ():
+            default = ((0.0, 0.0),) * encoding.n_amp_qubits
+            return replace(self, amp_knobs=default)
+        return self
 
 
 def _default_hea_theta(feature: Feature, encoding: HEA_Rung2) -> np.ndarray:
@@ -149,7 +173,9 @@ class Dictionary:
     name: str
     features: list[Feature]
     hierarchy: dict[str, list[str]]
-    encoding: MPSRung1 | HEA_Rung2 | Rung3 = field(default_factory=MPSRung1)
+    encoding: MPSRung1 | HEA_Rung2 | Rung3 | Rung4 | Rung5 = field(
+        default_factory=MPSRung1
+    )
 
     def __post_init__(self) -> None:
         if not _VALID_NAME_RE.match(self.name):
@@ -211,6 +237,24 @@ class Dictionary:
                         f"{tuple(f.theta.shape)}, expected {expected} for "
                         f"encoding={self.encoding!r}"
                     )
+
+        if isinstance(self.encoding, Rung5):
+            k = self.encoding.n_amp_qubits
+            for f in self.features:
+                if len(f.amp_knobs) != k:
+                    raise ValueError(
+                        f"feature {f.name!r}: amp_knobs has length "
+                        f"{len(f.amp_knobs)}, expected {k} for "
+                        f"encoding={self.encoding!r}; pad with "
+                        f"`Feature.with_default_amp_knobs(encoding)` or "
+                        f"supply the full tuple at construction"
+                    )
+                for i, pair in enumerate(f.amp_knobs):
+                    if not (isinstance(pair, tuple) and len(pair) == 2):
+                        raise ValueError(
+                            f"feature {f.name!r}: amp_knobs[{i}] must be a "
+                            f"2-tuple of (theta, psi); got {pair!r}"
+                        )
 
     def feature_index(self, name: str) -> int:
         for i, f in enumerate(self.features):

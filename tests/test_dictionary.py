@@ -473,3 +473,145 @@ class TestRung4GramDispatch:
         np.testing.assert_allclose(
             observed_factor, expected_factor, atol=1e-12
         )
+
+
+class TestRung5FeatureAmpKnobs:
+    def test_feature_default_amp_knobs_is_empty_tuple(self):
+        from polygram import Feature
+
+        f = Feature(name="f", cluster="c", beta=0.1)
+        assert f.amp_knobs == ()
+
+    def test_feature_explicit_amp_knobs(self):
+        from polygram import Feature
+
+        amp = ((0.1, 0.2), (0.3, 0.4))
+        f = Feature(name="f", cluster="c", beta=0.1, amp_knobs=amp)
+        assert f.amp_knobs == amp
+
+    def test_with_default_amp_knobs_pads_for_rung5(self):
+        from polygram import Feature
+        from polygram.encoding import Rung5
+
+        f = Feature(name="f", cluster="c", beta=0.1)
+        padded = f.with_default_amp_knobs(Rung5(n_amp_qubits=4))
+        assert padded.amp_knobs == ((0.0, 0.0),) * 4
+        # Other fields unchanged.
+        assert padded.name == f.name
+        assert padded.cluster == f.cluster
+        assert padded.beta == f.beta
+
+    def test_with_default_amp_knobs_preserves_populated_amp_knobs(self):
+        from polygram import Feature
+        from polygram.encoding import Rung5
+
+        amp = ((0.1, 0.2), (0.3, 0.4))
+        f = Feature(name="f", cluster="c", beta=0.1, amp_knobs=amp)
+        result = f.with_default_amp_knobs(Rung5(n_amp_qubits=2))
+        assert result.amp_knobs == amp
+
+    def test_with_default_amp_knobs_is_noop_for_non_rung5(self):
+        from polygram import Feature
+        from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung4
+
+        f = Feature(name="f", cluster="c", beta=0.1)
+        for encoding in (
+            MPSRung1(),
+            Rung3(),
+            Rung4(),
+            HEA_Rung2(n_qubits=3, depth=1),
+        ):
+            assert f.with_default_amp_knobs(encoding) is f
+
+
+class TestRung5DictionaryValidation:
+    def _make_dict(
+        self,
+        *,
+        encoding,
+        amp_knobs=(),
+        amp_knobs_per_feature=None,
+    ):
+        from polygram import Dictionary, Feature
+
+        if amp_knobs_per_feature is None:
+            amp_knobs_per_feature = [amp_knobs, amp_knobs]
+        feats = [
+            Feature(
+                name=f"f{i}",
+                cluster="g",
+                beta=0.1 * (i - 0.5),
+                amp_knobs=amp_knobs_per_feature[i],
+            )
+            for i in (0, 1)
+        ]
+        return Dictionary(
+            name="d",
+            features=feats,
+            hierarchy={"g": [f.name for f in feats]},
+            encoding=encoding,
+        )
+
+    def test_correctly_sized_amp_knobs_accepted(self):
+        from polygram.encoding import Rung5
+
+        d = self._make_dict(
+            encoding=Rung5(n_amp_qubits=3),
+            amp_knobs=((0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+        )
+        assert len(d.features) == 2
+
+    def test_mismatched_amp_knobs_length_rejected(self):
+        from polygram.encoding import Rung5
+
+        with pytest.raises(ValueError, match="amp_knobs has length"):
+            self._make_dict(
+                encoding=Rung5(n_amp_qubits=3),
+                amp_knobs=((0.0, 0.0), (0.0, 0.0)),
+            )
+
+    def test_empty_amp_knobs_on_rung5_rejected(self):
+        from polygram.encoding import Rung5
+
+        with pytest.raises(ValueError, match="amp_knobs has length"):
+            self._make_dict(encoding=Rung5(n_amp_qubits=2), amp_knobs=())
+
+    def test_non_tuple_entry_in_amp_knobs_rejected(self):
+        from polygram.encoding import Rung5
+
+        with pytest.raises(ValueError, match="must be a 2-tuple"):
+            self._make_dict(
+                encoding=Rung5(n_amp_qubits=2),
+                amp_knobs=((0.0, 0.0), [0.0, 0.0]),  # list, not tuple
+            )
+
+    def test_non_rung5_dictionary_with_amp_knobs_accepted_and_ignored(self):
+        # Non-Rung5 dicts ignore amp_knobs; Dictionary construction
+        # SHALL succeed regardless of amp_knobs content.
+        from polygram.encoding import MPSRung1
+
+        d = self._make_dict(
+            encoding=MPSRung1(),
+            amp_knobs=((0.1, 0.2),),  # populated, "wrong length" for any k
+        )
+        assert len(d.features) == 2
+
+    def test_existing_non_rung5_dictionary_round_trip(self):
+        # Existing MPSRung1/Rung3/Rung4 fixtures don't populate
+        # amp_knobs; the default `()` SHALL round-trip cleanly.
+        from polygram import Dictionary, Feature
+        from polygram.encoding import MPSRung1, Rung3, Rung4
+
+        for encoding in (MPSRung1(), Rung3(), Rung4()):
+            feats = [
+                Feature(name="f0", cluster="g", beta=-0.1),
+                Feature(name="f1", cluster="g", beta=0.1),
+            ]
+            d = Dictionary(
+                name="d",
+                features=feats,
+                hierarchy={"g": ["f0", "f1"]},
+                encoding=encoding,
+            )
+            for f in d.features:
+                assert f.amp_knobs == ()

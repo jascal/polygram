@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 import numpy as np
 
 from polygram.dictionary import Dictionary, Feature
-from polygram.encoding import MPSRung1
+from polygram.encoding import HEA_Rung2, MPSRung1, Rung3, Rung4, Rung5
 
 # Back-compat alias. New code SHALL query `encoding.max_features`
 # (where `encoding` is the target Dictionary's encoding) rather than
@@ -560,7 +560,7 @@ def from_sae_lens(
     name: str = "ImportedSAE",
     cluster_assignments: dict[int, str] | None = None,
     n_clusters: int | None = None,
-    encoding: MPSRung1 | None = None,
+    encoding: MPSRung1 | HEA_Rung2 | Rung3 | Rung4 | Rung5 | None = None,
     beta_range: tuple[float, float] = (-0.5, 0.5),
     assign_gamma: bool | None = None,
     gamma_range: tuple[float, float] | None = None,
@@ -709,6 +709,7 @@ def from_sae_lens(
             "psi_auxes": result.psi_auxes,
             "theta_amp_bs": result.theta_amp_bs,
             "psi_amp_bs": result.psi_amp_bs,
+            "amp_knobs_list": result.amp_knobs_list,
         }
         phase_knobs_explicit = {
             "alphas": result.alphas,
@@ -760,6 +761,7 @@ def from_sae_lens(
                 "psi_auxes": None,
                 "theta_amp_bs": None,
                 "psi_amp_bs": None,
+                "amp_knobs_list": None,
             }
         if assign_phase_knobs and encoding is not None:
             from polygram.geometry.phase_assignment import (
@@ -789,6 +791,7 @@ def from_sae_lens(
     psi_auxes_arr = amp_knobs_explicit["psi_auxes"]
     theta_amp_bs_arr = amp_knobs_explicit["theta_amp_bs"]
     psi_amp_bs_arr = amp_knobs_explicit["psi_amp_bs"]
+    amp_knobs_list_arr = amp_knobs_explicit["amp_knobs_list"]
     alphas_arr = phase_knobs_explicit["alphas"]
     phis_arr = phase_knobs_explicit["phis"]
 
@@ -798,7 +801,7 @@ def from_sae_lens(
     ):
         # Build kwargs lazily so that None entries don't override the
         # Feature dataclass's encoding defaults.
-        feat_kwargs: dict[str, float] = {}
+        feat_kwargs: dict[str, object] = {}
         if alphas_arr is not None:
             feat_kwargs["alpha"] = alphas_arr[i]
         if phis_arr is not None:
@@ -811,6 +814,8 @@ def from_sae_lens(
             feat_kwargs["theta_amp_b"] = theta_amp_bs_arr[i]
         if psi_amp_bs_arr is not None:
             feat_kwargs["psi_amp_b"] = psi_amp_bs_arr[i]
+        if amp_knobs_list_arr is not None:
+            feat_kwargs["amp_knobs"] = amp_knobs_list_arr[i]
         features.append(
             Feature(name=r.name, cluster=c, beta=b, gamma=g, **feat_kwargs)
         )
