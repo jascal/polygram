@@ -20,6 +20,12 @@ property still collapses the gram to the MPSRung1-equivalent gram.
 Per-feature variable-k is explicitly out of scope; sae-forge selects
 a single `k` per pareto point.
 
+`k ≥ 1` is required. `Rung5(n_amp_qubits=0)` would be numerically
+identical to `MPSRung1`, so the spec rejects it with a clear error
+pointing callers at `MPSRung1` directly — two ways to spell the
+same encoding invites drift, and the discriminator on `Rung5` is
+the *presence* of an amp branch.
+
 Empirically motivated:
 
 | Encoding | amp qubits | per-feature dim | empirical cap |
@@ -119,6 +125,24 @@ change does not deprecate or absorb it.
 - `tests/test_encoding.py`, `tests/test_dictionary.py`,
   `tests/test_cancellation.py`, `tests/test_qorca_emit.py`,
   `tests/test_examples.py` — new test cases for the Rung5 paths.
+- `polygram/sae_import.py` — broaden the `encoding` parameter type
+  hint from `MPSRung1 | None` to a union accepting every encoding
+  marker (`MPSRung1 | Rung3 | Rung4 | Rung5 | HEA_Rung2 | None`).
+  Existing callers passing Rung3/Rung4 already rely on Python's lack
+  of runtime type-hint enforcement; the hint update aligns the API
+  surface with reality and admits Rung5.
+- `polygram/geometry/amp_assignment.py` — `assign_amp_knobs_pca`
+  gains a Rung5 branch that consumes axes 2..(2+2k−1) of the input
+  PCA and writes each pair into `Feature.amp_knobs[i]`. Existing
+  Rung3 and Rung4 branches untouched.
+- **No CLI changes.** The CLI (`polygram/cli/`) does not enumerate
+  encodings; users construct dictionaries programmatically with
+  whichever encoding they want. The CLI surface is unchanged.
+- **No example-notebook changes required.** Existing notebooks
+  target MPSRung1/Rung3/Rung4 and continue to work. A Rung5
+  walkthrough notebook is out of scope for this change — sae-forge
+  is the primary Rung5 consumer; an in-repo demo can land later if
+  there's demand.
 
 **Depends on** `per-encoding-feature-cap`'s instance-level
 `max_features` resolution. Today's spec exposes `max_features` as a

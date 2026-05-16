@@ -16,6 +16,8 @@
 - [ ] 2.3 Persist `amp_knobs` in `Dictionary` serialisation only when non-empty (omit the field on serialise when `()`). Confirms Rung3/Rung4 round-trip is byte-identical.
 - [ ] 2.4 Regression: existing `tests/test_dictionary.py` `Feature.__eq__` / `Feature.__hash__` / serialisation cases continue to pass with the new field defaulting to `()`.
 - [ ] 2.5 SAE-import JSON round-trip: import a Rung4 dictionary saved before this change, confirm the new `amp_knobs` field reconstructs at `()` and `Dictionary.gram()` matches pre-change.
+- [ ] 2.6 Broaden the `encoding` parameter type hint in `polygram/sae_import.py` from `MPSRung1 | None` to `MPSRung1 | Rung3 | Rung4 | Rung5 | HEA_Rung2 | None`. Existing call sites passing Rung3/Rung4 already work at runtime; this aligns the signature with reality and admits Rung5.
+- [ ] 2.7 Extend `polygram/geometry/amp_assignment.py::assign_amp_knobs_pca` with a `Rung5` branch. For `Rung5(n_amp_qubits=k)`, consume PCA axes `2..(2 + 2k − 1)` of the input projections and write each consecutive pair into `Feature.amp_knobs[i]` (axis-(2+2i) → θ_i rescaled to `[0, π/2]`; axis-(2+2i+1) → ψ_i rescaled to `[0, 2π]`). Existing Rung3 and Rung4 branches stay untouched. Raise `ValueError` when the input PCA has fewer than `2 + 2k` axes.
 
 ## 3. `Dictionary` Rung5 dispatch and validation
 
@@ -59,7 +61,7 @@
 
 ## 7. Research note
 
-- [ ] 7.1 Add `docs/research/rung5-encoding.md` documenting: the generalisation from Rung4's fixed k=2 to configurable k; the per-feature Hilbert dim formula; the design choice to fix k at construction time (deferring per-feature variable k to a future change if sae-forge ever demands it); the link to the sae-forge pareto-sweep use case; the empirical rank-verification protocol and observed saturation at each k.
+- [ ] 7.1 Add `docs/research/rung5-encoding.md` documenting: the generalisation from Rung4's fixed k=2 to configurable k; the per-feature Hilbert dim formula; the design choice to fix k at construction time (deferring per-feature variable k to a future change if sae-forge ever demands it); the rejection of k=0 in favour of using `MPSRung1` directly; the link to the sae-forge pareto-sweep use case; the empirical rank-verification protocol and observed saturation at each k. Include a forward-looking paragraph on a possible future unified encoding `RungMPS(n_mps_qubits, n_amp_qubits)` that would parameterise both the MPS-core width and the amp-register width — out of scope for this change, but worth flagging so the `Rung5` name doesn't ossify the design space.
 - [ ] 7.2 Include a short section flagging that the cancellation joint optimiser dimension grows as `2 + 2k` and that sae-forge sweeps pushing k high should pre-screen with φ-only cancellation before invoking the full joint solver.
 - [ ] 7.3 Commit `docs/research/data/rung5_rank_verification.json` as the empirical-bound artifact.
 

@@ -72,7 +72,16 @@ existing behaviour for Rung3 and Rung4.
 For `encoding="rung5"`, the `min_amp_overlap` constraint SHALL be
 evaluated against `rung5_amp_overlap_squared(amp_a, amp_b)` — the
 k-fold product of single-qubit squared overlaps — at the candidate
-knob values produced by the optimiser.
+knob values produced by the optimiser. The constraint reads:
+
+```
+rung5_amp_overlap_squared(a.amp_knobs, b.amp_knobs) >= min_amp_overlap
+```
+
+The threshold applies to the *full product*, not per-qubit. A
+candidate is feasible iff this inequality holds; infeasible
+candidates receive `INFEASIBLE_PENALTY` in the optimiser objective,
+matching the Rung3/Rung4 semantics.
 
 #### Scenario: min_amp_overlap enforced on product overlap
 
