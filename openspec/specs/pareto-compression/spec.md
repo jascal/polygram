@@ -181,8 +181,17 @@ dataclass with fields:
 The `ParetoOutcome` SHALL be a frozen dataclass with fields:
 
 - `target_k: int`
-- `reached_target: bool` — `True` iff the resulting plan's
-  `n_features_kept <= target_k`
+- `reached_target: bool` — `True` iff the greedy walk produced a
+  plan whose `n_features_kept <= target_k` *via* the per-K stop
+  rule (i.e. the trajectory exceeded `target_k` and then dropped
+  back). When `target_k` exceeds the observed peak `n_clusters`,
+  the walk never had to compress down to K; the returned plan is
+  the *peak-state* snapshot (most-decomposed observed) and
+  `reached_target` is `False` so callers can distinguish
+  "target unreachable from above" from a true greedy stop. When
+  `target_k` is below the trajectory's terminal `n_clusters`
+  (infeasibly small), the returned plan is the final-state
+  snapshot and `reached_target` is `False`.
 - `plan: CompressionPlan`
 
 `ParetoReport` SHALL expose `.to_json(path: str | os.PathLike | None = None) -> str`
@@ -210,10 +219,24 @@ mirroring `CompressionReport`'s hand-coded serializer
 
 #### Scenario: reached_target reflects per-K outcome
 
-- **WHEN** `plan_pareto([2000, 50])` runs on a fixture whose pair
-  list can reach K=100 (but not lower)
-- **THEN** `outcomes[0].reached_target` is `True` (K=2000 reached)
-  and `outcomes[1].reached_target` is `False` (K=50 not reached)
+- **WHEN** `plan_pareto([2000, 150, 50])` runs on a fixture whose
+  trajectory peaks at `n_clusters == 200` and terminates at
+  `n_clusters == 100`
+- **THEN** `outcomes[0].reached_target` is `False` (K=2000 exceeds
+  the observed peak — the returned plan is the peak-state snapshot,
+  not a greedy stop), `outcomes[1].reached_target` is `True`
+  (K=150 reached via the per-K stop rule), and
+  `outcomes[2].reached_target` is `False` (K=50 below terminal
+  cluster count — infeasible)
+
+#### Scenario: target_k above observed peak returns peak-state plan
+
+- **WHEN** `plan_pareto([K])` is called with `K` strictly greater
+  than the observed peak `n_clusters` during the union-find walk
+- **THEN** the returned `outcomes[0].plan` is the snapshot of
+  `parent` taken at the iteration where `n_clusters` first reached
+  its peak (not the final post-walk state, which may have merged
+  further), and `outcomes[0].reached_target` is `False`
 
 ### Requirement: CLI exposes target-features and pareto flags
 

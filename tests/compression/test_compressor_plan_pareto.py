@@ -198,9 +198,11 @@ class TestNestedness:
                 )
 
     def test_reached_target_per_outcome(self, tmp_path: Path):
-        # 3 disjoint pairs, no bridges. Minimum reachable n_features_kept
-        # is 3. K=10 reachable (n_features_kept <= 10 is trivially
-        # satisfied by 3), K=2 not reachable.
+        # 3 disjoint pairs, no bridges. Trajectory peaks at
+        # n_clusters == 3 (one compound cluster per pair) and never
+        # exceeds that. K=10 > peak — reached_target is False because
+        # the walk never had to merge down to K. K=2 < terminal cluster
+        # count — also not reached.
         report = build_report(
             n_features=6, confirmed=[(0, 1), (2, 3), (4, 5)]
         )
@@ -211,11 +213,81 @@ class TestNestedness:
         )
         pr = compressor.plan_pareto([10, 2])
         assert pr.outcomes[0].target_k == 10
-        assert pr.outcomes[0].reached_target is True
+        assert pr.outcomes[0].reached_target is False
         assert pr.outcomes[0].plan.n_features_kept == 3
         assert pr.outcomes[1].target_k == 2
         assert pr.outcomes[1].reached_target is False
         assert pr.outcomes[1].plan.n_features_kept == 3
+
+    def test_target_above_peak_returns_peak_state_plan(
+        self, tmp_path: Path
+    ):
+        # 6 features. Confirmed pair list chosen so the (min, max)
+        # tiebreak order processes pairs (0,1), (0,4), (2,3), (2,5),
+        # (4,5) in sequence. n_clusters trajectory: 1, 1, 2, 2, 1.
+        # The peak (2) is reached after (2,3) — at which point parent
+        # describes two components {0,1,4} and {2,3} (feature 5 has
+        # not appeared yet). The bridging pair (4,5) at the end then
+        # collapses everything into a single component {0..5}.
+        #
+        # For K=10 (above the observed peak of 2), the old behaviour
+        # silently returned the final all-merged state (1 cluster);
+        # the fix returns the peak snapshot (2 clusters) and flags
+        # reached_target=False so callers can distinguish this from a
+        # true greedy stop.
+        report = build_report(
+            n_features=6,
+            confirmed=[(0, 1), (0, 4), (2, 3), (2, 5), (4, 5)],
+        )
+        report = _strip_to_confirmed(
+            report, [(0, 1), (0, 4), (2, 3), (2, 5), (4, 5)]
+        )
+        compressor = Compressor(
+            validation_report=report,
+            sae_checkpoint=_checkpoint(tmp_path, 6),
+        )
+        pr = compressor.plan_pareto([10])
+        outcome = pr.outcomes[0]
+        assert outcome.target_k == 10
+        assert outcome.reached_target is False
+        assert outcome.plan.n_features_kept == 2, (
+            "expected peak-state snapshot (2 clusters); got "
+            f"{outcome.plan.n_features_kept} (regressed to silent "
+            "all-merged final state)"
+        )
+        cluster_members = sorted(
+            tuple(sorted(c.members)) for c in outcome.plan.clusters
+        )
+        assert cluster_members == [(0, 1, 4), (2, 3)], (
+            f"expected pre-bridge clusters; got {cluster_members}"
+        )
+
+    def test_single_target_above_peak_matches_pareto(
+        self, tmp_path: Path
+    ):
+        # Same fixture as test_target_above_peak_returns_peak_state_plan.
+        # Verifies the plan_pareto([K]) == plan_with_target(K) invariant
+        # is preserved through the peak-fallback path: both must
+        # return the peak-state snapshot, not the final-state plan.
+        report = build_report(
+            n_features=6,
+            confirmed=[(0, 1), (0, 4), (2, 3), (2, 5), (4, 5)],
+        )
+        report = _strip_to_confirmed(
+            report, [(0, 1), (0, 4), (2, 3), (2, 5), (4, 5)]
+        )
+        sae = _checkpoint(tmp_path, 6)
+        compressor_pareto = Compressor(
+            validation_report=report, sae_checkpoint=sae,
+        )
+        compressor_single = Compressor(
+            validation_report=report,
+            sae_checkpoint=sae,
+            config=CompressionConfig(target_n_features_kept=10),
+        )
+        pr = compressor_pareto.plan_pareto([10])
+        plan_single = compressor_single.plan_with_target()
+        assert pr.outcomes[0].plan.clusters == plan_single.clusters
 
 
 # ---------------------------------------------------------------------------
