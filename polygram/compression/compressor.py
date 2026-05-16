@@ -337,9 +337,16 @@ class Compressor:
         from 0 to a peak (as disjoint pairs introduce new components)
         then shrinks (as later pairs bridge components); the stop
         condition fires the first time count drops to `<= target_k`
-        AFTER previously exceeding it. If count never exceeds target_k,
-        the full pair list is processed and the most-compressed reachable
-        plan is returned (caller detects via `plan.n_features_kept`).
+        AFTER previously exceeding it.
+
+        If `target_k > observed peak n_clusters`, the walk never had
+        to compress down to K; the returned plan is the *peak-state*
+        snapshot (most-decomposed observed) rather than the final-state
+        plan, which would silently over-merge past K via post-peak
+        bridging pairs. Callers can detect this case by comparing
+        `plan.n_features_kept` to `target_k`. If `target_k <= peak` but
+        the trajectory never drops back to `<= target_k`, the
+        final-state plan is returned (target too low / infeasible).
 
         See `openspec/changes/add-pareto-target-compression/design.md`
         Decision 10 and `tasks.md` §3.2 for the infeasible-target
@@ -474,6 +481,8 @@ class Compressor:
             return x
 
         n_clusters = 0
+        peak_n_clusters = 0
+        peak_parent: dict[int, int] = {}
         target_was_exceeded = False
 
         for pair in sorted_pairs:
@@ -500,13 +509,34 @@ class Compressor:
                 else:
                     parent[ri] = rj
 
+            # Snapshot the most-decomposed state for the K-too-high
+            # fallback. Mirrors `_walk_pairs_for_pareto_snapshots` so
+            # `plan_with_target(K)` and `plan_pareto([K])` agree.
+            if n_clusters > peak_n_clusters:
+                peak_n_clusters = n_clusters
+                peak_parent = dict(parent)
+
             if n_clusters > target_k:
                 target_was_exceeded = True
             elif target_was_exceeded:
                 # Crossed back to ≤ target_k from above — stop.
                 break
 
-        return self._materialise_plan_from_parent(parent, pair_lookup)
+        # If target_k strictly exceeds the observed peak n_clusters,
+        # the walk never had to compress down to K, but bridging pairs
+        # after the peak may have silently merged things further.
+        # Return the peak-state plan so the caller gets the
+        # most-decomposed state actually observed. When K == peak the
+        # trajectory touched but never exceeded K, so the final state
+        # (which may include singleton-extending merges that don't
+        # change n_clusters) is the correct answer. (Mirrors
+        # `_walk_pairs_for_pareto_snapshots`.)
+        chosen_parent = (
+            peak_parent if target_k > peak_n_clusters else parent
+        )
+        return self._materialise_plan_from_parent(
+            chosen_parent, pair_lookup
+        )
 
     def _materialise_plan_from_parent(
         self,
@@ -637,8 +667,10 @@ class Compressor:
             score_field
         )
 
-        snapshots = self._walk_pairs_for_pareto_snapshots(
-            sorted_pairs, sorted_targets
+        snapshots, unreached_from_above = (
+            self._walk_pairs_for_pareto_snapshots(
+                sorted_pairs, sorted_targets
+            )
         )
 
         outcomes: list[ParetoOutcome] = []
@@ -646,10 +678,14 @@ class Compressor:
             plan = self._materialise_plan_from_parent(
                 snapshots[k], pair_lookup
             )
+            reached = (
+                k not in unreached_from_above
+                and plan.n_features_kept <= k
+            )
             outcomes.append(
                 ParetoOutcome(
                     target_k=k,
-                    reached_target=plan.n_features_kept <= k,
+                    reached_target=reached,
                     plan=plan,
                 )
             )
@@ -667,7 +703,7 @@ class Compressor:
         self,
         sorted_pairs: list[CandidatePair],
         sorted_targets: tuple[int, ...],
-    ) -> dict[int, dict[int, int]]:
+    ) -> tuple[dict[int, dict[int, int]], frozenset[int]]:
         """Single union-find walk that snapshots `parent` for each K
         as its stop condition fires. Caller materialises plans from the
         snapshots via `_materialise_plan_from_parent`.
@@ -679,9 +715,22 @@ class Compressor:
         dict and marks K as resolved. Walking stops early once every K
         is resolved.
 
-        K values whose trajectory never exceeds K (target too high) or
-        never drops back to K from above (target too low / infeasible)
-        get the final `parent` state, matching Phase 1's behaviour.
+        K values whose trajectory never exceeds K (target too high)
+        fall back to the *peak* `parent` snapshot — the most-decomposed
+        state observed during the walk — rather than the final parent
+        state, which would silently over-merge past the requested K
+        when bridging pairs decrement `n_clusters` after the peak. The
+        set of such K values is returned alongside the snapshots so the
+        caller can flag them as `reached_target=False`.
+
+        K values whose trajectory exceeds K but never drops back (low
+        K, infeasible) still fall back to the final parent state — for
+        those, the trajectory crossed K from below and we did our best
+        to keep merging.
+
+        Returns `(snapshots, unreached_from_above)` where
+        `unreached_from_above` is the frozenset of K values that
+        never exceeded their threshold during the walk.
         """
         parent: dict[int, int] = {}
 
@@ -692,6 +741,8 @@ class Compressor:
             return x
 
         n_clusters = 0
+        peak_n_clusters = 0
+        peak_parent: dict[int, int] = {}
         target_was_exceeded: dict[int, bool] = {k: False for k in sorted_targets}
         snapshots: dict[int, dict[int, int]] = {}
 
@@ -716,6 +767,13 @@ class Compressor:
                 else:
                     parent[ri] = rj
 
+            # Snapshot the most-decomposed state for the K-too-high
+            # fallback. Only copy on strict rises (rare) — peak is
+            # monotonically non-decreasing across the walk.
+            if n_clusters > peak_n_clusters:
+                peak_n_clusters = n_clusters
+                peak_parent = dict(parent)
+
             # Check each target's stop condition after this pair. Larger
             # K thresholds fire earlier in the trajectory; smaller K
             # thresholds fire later. Iterate in the order the caller
@@ -732,15 +790,25 @@ class Compressor:
             if len(snapshots) == len(sorted_targets):
                 break
 
-        # K values that never reached a stop condition fall back to the
-        # final parent state. `dict(parent)` snapshots once per K to keep
-        # them independent if a caller wanted to mutate later (defensive).
+        # K values that never reached a stop condition fall back to
+        # either the peak parent snapshot (K > peak — target above
+        # observed peak, walk silently merged past K via post-peak
+        # bridging pairs) or the final parent state (K == peak, where
+        # the trajectory touched but never exceeded K, or K was
+        # exceeded but never dropped back — target too low /
+        # infeasible).
         final_parent = dict(parent)
+        unreached_from_above: set[int] = set()
         for k in sorted_targets:
-            if k not in snapshots:
+            if k in snapshots:
+                continue
+            if k > peak_n_clusters:
+                snapshots[k] = dict(peak_parent)
+                unreached_from_above.add(k)
+            else:
                 snapshots[k] = dict(final_parent)
 
-        return snapshots
+        return snapshots, frozenset(unreached_from_above)
 
     # ----------------------------------------------------------------
     # apply()
