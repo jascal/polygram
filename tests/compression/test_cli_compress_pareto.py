@@ -165,6 +165,56 @@ class TestParetoFlag:
         assert proc.returncode != 0
         assert "abc" in proc.stderr or "integer" in proc.stderr.lower()
 
+    def test_pareto_oversized_k_returns_peak_state_plan(
+        self, tmp_path: Path
+    ):
+        # Regression for the peak-fallback fix in compressor.py (PR #82).
+        # The fixture peaks at n_clusters=3 after the confirmed pairs
+        # (0,1), (2,3), (4,5) form three disjoint compound clusters;
+        # subsequent confirmed pairs in the {4..7} clique fold into
+        # that cluster without bumping n_clusters, and the low-score
+        # non-confirmed pairs then bridge everything down to a single
+        # component at the end of the walk.
+        #
+        # K=10 is strictly above the observed peak of 3. Pre-fix, the
+        # CLI silently returned the bridged all-merged plan
+        # (n_features_kept=1) with reached_target=True. The fix
+        # returns the peak-state snapshot (n_features_kept=3, with the
+        # three pre-bridge components) and reached_target=False so the
+        # stderr summary and JSON artifact both flag the case clearly.
+        sae_path, vr_path = _setup_fixtures(tmp_path)
+        out_dir = tmp_path / "pareto_run"
+
+        proc = _run_cli(
+            "compress",
+            "--validation-report", str(vr_path),
+            "--sae-checkpoint", str(sae_path),
+            "--output", str(out_dir),
+            "--pareto", "10",
+        )
+        assert proc.returncode == 0, proc.stderr
+
+        pr = ParetoReport.from_json(out_dir / "pareto.json")
+        assert pr.targets == (10,)
+        outcome = pr.outcomes[0]
+        assert outcome.target_k == 10
+        assert outcome.reached_target is False, (
+            "K above observed peak must set reached_target=False; got "
+            f"reached_target={outcome.reached_target}. Likely regression "
+            "of the peak-fallback fix."
+        )
+        assert outcome.plan.n_features_kept == 3, (
+            "expected peak-state plan with 3 clusters "
+            "({0,1}, {2,3}, {4,5}); got "
+            f"n_features_kept={outcome.plan.n_features_kept}. "
+            "n_features_kept=1 indicates a regression to the silent "
+            "all-merged final state."
+        )
+        # CLI stderr summary should mirror the JSON.
+        assert "K=10" in proc.stderr and "reached=no" in proc.stderr, (
+            f"expected 'K=10 ... reached=no' in stderr; got:\n{proc.stderr}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Mutual exclusion
