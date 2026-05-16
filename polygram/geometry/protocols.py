@@ -32,6 +32,19 @@ class KnobAssignmentResult:
     # (which for Rung5 fails Dictionary validation unless populated).
     # Non-Rung5 encodings leave this as None.
     amp_knobs_list: list[tuple[tuple[float, float], ...]] | None = None
+    # add-learned-axis-assignment. `LearnedKnobAssignment` populates
+    # these to surface what was learned and how well it scored;
+    # `ClusteredKnobAssignment` / `UniformSphereKnobAssignment` leave
+    # them all `None`. `axis_assignment` carries either a
+    # knob → PCA-axis-index map (greedy solver) or a
+    # knob → axis-coefficient-vector map (scipy solver).
+    # `objective_value` is the validation-set objective when
+    # `validation_fraction > 0`, otherwise equal to
+    # `training_objective_value`.
+    axis_assignment: dict[str, int | list[float]] | None = None
+    objective_value: float | None = None
+    objective_baseline: float | None = None
+    training_objective_value: float | None = None
     # add-phase-knob-assignment. None (default) signals "use encoding
     # defaults" (typically α=0, φ=0); a populated list overrides the
     # encoding's MPS-substrate phase knob per-feature. Length matches
@@ -69,6 +82,28 @@ class KnobAssignment(Protocol):
         assign_phase_knobs: bool = False,
         encoding: object = None,
     ) -> KnobAssignmentResult:
+        ...
+
+
+@runtime_checkable
+class LearnedAxisObjective(Protocol):
+    """Scalar fidelity score for a candidate analytic gram against a
+    reference geometry. ``LearnedKnobAssignment`` maximises this
+    objective during its axis-to-knob search.
+
+    ``feature_names`` is keyword-only with a ``None`` default so
+    simple objectives (Spearman, Pearson, behavioural) can ignore it.
+    Custom objectives that need cluster context still receive it
+    when the strategy invokes them.
+    """
+
+    def __call__(
+        self,
+        analytic_gram: np.ndarray,
+        decoder_geom: np.ndarray,
+        *,
+        feature_names: list[str] | None = None,
+    ) -> float:
         ...
 
 

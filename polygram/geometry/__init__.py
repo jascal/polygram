@@ -17,11 +17,18 @@ from polygram.geometry.clustered import (
     TierPreservationFidelity,
     clustered,
 )
+from polygram.geometry.learned_axis_assignment import LearnedKnobAssignment
 from polygram.geometry.profile import GeometricProfile
+from polygram.geometry.objectives import (
+    behavioural_objective,
+    pearson_objective,
+    spearman_objective,
+)
 from polygram.geometry.protocols import (
     GeometricFidelity,
     KnobAssignment,
     KnobAssignmentResult,
+    LearnedAxisObjective,
 )
 from polygram.geometry.registry import (
     available_profiles,
@@ -44,12 +51,17 @@ __all__ = [
     "GeometricProfile",
     "KnobAssignment",
     "KnobAssignmentResult",
+    "LearnedAxisObjective",
+    "LearnedKnobAssignment",
     "RankRecallAtKFidelity",
     "TierPreservationFidelity",
     "UniformSphereKnobAssignment",
     "available_profiles",
+    "behavioural_objective",
     "clustered",
     "get_profile",
+    "pearson_objective",
     "register_profile",
+    "spearman_objective",
     "uniform_sphere",
 ]
