@@ -112,8 +112,10 @@ shape needed (`k` columns per qubit indexed unambiguously).
 
 ## Future direction: the general (M, k) family — `Polygram(M, k)`
 
-The May 2026 theoretical treatment ("Polygrams: A Theoretical
-Treatment of Kronecker-Succinct Vector Families") formalises the
+The May 2026 theoretical treatment
+[*Polygrams: A Theoretical Treatment of Kronecker-Succinct Vector
+Families*](theory/polygram.pdf)
+([LaTeX source](theory/polygram.tex)) formalises the
 Kronecker-product-of-single-qubits construction as a **Polygram of
 order n = M + k**, with M "base" and k "amplitude" factors. Key
 results:
