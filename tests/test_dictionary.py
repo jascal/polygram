@@ -812,3 +812,71 @@ class TestRung5WithKnob:
         assert d2.features[0].amp_knobs == (
             (0.3, 0.6), (0.9, 0.0)
         )
+
+
+class TestRung5MatchesRung4AtK2:
+    """Internal consistency check: `Rung5(n_amp_qubits=2)` and Rung4
+    are different encoding *classes* with different dispatch paths,
+    but their amp branches are mathematically the same (both are
+    products of two `_single_qubit_overlap` evaluations). The two
+    grams MUST agree numerically on the same knobs.
+
+    Documented in `docs/research/rung5-encoding.md`; not exposed as a
+    public API equivalence."""
+
+    def _build_pair_at_knobs(
+        self,
+        encoding,
+        theta0_a, psi0_a, theta1_a, psi1_a,
+        theta0_b, psi0_b, theta1_b, psi1_b,
+    ):
+        from polygram import Dictionary, Feature
+        from polygram.encoding import Rung4, Rung5
+
+        if isinstance(encoding, Rung4):
+            feats = [
+                Feature(
+                    name="a", cluster="g", beta=-0.3, alpha=0.1,
+                    gamma=0.05, phi=0.2,
+                    theta_amp=theta0_a, psi_aux=psi0_a,
+                    theta_amp_b=theta1_a, psi_amp_b=psi1_a,
+                ),
+                Feature(
+                    name="b", cluster="g", beta=0.3, alpha=-0.1,
+                    gamma=-0.05, phi=-0.2,
+                    theta_amp=theta0_b, psi_aux=psi0_b,
+                    theta_amp_b=theta1_b, psi_amp_b=psi1_b,
+                ),
+            ]
+        else:
+            assert isinstance(encoding, Rung5)
+            feats = [
+                Feature(
+                    name="a", cluster="g", beta=-0.3, alpha=0.1,
+                    gamma=0.05, phi=0.2,
+                    amp_knobs=((theta0_a, psi0_a), (theta1_a, psi1_a)),
+                ),
+                Feature(
+                    name="b", cluster="g", beta=0.3, alpha=-0.1,
+                    gamma=-0.05, phi=-0.2,
+                    amp_knobs=((theta0_b, psi0_b), (theta1_b, psi1_b)),
+                ),
+            ]
+        return Dictionary(
+            name="d",
+            features=feats,
+            hierarchy={"g": ["a", "b"]},
+            encoding=encoding,
+        )
+
+    def test_grams_match_at_k2(self):
+        import numpy as np
+
+        from polygram.encoding import Rung4, Rung5
+
+        knobs = (0.3, 0.1, 0.5, 0.2, 0.4, 0.0, 0.6, 0.5)
+        g_r4 = self._build_pair_at_knobs(Rung4(), *knobs).gram()
+        g_r5 = self._build_pair_at_knobs(
+            Rung5(n_amp_qubits=2), *knobs
+        ).gram()
+        np.testing.assert_allclose(g_r4, g_r5, atol=1e-12)

@@ -1189,3 +1189,21 @@ class TestRung5Cancellation:
         # MPS-phase-only floor depends on (α, β, γ) which is identical
         # across our k=2 and k=3 fixtures; floors must match.
         assert abs(f2 - f3) < 1e-9, (f2, f3)
+
+    def test_method_grid_silently_routes_to_joint(self):
+        # Like Rung3/Rung4, Rung5 always runs its joint optimizer
+        # regardless of the `optimize.method` kwarg. The grid backend
+        # never applies to the canonical (2 + 2k)-knob list because
+        # `run()` dispatches on `encoding == "rung5"` before consulting
+        # the method. Document this with an explicit test so future
+        # readers know the method kwarg is a no-op for rung5.
+        pytest.importorskip("scipy")
+        d = self._rung5_pair(k=2)
+        c = Cancellation(
+            dictionary=d,
+            target_pair=("a", "b"),
+            preserve_tiers=False,
+            optimize={"method": "grid", "max_steps": 4},
+        )
+        result = c.run()
+        assert result.method == "rung5_joint"
