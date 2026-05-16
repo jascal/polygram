@@ -480,6 +480,14 @@ class SAEImportConfig(_ConfigMixin):
     # Rung3, Rung4 (all share MPS-substrate phase knobs). No-op for
     # HEA_Rung2 (different knob structure).
     assign_phase_knobs: bool = False
+    # add-learned-axis-assignment. Default `None` preserves byte-
+    # identical behaviour. When `True`, the loader instantiates a
+    # default `LearnedKnobAssignment` and uses it instead of the
+    # hardcoded `assign_*_pca` helpers. Explicit `LearnedKnobAssignment`
+    # instances are not config-serialisable — pass them directly to
+    # `from_sae_lens(...)` instead. See
+    # `polygram/geometry/learned_axis_assignment.py`.
+    learn_axis_assignment: bool | None = None
 
     def __post_init__(self) -> None:
         if not (

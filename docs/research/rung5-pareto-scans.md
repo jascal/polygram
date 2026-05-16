@@ -112,6 +112,13 @@ is supposed to add capacity, not refine cluster-geometry fidelity.
 
 ## Scan 4: learned PCA-axis assignment (prototype)
 
+> **Production strategy shipped in polygram 0.8.0** via the
+> `add-learned-axis-assignment` change. The prototype subcommand
+> documented below remains as the empirical motivation; for
+> production usage see
+> [`learned-axis-assignment.md`](learned-axis-assignment.md) and
+> `examples/learned_axis_assignment_demo.py`.
+
 The fidelity-axis follow-up flagged in §"The bigger picture for the
 encoding ladder" — learned axis-to-knob assignment — has a small
 prototype attached as the `learned-assignment` subcommand. For each

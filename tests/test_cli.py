@@ -144,6 +144,27 @@ def test_analyze_emits_both_graphs(tmp_path: Path):
     assert sep_data["kind"] == "separation"
 
 
+def test_analyze_with_learn_axis_assignment(tmp_path: Path):
+    """`--learn-axis-assignment` runs end-to-end and the analyze
+    report is still produced. We don't assert on the exact content —
+    just that the flag flips on the learned-strategy code path
+    without crashing the CLI."""
+    report = tmp_path / "report.md"
+    rc = main(
+        [
+            "analyze",
+            str(FIXTURE),
+            "--features",
+            "0,1,4,5",
+            "--output",
+            str(report),
+            "--learn-axis-assignment",
+        ]
+    )
+    assert rc == 0
+    assert report.exists()
+
+
 def test_analyze_threshold_malformed(tmp_path: Path):
     report = tmp_path / "report.md"
     sharing = tmp_path / "sharing.json"

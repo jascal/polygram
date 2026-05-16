@@ -1,0 +1,56 @@
+{
+  "schema": "polygram.learned_axis_assignment_demo.v1",
+  "config": {
+    "seed": 0,
+    "k": [
+      3,
+      4
+    ]
+  },
+  "runs": [
+    {
+      "k": 3,
+      "spearman_baseline": 0.17648532024641544,
+      "spearman_learned": 0.3647113648369106,
+      "delta_spearman": 0.18822604459049513,
+      "cond_baseline": 9.1255088003497e+18,
+      "cond_learned": 178678299.6107601,
+      "cond_ratio": 51072283652.96217,
+      "baseline_seconds": 0.1265285080007743,
+      "learned_seconds": 5.911440675001359,
+      "learned_assignment": {
+        "alpha": 0,
+        "phi": 1,
+        "amp_0_theta": 10,
+        "amp_0_psi": 4,
+        "amp_1_theta": 3,
+        "amp_1_psi": 7,
+        "amp_2_theta": 13,
+        "amp_2_psi": 9
+      }
+    },
+    {
+      "k": 4,
+      "spearman_baseline": 0.17648532024641544,
+      "spearman_learned": 0.36685041878758196,
+      "delta_spearman": 0.1903650985411665,
+      "cond_baseline": 9.1255088003497e+18,
+      "cond_learned": 7065.8962432713515,
+      "cond_ratio": 1291486385614515.2,
+      "baseline_seconds": 0.028949632003786974,
+      "learned_seconds": 7.730009665989201,
+      "learned_assignment": {
+        "alpha": 0,
+        "phi": 1,
+        "amp_0_theta": 10,
+        "amp_0_psi": 4,
+        "amp_1_theta": 3,
+        "amp_1_psi": 7,
+        "amp_2_theta": 13,
+        "amp_2_psi": 8,
+        "amp_3_theta": 12,
+        "amp_3_psi": 9
+      }
+    }
+  ]
+}

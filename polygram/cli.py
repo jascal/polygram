@@ -113,6 +113,8 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     }
     if args.n_clusters is not None:
         from_sae_lens_kwargs["n_clusters"] = args.n_clusters
+    if getattr(args, "learn_axis_assignment", False):
+        from_sae_lens_kwargs["learn_axis_assignment"] = True
 
     try:
         prediction = predict_cancellation_depth(
@@ -1153,6 +1155,14 @@ def main(argv: list[str] | None = None) -> int:
         help="forward n_clusters=N to from_sae_lens (used when k-means "
              "is the cluster fallback). default delegates to "
              "from_sae_lens (currently 2). Must be >= 1.",
+    )
+    p_an.add_argument(
+        "--learn-axis-assignment", action="store_true",
+        help="forward learn_axis_assignment=True to from_sae_lens. "
+             "Replaces the hardcoded PC2→α / PC3→φ / PC4..→amp_knobs "
+             "permutation with a greedy axis-to-knob search that "
+             "maximises decoder-Gram Spearman. See "
+             "polygram.geometry.LearnedKnobAssignment.",
     )
     p_an.set_defaults(func=_cmd_analyze)
 
