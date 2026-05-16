@@ -123,15 +123,29 @@ _KNOB_THETA_AMP_B_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.theta_amp_b$")
 _KNOB_THETA_AMP_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.theta_amp$")
 _KNOB_PSI_AMP_B_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.psi_amp_b$")
 _KNOB_PSI_AUX_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\.psi_aux$")
+_KNOB_AMP_KNOBS_THETA_RE = re.compile(
+    r"^([A-Za-z_][A-Za-z0-9_]*)\.amp_knobs\[(\d+)\]\.theta$"
+)
+_KNOB_AMP_KNOBS_PSI_RE = re.compile(
+    r"^([A-Za-z_][A-Za-z0-9_]*)\.amp_knobs\[(\d+)\]\.psi$"
+)
 _KNOB_THETA_RE = re.compile(
     r"^([A-Za-z_][A-Za-z0-9_]*)\.theta\[(\d+),(\d+),(\d+)\]$"
 )
 
 
-def _parse_knob_path(path: str) -> tuple[str, str, tuple[int, int, int] | None]:
+def _parse_knob_path(path: str) -> tuple[str, str, tuple[int, ...] | None]:
     m = _KNOB_PHI_RE.match(path)
     if m:
         return m.group(1), "phi", None
+    # Try Rung5 amp_knobs[i].{theta,psi} before the Rung3/Rung4 named
+    # variants so the longer pattern wins.
+    m = _KNOB_AMP_KNOBS_THETA_RE.match(path)
+    if m:
+        return m.group(1), "amp_knobs_theta", (int(m.group(2)),)
+    m = _KNOB_AMP_KNOBS_PSI_RE.match(path)
+    if m:
+        return m.group(1), "amp_knobs_psi", (int(m.group(2)),)
     # Try the Rung4 q4-amp knobs first (longer match) so they don't
     # collide with the Rung3 q3-amp prefixes.
     m = _KNOB_THETA_AMP_B_RE.match(path)
@@ -154,7 +168,8 @@ def _parse_knob_path(path: str) -> tuple[str, str, tuple[int, int, int] | None]:
     raise ValueError(
         f"knob path {path!r} does not match expected grammar "
         f"'<feature>.phi', '<feature>.theta_amp', '<feature>.psi_aux', "
-        f"or '<feature>.theta[r,d,q]'"
+        f"'<feature>.theta[r,d,q]', or "
+        f"'<feature>.amp_knobs[i].{{theta,psi}}'"
     )
 
 
@@ -318,11 +333,28 @@ class Dictionary:
                     f"this Dictionary uses encoding={self.encoding!r}"
                 )
             shape = self.encoding.theta_shape
+            assert slot is not None
             r, d, q = slot
             if not (0 <= r < shape[0] and 0 <= d < shape[1] and 0 <= q < shape[2]):
                 raise ValueError(
                     f"knob path {path!r}: slot {slot} is outside "
                     f"theta_shape={shape} for encoding={self.encoding!r}"
+                )
+
+        if kind in ("amp_knobs_theta", "amp_knobs_psi"):
+            if not isinstance(self.encoding, Rung5):
+                raise ValueError(
+                    f"knob path {path!r}: .amp_knobs[...] paths require "
+                    f"a Rung5 encoding; this Dictionary uses "
+                    f"encoding={self.encoding!r}"
+                )
+            assert slot is not None
+            (amp_idx,) = slot
+            k = self.encoding.n_amp_qubits
+            if not (0 <= amp_idx < k):
+                raise ValueError(
+                    f"knob path {path!r}: amp index {amp_idx} is outside "
+                    f"[0, {k}) for encoding={self.encoding!r}"
                 )
 
         new_features = list(self.features)
@@ -338,12 +370,31 @@ class Dictionary:
                 new_features[idx] = replace(feature, theta_amp_b=float(value))
             elif kind == "psi_amp_b":
                 new_features[idx] = replace(feature, psi_amp_b=float(value))
+            elif kind in ("amp_knobs_theta", "amp_knobs_psi"):
+                # Materialise the default-padded amp_knobs tuple when
+                # the feature still holds the empty default; preserves
+                # the "set the slot, leave everything else at default"
+                # ergonomic for first-time mutation.
+                padded = feature.with_default_amp_knobs(self.encoding)
+                assert slot is not None
+                (amp_idx,) = slot
+                pair = padded.amp_knobs[amp_idx]
+                if kind == "amp_knobs_theta":
+                    new_pair = (float(value), pair[1])
+                else:
+                    new_pair = (pair[0], float(value))
+                new_amp = list(padded.amp_knobs)
+                new_amp[amp_idx] = new_pair
+                new_features[idx] = replace(
+                    padded, amp_knobs=tuple(new_amp)
+                )
             else:
                 base = (
                     feature.theta.copy()
                     if feature.theta is not None
                     else _default_hea_theta(feature, self.encoding).copy()
                 )
+                assert slot is not None
                 r, d, q = slot
                 base[r, d, q] = float(value)
                 new_features[idx] = replace(feature, theta=base)
@@ -365,6 +416,20 @@ class Dictionary:
         the product-amp ``rung4_amp_overlap`` (two independent
         single-qubit overlaps on q3 and q4).
         """
+        if isinstance(self.encoding, Rung5):
+            mps_dict = replace(self, encoding=MPSRung1())
+            mps_gram = mps_dict.gram()
+            n = len(self.features)
+            amp_factor = np.ones((n, n), dtype=complex)
+            for i in range(n):
+                fi = self.features[i]
+                for j in range(n):
+                    fj = self.features[j]
+                    amp_factor[i, j] = rung5_amp_overlap(
+                        fi.amp_knobs, fj.amp_knobs
+                    )
+            return mps_gram.astype(complex) * amp_factor
+
         if isinstance(self.encoding, Rung4):
             mps_dict = replace(self, encoding=MPSRung1())
             mps_gram = mps_dict.gram()

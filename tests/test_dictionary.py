@@ -615,3 +615,200 @@ class TestRung5DictionaryValidation:
             )
             for f in d.features:
                 assert f.amp_knobs == ()
+
+
+class TestRung5GramDispatch:
+    def _two_feature_dict(
+        self,
+        *,
+        encoding,
+        alpha=(-0.3, 0.3),
+        beta=(-0.2, 0.2),
+        gamma=(0.05, -0.05),
+        phi=(0.2, -0.2),
+        amp_knobs_per_feature=None,
+    ):
+        from polygram import Dictionary, Feature
+
+        feats = []
+        for i in (0, 1):
+            kwargs = {
+                "name": f"f{i}",
+                "cluster": "g",
+                "beta": beta[i],
+                "alpha": alpha[i],
+                "gamma": gamma[i],
+                "phi": phi[i],
+            }
+            if amp_knobs_per_feature is not None:
+                kwargs["amp_knobs"] = amp_knobs_per_feature[i]
+            feats.append(Feature(**kwargs))
+        return Dictionary(
+            name="d",
+            features=feats,
+            hierarchy={"g": [f.name for f in feats]},
+            encoding=encoding,
+        )
+
+    def test_default_amp_knobs_match_mpsrung1_gram(self):
+        # Rung5 with every (θ_i, ψ_i) = (0, 0) produces a gram equal
+        # to MPSRung1 on the same (α, β, γ, φ) — the load-bearing
+        # "default reduces to MPS" invariant generalised across k.
+        import numpy as np
+
+        from polygram.encoding import MPSRung1, Rung5
+
+        for k in (1, 2, 3, 4):
+            default_amp = ((0.0, 0.0),) * k
+            d_mps = self._two_feature_dict(encoding=MPSRung1())
+            d_r5 = self._two_feature_dict(
+                encoding=Rung5(n_amp_qubits=k),
+                amp_knobs_per_feature=[default_amp, default_amp],
+            )
+            g_mps = d_mps.gram()
+            g_r5 = d_r5.gram()
+            np.testing.assert_allclose(
+                g_r5, g_mps.astype(complex), atol=1e-12,
+                err_msg=f"k={k}",
+            )
+
+    def test_nondefault_amp_knobs_differ_from_mpsrung1(self):
+        import numpy as np
+
+        from polygram.encoding import MPSRung1, Rung5
+
+        d_mps = self._two_feature_dict(encoding=MPSRung1())
+        d_r5 = self._two_feature_dict(
+            encoding=Rung5(n_amp_qubits=3),
+            amp_knobs_per_feature=[
+                ((0.1, 0.2), (0.3, 0.4), (0.5, 0.6)),
+                ((0.15, 0.25), (0.35, 0.45), (0.55, 0.65)),
+            ],
+        )
+        g_mps = d_mps.gram()
+        g_r5 = d_r5.gram()
+        np.testing.assert_allclose(
+            np.abs(g_r5.diagonal()), 1.0, atol=1e-12
+        )
+        assert not np.allclose(g_r5, g_mps.astype(complex), atol=1e-9)
+
+    def test_gram_factorises_through_single_qubit_overlaps(self):
+        # Off-diagonal entry of the Rung5 gram equals the MPSRung1
+        # gram entry times the k-fold product of single-qubit
+        # overlaps — same factorisation pattern as Rung4 generalised
+        # over k qubits.
+        from polygram.encoding import (
+            MPSRung1,
+            Rung5,
+            _single_qubit_overlap,
+        )
+
+        amp = [
+            ((0.3, 0.1), (0.5, 0.2), (0.7, 0.4)),
+            ((0.4, 0.0), (0.6, 0.5), (0.8, 0.3)),
+        ]
+        d_mps = self._two_feature_dict(encoding=MPSRung1())
+        d_r5 = self._two_feature_dict(
+            encoding=Rung5(n_amp_qubits=3),
+            amp_knobs_per_feature=amp,
+        )
+        g_mps = d_mps.gram()
+        g_r5 = d_r5.gram()
+        expected_factor = complex(1.0, 0.0)
+        for (ta, pa), (tb, pb) in zip(amp[0], amp[1]):
+            expected_factor *= _single_qubit_overlap(ta, pa, tb, pb)
+        observed_factor = g_r5[0, 1] / g_mps[0, 1]
+        assert abs(observed_factor - expected_factor) < 1e-12
+
+    def test_gram_is_psd_and_symmetric(self):
+        import numpy as np
+
+        from polygram.encoding import Rung5
+
+        d = self._two_feature_dict(
+            encoding=Rung5(n_amp_qubits=2),
+            amp_knobs_per_feature=[
+                ((0.3, 0.1), (0.5, 0.2)),
+                ((0.4, 0.0), (0.6, 0.5)),
+            ],
+        )
+        g = d.gram()
+        # Symmetric (Hermitian for complex)
+        np.testing.assert_allclose(g, g.T.conj(), atol=1e-12)
+        # PSD: real eigenvalues, all non-negative (within FP noise)
+        eigs = np.linalg.eigvalsh((g + g.conj().T) / 2)
+        assert (eigs > -1e-10).all(), eigs
+
+
+class TestRung5WithKnob:
+    def _rung5_dict(self, k=2, n_features=2):
+        from polygram import Dictionary, Feature
+        from polygram.encoding import Rung5
+
+        default_amp = ((0.0, 0.0),) * k
+        feats = [
+            Feature(
+                name=f"f{i}", cluster="g", beta=0.1 * (i - 0.5),
+                amp_knobs=default_amp,
+            )
+            for i in range(n_features)
+        ]
+        return Dictionary(
+            name="d",
+            features=feats,
+            hierarchy={"g": [f.name for f in feats]},
+            encoding=Rung5(n_amp_qubits=k),
+        )
+
+    def test_set_amp_knobs_theta(self):
+        d = self._rung5_dict(k=3)
+        d2 = d.with_knob("f0.amp_knobs[1].theta", 0.7)
+        assert d2.features[0].amp_knobs == (
+            (0.0, 0.0), (0.7, 0.0), (0.0, 0.0)
+        )
+        # Other feature unchanged
+        assert d2.features[1].amp_knobs == ((0.0, 0.0),) * 3
+
+    def test_set_amp_knobs_psi(self):
+        d = self._rung5_dict(k=2)
+        d2 = d.with_knob("f1.amp_knobs[0].psi", 1.5)
+        assert d2.features[1].amp_knobs == ((0.0, 1.5), (0.0, 0.0))
+
+    def test_cluster_shared_amp_knobs(self):
+        d = self._rung5_dict(k=2, n_features=3)
+        d2 = d.with_knob("g.amp_knobs[1].theta", 0.5)
+        for f in d2.features:
+            assert f.amp_knobs == ((0.0, 0.0), (0.5, 0.0))
+
+    def test_index_out_of_range_rejected(self):
+        d = self._rung5_dict(k=3)
+        with pytest.raises(ValueError, match="amp index 5 is outside"):
+            d.with_knob("f0.amp_knobs[5].theta", 0.5)
+
+    def test_amp_knobs_path_on_non_rung5_rejected(self):
+        from polygram import Dictionary, Feature
+        from polygram.encoding import MPSRung1, Rung4
+
+        for encoding in (
+            MPSRung1(),
+            Rung4(),
+        ):
+            d = Dictionary(
+                name="d",
+                features=[Feature(name="f0", cluster="g", beta=0.1)],
+                hierarchy={"g": ["f0"]},
+                encoding=encoding,
+            )
+            with pytest.raises(ValueError, match="require"):
+                d.with_knob("f0.amp_knobs[0].theta", 0.5)
+
+    def test_with_knob_chains(self):
+        d = self._rung5_dict(k=2)
+        d2 = (
+            d.with_knob("f0.amp_knobs[0].theta", 0.3)
+            .with_knob("f0.amp_knobs[0].psi", 0.6)
+            .with_knob("f0.amp_knobs[1].theta", 0.9)
+        )
+        assert d2.features[0].amp_knobs == (
+            (0.3, 0.6), (0.9, 0.0)
+        )
