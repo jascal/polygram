@@ -18,6 +18,11 @@ they run anywhere polygram itself runs:
   decoder-Gram Spearman. Measures whether the new
   ``_assign_amp_knobs_pca_rung5`` branch is load-bearing or inert
   plumbing.
+- ``learned-assignment`` — small prototype of "learned PCA-axis
+  assignment" (cf. ``rung5-pareto-scans.md`` discussion). For each
+  k, greedy-searches over axis-to-knob permutations to maximise
+  decoder-Gram Spearman, and compares against the hardcoded
+  baseline (PC2→α, PC3→φ, PC4..→amp_knobs).
 
 Usage::
 
@@ -475,6 +480,275 @@ def run_pca_amp_ablation(args: argparse.Namespace) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Scan 4: learned PCA-axis assignment (prototype)
+# ---------------------------------------------------------------------------
+
+
+# Knob ranges, matching the hardcoded `assign_*_pca` helpers.
+_KNOB_RANGE = {
+    "alpha": (0.0, 2 * np.pi),
+    "phi": (0.0, 2 * np.pi),
+    "amp_theta": (0.0, np.pi / 2),
+    "amp_psi": (0.0, 2 * np.pi),
+}
+
+
+def _pca(projs: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return ``(centered, sv, vt)`` from SVD of mean-centered projs."""
+    centered = projs - projs.mean(axis=0)
+    _, sv, vt = np.linalg.svd(centered, full_matrices=False)
+    return centered, sv, vt
+
+
+def _axis_to_knob(
+    centered: np.ndarray, vt: np.ndarray, axis_idx: int, lo: float, hi: float
+) -> np.ndarray:
+    """Linearly rescale the per-feature coord along PCA axis ``axis_idx``
+    into ``[lo, hi]``. Returns zeros (= rescale midpoint at default
+    knob) when the axis is unavailable or degenerate — matching the
+    ``assign_*_pca`` helpers' fallback."""
+    if axis_idx is None or axis_idx >= vt.shape[0]:
+        return np.full(centered.shape[0], 0.5 * (lo + hi))
+    pc = vt[axis_idx]
+    coords = centered @ pc
+    abs_max = float(np.max(np.abs(coords)))
+    if abs_max < 1e-12:
+        return np.full(centered.shape[0], 0.5 * (lo + hi))
+    half = 0.5 * (hi - lo)
+    mid = 0.5 * (hi + lo)
+    return (coords / abs_max) * half + mid
+
+
+def _build_dict_from_assignment(
+    records: dict,
+    ids: list[int],
+    projs: np.ndarray,
+    encoding,
+    axis_for_knob: dict[str, int | None],
+) -> Dictionary:
+    """Build a Dictionary using an explicit knob → PCA-axis assignment.
+
+    β is derived from cluster labels (same as the labels-bypass path
+    in ``from_sae_lens``); α, φ, and per-amp-qubit (θ_i, ψ_i) are
+    derived from ``axis_for_knob[knob_name]`` if present, otherwise
+    default to the range midpoint.
+    """
+    sel = projs[ids]
+    centered, _, vt = _pca(sel)
+
+    # β: cluster-ordinal spread from labels (mirrors `_spread_betas`).
+    cluster_per_feature = [records[i].label.split("/", 1)[0] for i in ids]
+    cluster_order: list[str] = []
+    seen: set[str] = set()
+    for c in cluster_per_feature:
+        if c not in seen:
+            cluster_order.append(c)
+            seen.add(c)
+    n_clusters = len(cluster_order)
+    if n_clusters >= 2:
+        betas_by_cluster = {
+            c: -0.5 + 1.0 * i / (n_clusters - 1)
+            for i, c in enumerate(cluster_order)
+        }
+    else:
+        betas_by_cluster = {cluster_order[0]: 0.0}
+
+    alphas = _axis_to_knob(
+        centered, vt, axis_for_knob.get("alpha"),
+        *_KNOB_RANGE["alpha"],
+    )
+    phis = _axis_to_knob(
+        centered, vt, axis_for_knob.get("phi"),
+        *_KNOB_RANGE["phi"],
+    )
+
+    k = encoding.n_amp_qubits if isinstance(encoding, Rung5) else 0
+    amp_thetas = [
+        _axis_to_knob(
+            centered, vt, axis_for_knob.get(f"amp_{i}_theta"),
+            *_KNOB_RANGE["amp_theta"],
+        )
+        for i in range(k)
+    ]
+    amp_psis = [
+        _axis_to_knob(
+            centered, vt, axis_for_knob.get(f"amp_{i}_psi"),
+            *_KNOB_RANGE["amp_psi"],
+        )
+        for i in range(k)
+    ]
+
+    features = []
+    for f_idx, feat_id in enumerate(ids):
+        amp_knobs = tuple(
+            (float(amp_thetas[i][f_idx]), float(amp_psis[i][f_idx]))
+            for i in range(k)
+        )
+        features.append(
+            Feature(
+                name=records[feat_id].name,
+                cluster=cluster_per_feature[f_idx],
+                beta=betas_by_cluster[cluster_per_feature[f_idx]],
+                alpha=float(alphas[f_idx]),
+                phi=float(phis[f_idx]),
+                amp_knobs=amp_knobs,
+            )
+        )
+    hierarchy: dict[str, list[str]] = {c: [] for c in cluster_order}
+    for f in features:
+        hierarchy[f.cluster].append(f.name)
+    return Dictionary(
+        name="learned_assignment",
+        features=features,
+        hierarchy=hierarchy,
+        encoding=encoding,
+    )
+
+
+def _greedy_axis_assignment(
+    records: dict,
+    ids: list[int],
+    projs: np.ndarray,
+    encoding,
+    knob_order: list[str],
+    candidate_axes: list[int],
+) -> tuple[dict[str, int], float, list[dict]]:
+    """Greedy permutation search.
+
+    For each knob in ``knob_order``, tries each unused axis from
+    ``candidate_axes`` and locks in the axis whose addition gives the
+    best decoder-Gram Spearman. Returns ``(assignment, best_spearman,
+    trajectory)`` where trajectory records the best score at every
+    step.
+    """
+    cos_sq = _decoder_cosine_gram(projs[ids])
+    assigned: dict[str, int] = {}
+    used: set[int] = set()
+    trajectory: list[dict] = []
+
+    for knob in knob_order:
+        best_axis = None
+        best_score = -2.0
+        for axis in candidate_axes:
+            if axis in used:
+                continue
+            trial = dict(assigned)
+            trial[knob] = axis
+            d = _build_dict_from_assignment(
+                records, ids, projs, encoding, trial
+            )
+            g = d.gram()
+            score = _spearman(np.abs(g) ** 2, cos_sq)
+            if score > best_score:
+                best_score = score
+                best_axis = axis
+        if best_axis is None:
+            break
+        assigned[knob] = best_axis
+        used.add(best_axis)
+        trajectory.append(
+            {"knob": knob, "axis": best_axis, "spearman": best_score}
+        )
+    return assigned, best_score, trajectory
+
+
+def run_learned_assignment(args: argparse.Namespace) -> dict:
+    """Prototype: greedy axis-to-knob permutation vs hardcoded baseline."""
+    n_clusters = 16
+    cluster_size = 4
+    d_model = 32
+    projs, labels = synth_clustered_sae(
+        n_clusters=n_clusters,
+        cluster_size=cluster_size,
+        d_model=d_model,
+        seed=args.seed,
+    )
+    records = _records_from_projections(projs, labels)
+    n_features = n_clusters * cluster_size  # 64
+
+    runs: list[dict] = []
+    for k in args.k:
+        cap = 8 * 2 ** k
+        if n_features > cap:
+            continue
+        ids = list(range(n_features))
+        encoding = Rung5(n_amp_qubits=k)
+
+        # Hardcoded baseline: α←PC2 (axis 1), φ←PC3 (axis 2),
+        # amp_i_{theta,psi} ← PC{4+2i}, PC{5+2i} (axes 3+2i, 4+2i).
+        baseline_assignment: dict[str, int] = {"alpha": 1, "phi": 2}
+        for i in range(k):
+            baseline_assignment[f"amp_{i}_theta"] = 3 + 2 * i
+            baseline_assignment[f"amp_{i}_psi"] = 4 + 2 * i
+
+        knob_order = ["alpha", "phi"]
+        for i in range(k):
+            knob_order.append(f"amp_{i}_theta")
+            knob_order.append(f"amp_{i}_psi")
+        max_axis = max(2 * (2 + k) + 4, d_model)
+        candidate_axes = list(range(min(max_axis, d_model)))
+
+        # Baseline metrics.
+        d_base = _build_dict_from_assignment(
+            records, ids, projs, encoding, baseline_assignment
+        )
+        cos_sq = _decoder_cosine_gram(projs[ids])
+        g_base = d_base.gram()
+        spearman_base = _spearman(np.abs(g_base) ** 2, cos_sq)
+        cond_base = _cond_number(g_base)
+
+        # Greedy learned assignment.
+        t0 = time.perf_counter()
+        learned_assignment, spearman_learned, trajectory = (
+            _greedy_axis_assignment(
+                records, ids, projs, encoding, knob_order, candidate_axes
+            )
+        )
+        search_s = time.perf_counter() - t0
+
+        d_learned = _build_dict_from_assignment(
+            records, ids, projs, encoding, learned_assignment
+        )
+        g_learned = d_learned.gram()
+        cond_learned = _cond_number(g_learned)
+
+        runs.append({
+            "k": k,
+            "n_features": n_features,
+            "baseline_assignment": baseline_assignment,
+            "learned_assignment": learned_assignment,
+            "spearman_baseline": spearman_base,
+            "spearman_learned": spearman_learned,
+            "delta_spearman": spearman_learned - spearman_base,
+            "cond_baseline": cond_base,
+            "cond_learned": cond_learned,
+            "search_seconds": search_s,
+            "trajectory": trajectory,
+            "n_candidate_axes": len(candidate_axes),
+        })
+        print(
+            f"k={k} N={n_features} cap={cap}:\n"
+            f"  baseline   Spearman={spearman_base:+.4f}  cond={cond_base:.2e}  "
+            f"assignment={baseline_assignment}\n"
+            f"  learned    Spearman={spearman_learned:+.4f}  cond={cond_learned:.2e}  "
+            f"assignment={learned_assignment}\n"
+            f"  Δ Spearman={spearman_learned - spearman_base:+.4f}  "
+            f"search={search_s:.2f}s ({len(candidate_axes)} candidate axes)"
+        )
+    return {
+        "schema": "polygram.rung5_pareto.learned_assignment.v1",
+        "config": {
+            "n_clusters": n_clusters,
+            "cluster_size": cluster_size,
+            "d_model": d_model,
+            "seed": args.seed,
+            "k": list(args.k),
+        },
+        "runs": runs,
+    }
+
+
+# ---------------------------------------------------------------------------
 # CLI scaffolding
 # ---------------------------------------------------------------------------
 
@@ -522,6 +796,15 @@ def main(argv: list[str] | None = None) -> int:
     pa.add_argument("--k", type=int, nargs="+", default=[3, 4])
     _add_json_out(pa)
     pa.set_defaults(func=run_pca_amp_ablation)
+
+    la = subparsers.add_parser(
+        "learned-assignment",
+        help="Greedy axis-to-knob permutation vs hardcoded baseline.",
+    )
+    la.add_argument("--seed", type=int, default=0)
+    la.add_argument("--k", type=int, nargs="+", default=[3, 4])
+    _add_json_out(la)
+    la.set_defaults(func=run_learned_assignment)
 
     args = parser.parse_args(argv)
     artifact = args.func(args)

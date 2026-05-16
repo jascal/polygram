@@ -110,6 +110,64 @@ they spread features across the amp-Hilbert-space *orthogonally* to
 the cluster structure. That's the intended behaviour — the amp branch
 is supposed to add capacity, not refine cluster-geometry fidelity.
 
+## Scan 4: learned PCA-axis assignment (prototype)
+
+The fidelity-axis follow-up flagged in §"The bigger picture for the
+encoding ladder" — learned axis-to-knob assignment — has a small
+prototype attached as the `learned-assignment` subcommand. For each
+k, it greedy-searches over axis-to-knob permutations using
+decoder-Gram Spearman as the objective and compares against the
+hardcoded baseline (PC2→α, PC3→φ, PC4..→amp_knobs).
+
+Reads from
+[`docs/research/data/rung5_pareto/learned_assignment.json`](data/rung5_pareto/learned_assignment.json).
+
+```
+k=3 (N=64, cap=64):
+  baseline   Spearman = +0.1042   cond = 2.31e9
+  learned    Spearman = +0.3350   cond = 6.01e8
+  Δ Spearman = +0.2309   search = 4.7 s (32 candidate axes)
+
+k=4 (N=64, cap=128):
+  baseline   Spearman = +0.1161   cond = 1.95e4
+  learned    Spearman = +0.3380   cond = 9.49e3
+  Δ Spearman = +0.2219   search = 6.1 s (32 candidate axes)
+```
+
+**Take-away:** 3× Spearman improvement from a few seconds of greedy
+search. The hardcoded assignment is leaving substantial signal on
+the table — at least in this synthetic regime where β goes through
+the cluster-labels bypass path (so PC1 is *not* reserved for β as
+the encoding-aware-knob-assignment docstring claims).
+
+Specifically, both k=3 and k=4 learned `α ← PC1` (axis 0), where the
+baseline reserves PC1 for β-via-labels and starts α at PC2.
+Effectively the baseline is asking α to ride on the second principal
+component of the projection geometry when the first PC is the
+cluster-bearing direction. The greedy variant finds and exploits
+that.
+
+The conditioning also improves (3.8× at k=3, 2.1× at k=4) — so the
+learned assignment is a strict win on this synth: higher fidelity
+*and* better-conditioned gram, in seconds of search. Per-feature
+parameter count is unchanged; the optimisation is entirely on the
+fixed-size axis-to-knob map.
+
+This is genuinely "tuning, but at a different layer" — the SAE's
+features aren't touched (no retraining), and per-feature knobs still
+come from the same PCA of the same decoder. What's optimised is
+*which PCA axis feeds which knob slot*. The cost is one extra
+calibration pass at import time (Θ(n_knobs²) Spearman evaluations,
+each Θ(N²·n) at fixed encoding).
+
+A production version would replace the greedy permutation with
+proper continuous optimisation (Riemannian gradient descent on a
+small linear map W : R^d_model → R^(2n+1) per feature), but the
+greedy result already establishes that *significant* fidelity
+headroom exists — confirming the "Rung5 buys conditioning, not
+fidelity" finding (scan 1) is an artefact of the hardcoded
+assignment, not of the encoding itself.
+
 ## Bug fix: `from_sae_lens` default-pads `amp_knobs` for Rung5
 
 Running scan 3 surfaced a real polygram bug: `from_sae_lens` with a
@@ -134,6 +192,10 @@ python examples/rung5_pareto_scans.py saturation-density \
 # Scan 3 — PCA amp-knob ablation (~ 15 sec, k ∈ {3, 4})
 python examples/rung5_pareto_scans.py pca-amp-ablation \
     --json-out docs/research/data/rung5_pareto/pca_amp_ablation.json
+
+# Scan 4 — learned axis-to-knob assignment (~ 12 sec, k ∈ {3, 4})
+python examples/rung5_pareto_scans.py learned-assignment \
+    --json-out docs/research/data/rung5_pareto/learned_assignment.json
 ```
 
 All three are deterministic (seeded) and torch-free.
