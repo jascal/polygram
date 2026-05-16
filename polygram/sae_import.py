@@ -816,6 +816,16 @@ def from_sae_lens(
             feat_kwargs["psi_amp_b"] = psi_amp_bs_arr[i]
         if amp_knobs_list_arr is not None:
             feat_kwargs["amp_knobs"] = amp_knobs_list_arr[i]
+        elif isinstance(encoding, Rung5):
+            # Rung5 encoding without populated amp_knobs (e.g.
+            # assign_amp_knobs=False, or a strategy that doesn't
+            # produce amp_knobs_list): default-pad each feature's
+            # amp_knobs to length-k all-zeros. This makes the
+            # resulting Rung5 gram equal the MPSRung1-equivalent gram
+            # — the "default reduces to MPS" property at the loader.
+            feat_kwargs["amp_knobs"] = (
+                ((0.0, 0.0),) * encoding.n_amp_qubits
+            )
         features.append(
             Feature(name=r.name, cluster=c, beta=b, gamma=g, **feat_kwargs)
         )

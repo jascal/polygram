@@ -1,0 +1,175 @@
+{
+  "schema": "polygram.rung5_pareto.learned_assignment.v1",
+  "config": {
+    "n_clusters": 16,
+    "cluster_size": 4,
+    "d_model": 32,
+    "seed": 0,
+    "k": [
+      3,
+      4
+    ]
+  },
+  "runs": [
+    {
+      "k": 3,
+      "n_features": 64,
+      "baseline_assignment": {
+        "alpha": 1,
+        "phi": 2,
+        "amp_0_theta": 3,
+        "amp_0_psi": 4,
+        "amp_1_theta": 5,
+        "amp_1_psi": 6,
+        "amp_2_theta": 7,
+        "amp_2_psi": 8
+      },
+      "learned_assignment": {
+        "alpha": 0,
+        "phi": 1,
+        "amp_0_theta": 4,
+        "amp_0_psi": 3,
+        "amp_1_theta": 11,
+        "amp_1_psi": 7,
+        "amp_2_theta": 10,
+        "amp_2_psi": 2
+      },
+      "spearman_baseline": 0.10415246840471143,
+      "spearman_learned": 0.3350494256810728,
+      "delta_spearman": 0.2308969572763614,
+      "cond_baseline": 2314184891.7544985,
+      "cond_learned": 601084624.6347767,
+      "search_seconds": 4.728169377005543,
+      "trajectory": [
+        {
+          "knob": "alpha",
+          "axis": 0,
+          "spearman": 0.24808212815433697
+        },
+        {
+          "knob": "phi",
+          "axis": 1,
+          "spearman": 0.31007621557304094
+        },
+        {
+          "knob": "amp_0_theta",
+          "axis": 4,
+          "spearman": 0.32919986477929447
+        },
+        {
+          "knob": "amp_0_psi",
+          "axis": 3,
+          "spearman": 0.3216424731622166
+        },
+        {
+          "knob": "amp_1_theta",
+          "axis": 11,
+          "spearman": 0.33050792680272745
+        },
+        {
+          "knob": "amp_1_psi",
+          "axis": 7,
+          "spearman": 0.3293285286104388
+        },
+        {
+          "knob": "amp_2_theta",
+          "axis": 10,
+          "spearman": 0.33572708458077977
+        },
+        {
+          "knob": "amp_2_psi",
+          "axis": 2,
+          "spearman": 0.3350494256810728
+        }
+      ],
+      "n_candidate_axes": 32
+    },
+    {
+      "k": 4,
+      "n_features": 64,
+      "baseline_assignment": {
+        "alpha": 1,
+        "phi": 2,
+        "amp_0_theta": 3,
+        "amp_0_psi": 4,
+        "amp_1_theta": 5,
+        "amp_1_psi": 6,
+        "amp_2_theta": 7,
+        "amp_2_psi": 8,
+        "amp_3_theta": 9,
+        "amp_3_psi": 10
+      },
+      "learned_assignment": {
+        "alpha": 0,
+        "phi": 1,
+        "amp_0_theta": 4,
+        "amp_0_psi": 3,
+        "amp_1_theta": 11,
+        "amp_1_psi": 7,
+        "amp_2_theta": 10,
+        "amp_2_psi": 2,
+        "amp_3_theta": 13,
+        "amp_3_psi": 9
+      },
+      "spearman_baseline": 0.11607980370794835,
+      "spearman_learned": 0.3380133672363429,
+      "delta_spearman": 0.22193356352839455,
+      "cond_baseline": 19513.577793330056,
+      "cond_learned": 9491.314324507535,
+      "search_seconds": 6.11118834798981,
+      "trajectory": [
+        {
+          "knob": "alpha",
+          "axis": 0,
+          "spearman": 0.24808212815433697
+        },
+        {
+          "knob": "phi",
+          "axis": 1,
+          "spearman": 0.31007621557304094
+        },
+        {
+          "knob": "amp_0_theta",
+          "axis": 4,
+          "spearman": 0.32919986477929447
+        },
+        {
+          "knob": "amp_0_psi",
+          "axis": 3,
+          "spearman": 0.3216424731622166
+        },
+        {
+          "knob": "amp_1_theta",
+          "axis": 11,
+          "spearman": 0.33050792680272745
+        },
+        {
+          "knob": "amp_1_psi",
+          "axis": 7,
+          "spearman": 0.3293285286104388
+        },
+        {
+          "knob": "amp_2_theta",
+          "axis": 10,
+          "spearman": 0.33572708458077977
+        },
+        {
+          "knob": "amp_2_psi",
+          "axis": 2,
+          "spearman": 0.3350494256810728
+        },
+        {
+          "knob": "amp_3_theta",
+          "axis": 13,
+          "spearman": 0.3416449280723914
+        },
+        {
+          "knob": "amp_3_psi",
+          "axis": 9,
+          "spearman": 0.3380133672363429
+        }
+      ],
+      "n_candidate_axes": 32
+    }
+  ]
+}
