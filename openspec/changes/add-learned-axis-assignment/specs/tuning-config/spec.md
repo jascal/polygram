@@ -9,7 +9,7 @@ field's value SHALL flow through to `from_sae_lens(...,
 learn_axis_assignment=...)`.
 
 The config field accepts only `None`, `False`, or `True` — explicit
-`LearnedAxisAssignment` instances are not config-serialisable and
+`LearnedKnobAssignment` instances are not config-serialisable and
 must be passed directly to `from_sae_lens(...)`. Callers who need
 custom strategies bypass the config path.
 
@@ -27,7 +27,7 @@ behaviour for every existing config-driven import.
 - **WHEN** `from_sae_lens(records, ids, config=
   SAEImportConfig(learn_axis_assignment=True))` is called
 - **THEN** the import uses the default
-  `LearnedAxisAssignment` strategy
+  `LearnedKnobAssignment` strategy
 
 #### Scenario: config field round-trips through dict
 

@@ -31,7 +31,7 @@ on real SAEs.
 
 **Goals:**
 
-- Ship `LearnedAxisAssignment` as an opt-in `KnobAssignment`
+- Ship `LearnedKnobAssignment` as an opt-in `KnobAssignment`
   strategy. Default-off; existing callers see byte-identical
   behaviour.
 - Two solvers: greedy permutation (deterministic, base install) and
@@ -65,7 +65,7 @@ on real SAEs.
 
 ### Decision 1: Strategy class, not a flag on existing helpers
 
-`LearnedAxisAssignment` lives as a peer of `ClusteredKnobAssignment`
+`LearnedKnobAssignment` lives as a peer of `ClusteredKnobAssignment`
 and `UniformSphereKnobAssignment` — both already implementations of
 the `KnobAssignment` protocol from `polygram.geometry.protocols`.
 The learned variant follows the same shape: instance method
@@ -88,7 +88,7 @@ boolean-on-helper-function path that would balloon the
 
 ### Decision 2: Solvers — greedy + scipy
 
-Two solvers ship side-by-side, chosen via `LearnedAxisAssignment(solver=...)`:
+Two solvers ship side-by-side, chosen via `LearnedKnobAssignment(solver=...)`:
 
 - **`solver="greedy"`** (default). Permutation search: for each
   knob slot in canonical order (α, φ, then amp pairs in qubit-index
@@ -102,6 +102,44 @@ Two solvers ship side-by-side, chosen via `LearnedAxisAssignment(solver=...)`:
   result. Uses `scipy.optimize.minimize(method="Nelder-Mead")` for
   small problems and `differential_evolution` when `n_knobs ≥ 8`
   (Rung5 with k≥3). Requires the `polygram[opt]` extra.
+
+Concrete example of the scipy solver's output at k=3 (so n_knobs = 8
+covering α, φ, and three (θ, ψ) amp pairs; n_axes = 16 after the
+`max_axes` cap):
+
+```
+W ≈
+                  PC1     PC2     PC3     PC4    PC5    PC6   ...
+alpha          [ 0.91   -0.04    0.02   -0.01   0.00   0.00  ... ]
+phi            [-0.03    0.88   -0.05    0.02   0.01   0.00  ... ]
+amp_0_theta    [ 0.00    0.05    0.81   -0.07   0.02   0.00  ... ]
+amp_0_psi      [ 0.00    0.00   -0.06    0.79   0.04   0.01  ... ]
+amp_1_theta    [ 0.00    0.00    0.00    0.05   0.76  -0.03  ... ]
+amp_1_psi      [ 0.00    0.00    0.00    0.00  -0.04   0.74  ... ]
+amp_2_theta    [ 0.00    0.00    0.00    0.00   0.00   0.05  ... ]
+amp_2_psi      [ 0.00    0.00    0.00    0.00   0.00   0.00  ... ]
+```
+
+The greedy solver would have populated each row as a one-hot vector
+pointing at the PCA axis it locked in. The scipy solver relaxes this
+to a near-permutation matrix with small off-diagonal corrections —
+the off-diagonal entries are the linear-combination headroom that
+scipy buys over greedy when no single PCA axis cleanly dominates a
+knob's signal (common on noisy real SAEs).
+
+**Greedy early-stopping.** The greedy solver SHALL accept an
+`early_stop_eps: float = 1e-4` parameter. If the marginal objective
+gain at a knob slot is < `early_stop_eps` for two consecutive slots,
+the remaining unassigned knobs default to the hardcoded baseline
+axes and the search terminates. Prevents wasting time on
+knob slots where no PCA axis provides discriminative signal.
+
+**Recommended defaults** for v1: `solver="greedy"`,
+`objective=spearman_objective`, `max_axes=32`,
+`validation_fraction=0.0` (turn on to `0.2`–`0.3` for early
+real-SAE work), `scipy_restarts=1`, `early_stop_eps=1e-4`. These
+values are summarised in the strategy's class docstring and in the
+research note.
 
 The greedy solver is the headline default because:
 1. Reproduces the prototype's published numbers exactly.
@@ -131,10 +169,15 @@ class LearnedAxisObjective(Protocol):
         analytic_gram: np.ndarray,  # (N, N) complex
         decoder_geom: np.ndarray,   # (N, N) real (e.g., cosine²)
         *,
-        feature_names: list[str],
+        feature_names: list[str] | None = None,
     ) -> float:
         ...
 ```
+
+`feature_names` is optional with default `None` to reduce boilerplate
+for simple objectives that don't need it (raised in PR #80 review).
+Spearman, Pearson, and behavioural built-ins all default-ignore it;
+custom objectives that need cluster context can still consume it.
 
 Three built-ins ship as small functions in
 `polygram.geometry.objectives`:
@@ -149,7 +192,7 @@ Three built-ins ship as small functions in
 
 The default is `spearman_objective` (matches the prototype). Callers
 pass a custom callable via
-`LearnedAxisAssignment(objective=my_callable)`.
+`LearnedKnobAssignment(objective=my_callable)`.
 
 **Alternative considered:** Single hardcoded objective. Rejected
 because the prototype's Spearman is one of several reasonable
@@ -159,7 +202,7 @@ co-activation matrices) is the natural next step.
 ### Decision 4: `KnobAssignmentResult.axis_assignment` is optional
 
 Add `axis_assignment: dict[str, int | list[float]] | None = None`
-to `KnobAssignmentResult`. Populated by `LearnedAxisAssignment` with
+to `KnobAssignmentResult`. Populated by `LearnedKnobAssignment` with
 either a knob → PCA-axis-index map (greedy solver) or a
 knob → list-of-axis-coefficients (scipy solver).
 
@@ -176,9 +219,9 @@ for debugging.
 `from_sae_lens(..., learn_axis_assignment=None)` accepts:
 
 - `None` / `False` — keep hardcoded behaviour (default).
-- `True` — instantiate `LearnedAxisAssignment()` with defaults and
+- `True` — instantiate `LearnedKnobAssignment()` with defaults and
   use it.
-- A `LearnedAxisAssignment` instance — use it directly.
+- A `LearnedKnobAssignment` instance — use it directly.
 
 Strict default-off preserves bit-exact existing behaviour for every
 caller, including all 524-test regression coverage. The opt-in path
@@ -192,7 +235,7 @@ if the win generalises.
 
 ### Decision 6: HEA_Rung2 fallback, not support
 
-`LearnedAxisAssignment` checks `isinstance(encoding, HEA_Rung2)` in
+`LearnedKnobAssignment` checks `isinstance(encoding, HEA_Rung2)` in
 `assign()` and falls back to the hardcoded helpers with an INFO-once
 log. HEA's per-feature θ tensor has a different parameter shape; a
 learned axis assignment for it would need a separate objective
@@ -226,7 +269,7 @@ returns all-`None` with an INFO-once log. Consistent stance.
   converge to local optima. → Mitigation: scipy solver initialises
   from the greedy result (which is a strong starting point);
   multi-start from `[greedy, greedy+small-noise]` is offered via
-  `LearnedAxisAssignment(scipy_restarts=N)`.
+  `LearnedKnobAssignment(scipy_restarts=N)`.
 
 - **[Objective overfitting to the synth]** — Spearman on a 64-feature
   synth has ~2000 pairs; the strategy can in principle "tune to
@@ -247,7 +290,7 @@ returns all-`None` with an INFO-once log. Consistent stance.
 
 No data migration. Additive:
 
-1. `LearnedAxisAssignment` + `LearnedAxisObjective` land in
+1. `LearnedKnobAssignment` + `LearnedAxisObjective` land in
    `polygram.geometry.learned_axis_assignment` behind the
    `learn_axis_assignment` opt-in. Nothing dispatches to them
    without explicit caller request.
@@ -286,4 +329,38 @@ the strategy until callers explicitly enable it.
 - **Default switch.** When does `learn_axis_assignment=True` become
   the default? Lean: after real-SAE replication confirms the win on
   ≥ 2 real SAEs and the calibration cost is < 5s per import for
-  N ≤ 1000. Until then, opt-in.
+  N ≤ 1000. Until then, opt-in. Full criteria in proposal.md's
+  "Promote-to-default gate" section.
+
+- **sae-forge surface.** How does sae-forge expose this? Two
+  options: (a) a single `--learn-axis-assignment` flag that
+  instantiates `LearnedKnobAssignment()` with defaults, mirroring
+  polygram's CLI; (b) a richer `--learn-axis-assignment-config`
+  pointing at a YAML/JSON file that deserialises into a
+  `SAEImportConfig` snippet. Lean: ship (a) first as a follow-up
+  PR on sae-forge once polygram 0.8.0 lands; promote to (b) only
+  if real sae-forge sweeps want per-encoding solver overrides.
+  Tracked in the sae-forge follow-up PR; not blocking on this
+  proposal.
+
+- **Adaptive-regrow interaction.** When `Regrower` adds new features
+  to a Dictionary, do the regrown features inherit the existing
+  axis-to-knob map or re-run a lightweight calibration? Lean:
+  inherit (cheap, predictable; the existing map was calibrated on
+  the dictionary's geometry and regrowing is supposed to add
+  geometric headroom, not change cluster structure). Re-running
+  calibration would also break determinism across regrow steps.
+  If real workloads show regrowth drifting the geometry enough to
+  hurt fidelity, add `Regrower(recalibrate_axis_assignment=True)`
+  as an opt-in flag in a follow-up. Out of scope for v1.
+
+- **Theoretical angle: sample-complexity bound for axis recovery.**
+  Theorem 7.5 of the May 2026 theoretical treatment gives 4n+1
+  generic overlap measurements for parameter recovery. The
+  analogous question for *axis recovery* (i.e., given noisy
+  overlaps, how many features are needed to identify the right
+  knob→axis map?) is open. Should be added to the theoretical
+  treatment's §11 (Open problems) as part of the paper-update PR
+  flagged below. The polygram side can ship without the bound;
+  having it would inform the `max_axes` and `validation_fraction`
+  defaults.

@@ -30,14 +30,14 @@ of the hardcoded map, not of the encoding itself. With a learned
 axis-to-knob assignment, Rung5 (and every prior encoding) recovers
 substantial decoder-geometry headroom.
 
-This change ships a production `LearnedAxisAssignment` strategy:
+This change ships a production `LearnedKnobAssignment` strategy:
 proper continuous optimisation on a small linear map `W` per knob
 (not greedy permutation), pluggable objective, opt-in flag on
 `from_sae_lens`, surfaced in `SelectionReport` for inspection.
 
 ## What Changes
 
-- **New strategy class `polygram.geometry.LearnedAxisAssignment`**
+- **New strategy class `polygram.geometry.LearnedKnobAssignment`**
   implementing the `KnobAssignment` protocol. Computes decoder PCA
   once, then optimises a small permutation-or-linear-combination map
   `W: R^{n_axes} → R^{n_knobs}` against a configurable objective.
@@ -59,8 +59,8 @@ proper continuous optimisation on a small linear map `W` per knob
     matrix (e.g. from behavioural co-activation). Optional; requires
     user-supplied data.
 - **Opt-in `from_sae_lens` flag.** `learn_axis_assignment: bool |
-  LearnedAxisAssignment | None = None`. When `True`, instantiates the
-  default `LearnedAxisAssignment()` and uses it for the import. When
+  LearnedKnobAssignment | None = None`. When `True`, instantiates the
+  default `LearnedKnobAssignment()` and uses it for the import. When
   a strategy instance is passed, uses that directly. When `False` or
   `None`, keeps the existing hardcoded `assign_amp_knobs_pca` +
   `assign_phase_knobs_pca` behaviour byte-for-byte.
@@ -94,12 +94,12 @@ proper continuous optimisation on a small linear map `W` per knob
 
 - `geometry-regimes`: `KnobAssignment` protocol gains a non-mandatory
   `axis_assignment` returned in `KnobAssignmentResult` so callers can
-  audit which axis fed which knob. `LearnedAxisAssignment` populates
+  audit which axis fed which knob. `LearnedKnobAssignment` populates
   it with the optimised map; clustered/uniform-sphere strategies
   populate it with the hardcoded baseline for parity.
 - `sae`: `from_sae_lens` accepts `learn_axis_assignment` kwarg
   (default `None`, preserves byte-identical behaviour). When
-  populated, the import path delegates to `LearnedAxisAssignment`
+  populated, the import path delegates to `LearnedKnobAssignment`
   instead of the hardcoded `assign_*_pca` helpers. `SelectionReport`
   gains `learned_axis_assignment` field.
 - `tuning-config`: `SAEImportConfig` gains `learn_axis_assignment`
@@ -110,7 +110,7 @@ proper continuous optimisation on a small linear map `W` per knob
 - `polygram/geometry/learned_axis_assignment.py` — new module
   implementing the strategy class.
 - `polygram/geometry/__init__.py` — re-export
-  `LearnedAxisAssignment`, `LearnedAxisObjective`.
+  `LearnedKnobAssignment`, `LearnedAxisObjective`.
 - `polygram/geometry/protocols.py` — extend
   `KnobAssignmentResult` with optional `axis_assignment` field
   (default `None`); add `LearnedAxisObjective` protocol.
@@ -142,3 +142,27 @@ shipped in PR #79). No other downstream blockers.
 
 **No breaking changes.** Default `learn_axis_assignment=None`
 preserves bit-exact existing behaviour. Callers opt in.
+
+## Promote-to-default gate
+
+Strict criteria for flipping `learn_axis_assignment` from opt-in to
+default (raised in PR #80 review):
+
+1. **Replication on ≥ 2 distinct real SAEs.** Both Gemma-Scope and
+   GPT-2-small (or equivalent) must show a positive Δ on the
+   training-objective Spearman *and* the held-out-pair validation
+   Spearman, vs the hardcoded baseline, with seed=0 and seed=42.
+2. **Downstream metric agreement.** At least one of the following
+   must improve by a non-trivial margin at the same SAEs:
+   - post-cancellation KL divergence on a behavioural-validation
+     prompt set (lower is better),
+   - decoder-Gram reconstruction fidelity (Frobenius distance to the
+     analytic gram, lower is better).
+3. **Calibration-cost budget.** The greedy solver completes in
+   ≤ 5 s per import at N ≤ 1000 on commodity CPU; the scipy solver
+   in ≤ 60 s at N ≤ 1000.
+
+Until all three hold, the strategy stays opt-in. The Spearman win on
+a synthetic clustered SAE is *necessary* but not *sufficient* for
+the default flip — synthetic-only evidence is consistent with the
+strategy fitting cluster-bearing noise.

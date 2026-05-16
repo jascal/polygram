@@ -3,16 +3,16 @@
 ### Requirement: `from_sae_lens` accepts `learn_axis_assignment` kwarg
 
 `polygram.sae_import.from_sae_lens` SHALL accept
-`learn_axis_assignment: bool | LearnedAxisAssignment | None = None`
+`learn_axis_assignment: bool | LearnedKnobAssignment | None = None`
 as a keyword-only argument.
 
 - `None` or `False` (default): the import proceeds via the existing
   hardcoded `assign_amp_knobs_pca` + `assign_phase_knobs_pca`
   helpers — byte-identical to the pre-change behaviour.
-- `True`: instantiate `LearnedAxisAssignment()` with default
+- `True`: instantiate `LearnedKnobAssignment()` with default
   arguments (`solver="greedy"`,
   `objective=spearman_objective`) and use it for the import.
-- A `LearnedAxisAssignment` instance: use it directly without
+- A `LearnedKnobAssignment` instance: use it directly without
   modification.
 
 When the learned strategy is in use, the per-feature knob arrays
@@ -32,12 +32,12 @@ strategy's `assign()` return rather than via the hardcoded helpers.
 - **WHEN** `from_sae_lens(..., learn_axis_assignment=True)` is
   called
 - **THEN** the import uses
-  `LearnedAxisAssignment(solver="greedy", objective=spearman_objective)`
+  `LearnedKnobAssignment(solver="greedy", objective=spearman_objective)`
 
 #### Scenario: explicit instance honoured
 
 - **WHEN** `from_sae_lens(..., learn_axis_assignment=
-  LearnedAxisAssignment(solver="scipy"))` is called
+  LearnedKnobAssignment(solver="scipy"))` is called
 - **THEN** the import uses the scipy solver as configured
 
 ### Requirement: `SelectionReport.learned_axis_assignment` surfaces the learned map
@@ -45,7 +45,7 @@ strategy's `assign()` return rather than via the hardcoded helpers.
 `polygram.sae_import.SelectionReport` SHALL gain a
 `learned_axis_assignment: dict[str, Any] | None = None` field.
 
-When the import path runs `LearnedAxisAssignment`, the field SHALL
+When the import path runs `LearnedKnobAssignment`, the field SHALL
 be populated with a dict containing at minimum:
 
 - `axis_assignment`: copied from the result's `axis_assignment`

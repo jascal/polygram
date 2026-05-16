@@ -1,21 +1,21 @@
 ## ADDED Requirements
 
-### Requirement: `LearnedAxisAssignment` ships as an opt-in `KnobAssignment` strategy
+### Requirement: `LearnedKnobAssignment` ships as an opt-in `KnobAssignment` strategy
 
-`polygram.geometry.LearnedAxisAssignment` SHALL be a class
+`polygram.geometry.LearnedKnobAssignment` SHALL be a class
 implementing the `KnobAssignment` protocol from
 `polygram.geometry.protocols`. The class SHALL be importable from
 `polygram.geometry` and re-exported from the package's
 `__init__.py`.
 
 The strategy SHALL NOT be invoked unless the caller explicitly opts
-in — either by passing a `LearnedAxisAssignment` instance through
+in — either by passing a `LearnedKnobAssignment` instance through
 `from_sae_lens(learn_axis_assignment=...)` or via the matching
 CLI flag.
 
 #### Scenario: importable from polygram top-level
 
-- **WHEN** `from polygram import LearnedAxisAssignment` is executed
+- **WHEN** `from polygram import LearnedKnobAssignment` is executed
 - **THEN** the class is importable and is an instance of the
   `KnobAssignment` protocol per `runtime_checkable`
 
@@ -24,12 +24,12 @@ CLI flag.
 - **WHEN** `from_sae_lens(records, ids, encoding=Rung4())` is called
   without `learn_axis_assignment`
 - **THEN** the resulting Dictionary is byte-identical to the
-  pre-change behaviour (no `LearnedAxisAssignment` instantiation,
+  pre-change behaviour (no `LearnedKnobAssignment` instantiation,
   no learned map applied)
 
 ### Requirement: Two solvers — greedy and scipy
 
-`LearnedAxisAssignment(solver=...)` SHALL accept `"greedy"` (default)
+`LearnedKnobAssignment(solver=...)` SHALL accept `"greedy"` (default)
 and `"scipy"`.
 
 - `solver="greedy"` SHALL perform deterministic permutation search:
@@ -46,23 +46,55 @@ and `"scipy"`.
 
 #### Scenario: greedy solver is deterministic
 
-- **WHEN** `LearnedAxisAssignment(solver="greedy")` is invoked
+- **WHEN** `LearnedKnobAssignment(solver="greedy")` is invoked
   twice on the same projection matrix
 - **THEN** both invocations produce the same `axis_assignment`
   bit-for-bit
 
 #### Scenario: scipy solver requires the opt extra
 
-- **WHEN** `LearnedAxisAssignment(solver="scipy")` is invoked in an
+- **WHEN** `LearnedKnobAssignment(solver="scipy")` is invoked in an
   environment without scipy installed
 - **THEN** an `ImportError` is raised pointing at the
   `polygram[opt]` install hint
 
 #### Scenario: scipy solver initialises from greedy result
 
-- **WHEN** `LearnedAxisAssignment(solver="scipy")` is invoked
+- **WHEN** `LearnedKnobAssignment(solver="scipy")` is invoked
 - **THEN** the strategy first computes the greedy assignment, then
   passes it as the initial point `x0` to scipy
+
+### Requirement: Greedy solver supports early stopping
+
+`LearnedKnobAssignment(early_stop_eps=...)` SHALL accept a float
+(default `1e-4`) that bounds the marginal objective gain below
+which the greedy search SHALL stop assigning further knob slots.
+Remaining unassigned knob slots SHALL default to the hardcoded
+baseline axes.
+
+Concretely: after each knob slot is assigned, if the gain over the
+previous slot's best score is below `early_stop_eps` for two
+consecutive slots, the search terminates. The result's
+`axis_assignment` contains the learned entries for assigned slots
+and the baseline entries for the remaining slots.
+
+`early_stop_eps = 0.0` disables the heuristic (search always
+proceeds through every slot).
+
+#### Scenario: early stopping triggers on flat marginal gains
+
+- **WHEN** the synthetic input has informative signal only on the
+  first 2 PCA axes (e.g., two clusters in a 16-dim space) and
+  `LearnedKnobAssignment(early_stop_eps=1e-4)` is invoked
+- **THEN** the search stops after assigning α and φ (the first two
+  knobs), the remaining amp-knob slots adopt the baseline axes, and
+  the result still satisfies `objective_value >= objective_baseline`
+
+#### Scenario: early_stop_eps=0 disables the heuristic
+
+- **WHEN** `LearnedKnobAssignment(early_stop_eps=0.0)` is invoked
+- **THEN** the search assigns every knob slot regardless of
+  marginal gain
 
 ### Requirement: Pluggable objective via `LearnedAxisObjective` protocol
 
@@ -84,13 +116,13 @@ decoder_geom, *, feature_names) -> float` returns a scalar to
 
 #### Scenario: default objective is Spearman
 
-- **WHEN** `LearnedAxisAssignment()` is instantiated without an
+- **WHEN** `LearnedKnobAssignment()` is instantiated without an
   explicit `objective` kwarg
 - **THEN** `strategy.objective is spearman_objective`
 
 #### Scenario: pluggable objective accepted
 
-- **WHEN** `LearnedAxisAssignment(objective=pearson_objective)` is
+- **WHEN** `LearnedKnobAssignment(objective=pearson_objective)` is
   instantiated
 - **THEN** the strategy uses Pearson correlation as its objective
   during the search
@@ -104,7 +136,7 @@ decoder_geom, *, feature_names) -> float` returns a scalar to
 
 ### Requirement: Result surfaces the learned map in `KnobAssignmentResult.axis_assignment`
 
-`LearnedAxisAssignment.assign(...)` SHALL populate the
+`LearnedKnobAssignment.assign(...)` SHALL populate the
 `axis_assignment` field of the returned `KnobAssignmentResult` with:
 
 - A `dict[str, int]` mapping knob name to chosen PCA-axis index when
@@ -121,7 +153,7 @@ objective evaluated at the hardcoded baseline map for comparison).
 
 #### Scenario: greedy result is a knob → int map
 
-- **WHEN** `LearnedAxisAssignment(solver="greedy").assign(...)` is
+- **WHEN** `LearnedKnobAssignment(solver="greedy").assign(...)` is
   called on a Rung4-encoded projection
 - **THEN** the result's `axis_assignment` is a dict whose values are
   all integers, and whose keys cover at least `{"alpha", "phi",
@@ -129,7 +161,7 @@ objective evaluated at the hardcoded baseline map for comparison).
 
 #### Scenario: result includes baseline-vs-learned objective
 
-- **WHEN** any `LearnedAxisAssignment.assign(...)` completes
+- **WHEN** any `LearnedKnobAssignment.assign(...)` completes
 - **THEN** the result carries `objective_value` and
   `objective_baseline` as floats, and `objective_value ≥
   objective_baseline - 1e-6` (the learned map is no worse than the
@@ -137,7 +169,7 @@ objective evaluated at the hardcoded baseline map for comparison).
 
 ### Requirement: Reproduces the prototype's headline result
 
-`LearnedAxisAssignment(solver="greedy")` SHALL reproduce the
+`LearnedKnobAssignment(solver="greedy")` SHALL reproduce the
 prototype's published numbers on the synthetic 64-feature clustered
 SAE described in `docs/research/rung5-pareto-scans.md` scan 4:
 
@@ -160,7 +192,7 @@ SAE described in `docs/research/rung5-pareto-scans.md` scan 4:
 
 ### Requirement: HEA_Rung2 falls back to the hardcoded helper
 
-`LearnedAxisAssignment.assign(...)` SHALL detect
+`LearnedKnobAssignment.assign(...)` SHALL detect
 `isinstance(encoding, HEA_Rung2)` and SHALL fall back to
 the hardcoded `assign_amp_knobs_pca` + `assign_phase_knobs_pca`
 helpers (returning their result with `axis_assignment=None`).
@@ -171,14 +203,14 @@ shape is out of scope for v1 of the learned strategy.
 
 #### Scenario: HEA encoding falls back cleanly
 
-- **WHEN** `LearnedAxisAssignment().assign(projs, names,
+- **WHEN** `LearnedKnobAssignment().assign(projs, names,
   encoding=HEA_Rung2(n_qubits=3, depth=2), ...)` is called
 - **THEN** the returned result populates per-feature knobs via the
   hardcoded helpers and `axis_assignment is None`
 
 ### Requirement: Validation split prevents objective overfitting
 
-`LearnedAxisAssignment(validation_fraction=...)` SHALL accept a
+`LearnedKnobAssignment(validation_fraction=...)` SHALL accept a
 fraction in `[0.0, 0.5]` (default `0.0` → no split) that holds out
 that fraction of off-diagonal pairs as a validation set. The
 training objective is computed on the remaining pairs; the result's
@@ -191,7 +223,7 @@ objective on all off-diagonal pairs and SHALL set
 
 #### Scenario: validation fraction held out correctly
 
-- **WHEN** `LearnedAxisAssignment(validation_fraction=0.2).assign(...)`
+- **WHEN** `LearnedKnobAssignment(validation_fraction=0.2).assign(...)`
   is called on a 64-feature dictionary (2016 off-diagonal pairs)
 - **THEN** the training objective is computed on ~1612 pairs and the
   validation objective on ~404 pairs, and the result carries both
@@ -199,6 +231,6 @@ objective on all off-diagonal pairs and SHALL set
 
 #### Scenario: zero validation fraction equals all-pairs objective
 
-- **WHEN** `LearnedAxisAssignment(validation_fraction=0.0).assign(...)`
+- **WHEN** `LearnedKnobAssignment(validation_fraction=0.0).assign(...)`
   is called
 - **THEN** `result.objective_value == result.training_objective_value`

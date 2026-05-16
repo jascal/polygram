@@ -8,7 +8,7 @@ field surfaces *which PCA axis (or which linear combination of
 axes)* fed each polygram knob slot during the import.
 
 `ClusteredKnobAssignment` and `UniformSphereKnobAssignment` SHALL
-leave the field at the default `None`. `LearnedAxisAssignment`
+leave the field at the default `None`. `LearnedKnobAssignment`
 SHALL populate it per the
 [`learned-axis-assignment` capability spec](../learned-axis-assignment/spec.md).
 
@@ -23,7 +23,7 @@ churn every existing strategy implementation.
 
 #### Scenario: learned strategy populates the field
 
-- **WHEN** `LearnedAxisAssignment().assign(...)` returns
+- **WHEN** `LearnedKnobAssignment().assign(...)` returns
 - **THEN** `result.axis_assignment` is a non-empty dict whose keys
   are knob names
 
@@ -32,8 +32,11 @@ churn every existing strategy implementation.
 `polygram.geometry.LearnedAxisObjective` SHALL be a
 `runtime_checkable` Protocol with the call signature
 `__call__(analytic_gram: np.ndarray, decoder_geom: np.ndarray, *,
-feature_names: list[str]) -> float`. The return value is a scalar
-that the learned-assignment solver maximises.
+feature_names: list[str] | None = None) -> float`. The
+`feature_names` kwarg is optional (default `None`) to reduce
+boilerplate for simple objectives that ignore cluster context. The
+return value is a scalar that the learned-assignment solver
+maximises.
 
 Three built-in objectives SHALL be available in
 `polygram.geometry.objectives`:
@@ -57,8 +60,16 @@ they satisfy the protocol.
 
 #### Scenario: user callable accepted as objective
 
-- **WHEN** a user defines `def my_obj(g, d, *, feature_names):
+- **WHEN** a user defines `def my_obj(g, d, *, feature_names=None):
   return float(np.real(g).mean())` and passes it via
-  `LearnedAxisAssignment(objective=my_obj)`
+  `LearnedKnobAssignment(objective=my_obj)`
 - **THEN** the strategy accepts it without complaint and uses it
   during the search
+
+#### Scenario: simple objective omitting feature_names accepted
+
+- **WHEN** a user defines `def simple_obj(g, d): return
+  float(-np.linalg.norm(np.abs(g) - d))` and passes it via
+  `LearnedKnobAssignment(objective=simple_obj)`
+- **THEN** the strategy accepts it (the protocol's `feature_names`
+  default is `None`) and uses it during the search

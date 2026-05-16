@@ -1,6 +1,6 @@
 ## 1. `LearnedAxisObjective` protocol + built-ins
 
-- [ ] 1.1 Add `LearnedAxisObjective` Protocol to `polygram/geometry/protocols.py`. `runtime_checkable`. Signature `__call__(analytic_gram: np.ndarray, decoder_geom: np.ndarray, *, feature_names: list[str]) -> float`.
+- [ ] 1.1 Add `LearnedAxisObjective` Protocol to `polygram/geometry/protocols.py`. `runtime_checkable`. Signature `__call__(analytic_gram: np.ndarray, decoder_geom: np.ndarray, *, feature_names: list[str] | None = None) -> float`. `feature_names` is keyword-only with a `None` default so simple objectives can omit it.
 - [ ] 1.2 New module `polygram/geometry/objectives.py` with `spearman_objective`, `pearson_objective`, and `behavioural_objective(reference_pair_sims) -> Callable`. Unit tests in `tests/test_learned_axis_assignment.py::TestObjectives`.
 - [ ] 1.3 Extract the existing off-diagonal-triangle Spearman helper from `examples/rung5_pareto_scans.py::_spearman` into `polygram/geometry/objectives.py` (rename to `_spearman_off_diagonal`) and have `spearman_objective` consume it. Update the example to import the canonical helper.
 
@@ -10,24 +10,24 @@
 - [ ] 2.2 Add `objective_value: float | None = None` and `objective_baseline: float | None = None` and `training_objective_value: float | None = None` to the same dataclass.
 - [ ] 2.3 Verify `ClusteredKnobAssignment` and `UniformSphereKnobAssignment` continue to construct `KnobAssignmentResult` without these new fields (they default to `None`). No code changes expected; add a regression test.
 
-## 3. `LearnedAxisAssignment` strategy class
+## 3. `LearnedKnobAssignment` strategy class
 
-- [ ] 3.1 Add `polygram/geometry/learned_axis_assignment.py` with the `LearnedAxisAssignment` dataclass. Fields: `solver: str = "greedy"`, `objective: LearnedAxisObjective = spearman_objective`, `max_axes: int = 32`, `validation_fraction: float = 0.0`, `scipy_restarts: int = 1`, `seed: int = 0`.
-- [ ] 3.2 `__post_init__` validates `solver in {"greedy", "scipy"}`, `0.0 <= validation_fraction <= 0.5`, `max_axes >= 1`, `scipy_restarts >= 1`.
+- [ ] 3.1 Add `polygram/geometry/learned_axis_assignment.py` with the `LearnedKnobAssignment` dataclass. Fields: `solver: str = "greedy"`, `objective: LearnedAxisObjective = spearman_objective`, `max_axes: int = 32`, `validation_fraction: float = 0.0`, `scipy_restarts: int = 1`, `early_stop_eps: float = 1e-4`, `seed: int = 0`.
+- [ ] 3.2 `__post_init__` validates `solver in {"greedy", "scipy"}`, `0.0 <= validation_fraction <= 0.5`, `max_axes >= 1`, `scipy_restarts >= 1`, `early_stop_eps >= 0.0`.
 - [ ] 3.3 `assign(projections, feature_names, *, n_clusters, gamma_range, assign_gamma, seed, assign_amp_knobs=False, assign_phase_knobs=False, encoding=None) -> KnobAssignmentResult`. Implements the `KnobAssignment` protocol.
-- [ ] 3.4 Internal helper `_build_axis_map_greedy(projs, encoding, objective, max_axes) -> dict[str, int]` performing the prototype's greedy permutation search.
+- [ ] 3.4 Internal helper `_build_axis_map_greedy(projs, encoding, objective, max_axes, early_stop_eps) -> dict[str, int]` performing the prototype's greedy permutation search with early-stop on flat marginal gains (two consecutive slots below `early_stop_eps` ⇒ remaining slots fall through to baseline axes).
 - [ ] 3.5 Internal helper `_build_axis_map_scipy(projs, encoding, objective, max_axes, scipy_restarts) -> dict[str, list[float]]` performing continuous optimisation via `scipy.optimize.minimize(method="Nelder-Mead")` for k<3 and `differential_evolution` for k>=3. Initialises from the greedy result. Raises `ImportError` (with the existing `_SCIPY_INSTALL_HINT`-style message) when scipy is unavailable.
 - [ ] 3.6 Internal helper `_apply_axis_map(projs, encoding, axis_map) -> tuple[list[float], list[float], list[float], list[tuple[tuple[float, float], ...]]]` that consumes a chosen map and returns per-feature `(alphas, phis, theta_amps, psi_auxes, theta_amp_bs, psi_amp_bs, amp_knobs_list)` consistent with the existing helpers' contracts.
 - [ ] 3.7 HEA_Rung2 fallback: when `isinstance(encoding, HEA_Rung2)`, log INFO-once and delegate to `assign_amp_knobs_pca` + `assign_phase_knobs_pca`; set `axis_assignment=None` and copy `objective_value = objective_baseline = NaN` to flag the bypass.
 - [ ] 3.8 Validation split: when `validation_fraction > 0`, hold out the configured fraction of off-diagonal pairs as a validation set; train objective on the remaining pairs; report validation score in `objective_value` and training score in `training_objective_value`.
-- [ ] 3.9 Re-export `LearnedAxisAssignment`, `LearnedAxisObjective`, `spearman_objective`, `pearson_objective`, `behavioural_objective` from `polygram/geometry/__init__.py`.
-- [ ] 3.10 Re-export `LearnedAxisAssignment` from `polygram/__init__.py` (top-level).
+- [ ] 3.9 Re-export `LearnedKnobAssignment`, `LearnedAxisObjective`, `spearman_objective`, `pearson_objective`, `behavioural_objective` from `polygram/geometry/__init__.py`.
+- [ ] 3.10 Re-export `LearnedKnobAssignment` from `polygram/__init__.py` (top-level).
 
 ## 4. `from_sae_lens` opt-in plumbing
 
-- [ ] 4.1 Add `learn_axis_assignment: bool | LearnedAxisAssignment | None = None` kwarg to `from_sae_lens` in `polygram/sae_import.py`.
-- [ ] 4.2 Resolve the kwarg at function entry: `None`/`False` → keep current behaviour; `True` → instantiate `LearnedAxisAssignment()`; an instance → use directly. Document the resolution rule in the docstring.
-- [ ] 4.3 In the dispatch flow, when `learn_axis_assignment` is populated AND the path is not `cluster_assignments` / `from_labels`: route through `LearnedAxisAssignment.assign(...)` instead of the strategy from `resolved_profile.knob_assignment`. (For the `cluster_assignments` / `from_labels` paths, we already bypass the strategy entirely; the learned-axis-assignment opt-in is also bypassed there in v1 — document this as a known limitation and a follow-up if real callers hit it.)
+- [ ] 4.1 Add `learn_axis_assignment: bool | LearnedKnobAssignment | None = None` kwarg to `from_sae_lens` in `polygram/sae_import.py`.
+- [ ] 4.2 Resolve the kwarg at function entry: `None`/`False` → keep current behaviour; `True` → instantiate `LearnedKnobAssignment()`; an instance → use directly. Document the resolution rule in the docstring.
+- [ ] 4.3 In the dispatch flow, when `learn_axis_assignment` is populated AND the path is not `cluster_assignments` / `from_labels`: route through `LearnedKnobAssignment.assign(...)` instead of the strategy from `resolved_profile.knob_assignment`. (For the `cluster_assignments` / `from_labels` paths, we already bypass the strategy entirely; the learned-axis-assignment opt-in is also bypassed there in v1 — document this as a known limitation and a follow-up if real callers hit it.)
 - [ ] 4.4 Populate per-feature knob arrays from `result.axis_assignment` (greedy: integer-indexed PC slice + rescale to range; scipy: linear-combination of PCs + rescale).
 - [ ] 4.5 Surface the learned map in `SelectionReport.learned_axis_assignment` as a JSON-safe dict (cast numpy values to plain Python).
 
@@ -60,10 +60,13 @@
 - [ ] 8.7 `tests/test_learned_axis_assignment.py::TestScipySolver::test_requires_opt_extra` — `pytest.importorskip("scipy")`-gated; without scipy, ImportError with the install hint.
 - [ ] 8.8 `tests/test_learned_axis_assignment.py::TestValidationSplit::test_train_vs_validation_objectives_separate` — validation-fraction split surfaces both scores.
 - [ ] 8.9 `tests/test_learned_axis_assignment.py::TestHEAFallback` — HEA_Rung2 encoding falls through to hardcoded helpers, sets `axis_assignment=None`, logs INFO-once.
-- [ ] 8.10 `tests/test_sae_import.py::TestLearnedAxisAssignment::test_default_behaviour_byte_identical` — without `learn_axis_assignment`, gram bit-identical to pre-change baseline.
-- [ ] 8.11 `tests/test_sae_import.py::TestLearnedAxisAssignment::test_true_triggers_default_strategy`.
-- [ ] 8.12 `tests/test_sae_import.py::TestLearnedAxisAssignment::test_instance_honoured`.
-- [ ] 8.13 `tests/test_sae_import.py::TestLearnedAxisAssignment::test_report_field_populated` — `SelectionReport.learned_axis_assignment` is JSON-safe and has the expected keys.
+- [ ] 8.9.1 `tests/test_learned_axis_assignment.py::TestEarlyStopping::test_two_consecutive_flat_gains_terminate` — synthetic input with informative signal only on the first 2 PCA axes triggers early-stop after α and φ.
+- [ ] 8.9.2 `tests/test_learned_axis_assignment.py::TestEarlyStopping::test_zero_eps_disables_heuristic` — `early_stop_eps=0.0` assigns every knob slot regardless of marginal gain.
+- [ ] 8.9.3 `tests/test_learned_axis_assignment.py::TestProtocol::test_objective_without_feature_names_accepted` — a `def simple_obj(g, d): ...` callable (no `feature_names` kwarg) is accepted by `LearnedKnobAssignment(objective=...)` and the protocol's `runtime_checkable` check passes.
+- [ ] 8.10 `tests/test_sae_import.py::TestLearnedKnobAssignment::test_default_behaviour_byte_identical` — without `learn_axis_assignment`, gram bit-identical to pre-change baseline.
+- [ ] 8.11 `tests/test_sae_import.py::TestLearnedKnobAssignment::test_true_triggers_default_strategy`.
+- [ ] 8.12 `tests/test_sae_import.py::TestLearnedKnobAssignment::test_instance_honoured`.
+- [ ] 8.13 `tests/test_sae_import.py::TestLearnedKnobAssignment::test_report_field_populated` — `SelectionReport.learned_axis_assignment` is JSON-safe and has the expected keys.
 - [ ] 8.14 `tests/test_config.py::TestSAEImportConfig::test_learn_axis_assignment_round_trip`.
 - [ ] 8.15 `tests/test_cli.py::TestFromSaeLens::test_learn_axis_assignment_flag` — CLI smoke test.
 
@@ -81,7 +84,7 @@
 ## 11. Closing
 
 - [ ] 11.1 Bump version in `pyproject.toml` to `0.8.0` (additive new strategy; new public API surface).
-- [ ] 11.2 Update `polygram/__init__.py` `__all__` to include `LearnedAxisAssignment`, `LearnedAxisObjective`, and the three built-in objective functions.
+- [ ] 11.2 Update `polygram/__init__.py` `__all__` to include `LearnedKnobAssignment`, `LearnedAxisObjective`, and the three built-in objective functions.
 - [ ] 11.3 CHANGELOG entry under `0.8.0`.
 - [ ] 11.4 Run the full test suite — confirm no regressions in MPSRung1 / HEA / Rung3 / Rung4 / Rung5 paths.
 - [ ] 11.5 Manual smoke: load the toy SAE fixture, import with `learn_axis_assignment=True`, confirm `report.learned_axis_assignment` is well-formed.
