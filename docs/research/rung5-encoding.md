@@ -53,14 +53,14 @@ property Rung3 and Rung4 ship, scaled across k.
 
 `examples/rung5_rank_verification.py` sweeps a k-ladder and computes
 gram rank at `N ∈ {cap/4, cap/2, cap, 2·cap}` for each k. The committed
-artifact `docs/research/data/rung5_rank_verification.json` confirms
-saturation at `8 · 2^k` for k ∈ {2, 3, 4} across two seeds:
+artifact [`docs/research/data/rung5_rank_verification.json`](data/rung5_rank_verification.json)
+confirms saturation at `8 · 2^k` for k ∈ {2, 3, 4} across two seeds:
 
-| k | cap (8·2^k) | rank @ N=cap | rank @ N=2·cap |
-|---|-------------|--------------|----------------|
-| 2 | 32          | 32 ✓         | 32 ✓ (saturated) |
-| 3 | 64          | 64 ✓         | 64 ✓ (saturated) |
-| 4 | 128         | 128 ✓        | 128 ✓ (saturated) |
+| k | cap (8·2^k) | rank @ N=cap | rank @ N=2·cap | seeds |
+|---|-------------|--------------|----------------|-------|
+| 2 | 32          | 32 ✓         | 32 ✓ (saturated) | {0, 42} |
+| 3 | 64          | 64 ✓         | 64 ✓ (saturated) | {0, 42} |
+| 4 | 128         | 128 ✓        | 128 ✓ (saturated) | {0, 42} |
 
 The Rung4 viability-spike result (rank-32 cap) is recovered as the
 `k=2` slice; the Rung5 cap-vs-k relationship holds tightly through
@@ -110,17 +110,23 @@ Forward-looking: if a future version wants q-orca to compile the amp
 qubits into actual gates, the table format already carries the data
 shape needed (`k` columns per qubit indexed unambiguously).
 
-## Future direction: unified `RungMPS(n_mps_qubits, n_amp_qubits)`
+## Future direction: the general (M, k) family
 
-`Rung5` parameterises only the amp register width — the MPS core
-stays fixed at `bond_dim=2`, `n_qubits=3`. If a future workload
-demands varying both the MPS core width *and* the amp register
-width, a unified `RungMPS(n_mps_qubits, n_amp_qubits)` encoding
-would be the cleanest generalisation, with `MPSRung1`, `Rung4`, and
-`Rung5` recoverable as fixed slices.
+`Rung5` is one slice of a broader two-axis encoding family
+parameterised by `(M, k)` — `M` the MPS-core width (today fixed at
+3 qubits, bond_dim=2) and `k` the product-amp register width.
+`MPSRung1 = (3, 0)`, `Rung4 = (3, 2)`, `Rung5(k) = (3, k)`; per-
+feature Hilbert dim is `2^M · 2^k` in the general case. Reframing
+the encoding ladder as a `(M, k)` plane (rather than a 1D rung
+sequence) makes the design space's open directions explicit: this
+PR moves along the k-axis; future work can move along the M-axis
+or jointly.
 
-Out of scope for this change. The `Rung5` name doesn't ossify the
-design space — if `RungMPS` lands, `Rung5` can be re-expressed as
+A unified `RungMPS(n_mps_qubits=M, n_amp_qubits=k)` encoding would
+be the cleanest landing for that family, with `MPSRung1`, `Rung4`,
+and `Rung5` recoverable as fixed slices. Out of scope for this
+change. The `Rung5` name doesn't ossify the design space — if
+`RungMPS` lands, `Rung5` can be re-expressed as
 `RungMPS(n_mps_qubits=3, n_amp_qubits=k)` with no caller breakage,
 since `Rung5`'s public API is its `n_amp_qubits` field and the
 amp-overlap functions.

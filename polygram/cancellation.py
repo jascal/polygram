@@ -1103,6 +1103,19 @@ class Cancellation:
 
         Returned ``structural_floor`` is the MPS-phase-only floor of
         (α, β, γ) — independent of k.
+
+        The optimiser RNG seed comes from ``optimize["seed"]`` (default
+        0). sae-forge sweeps that want per-trial variation should pass
+        a distinct seed per call.
+
+        **High-k cost:** ``differential_evolution`` scales roughly
+        linearly in dimension per generation, so wall-clock grows
+        with (2 + 2k). At k ≥ 10–12 the (2 + 2k)-dim solve becomes the
+        dominant cost of a sweep point. If that becomes load-bearing,
+        a coordinate-descent variant that alternates φ-only grid
+        search with per-amp-qubit Nelder-Mead refinement is a
+        cheaper alternative — left for a follow-up if profiling
+        justifies it.
         """
         try:
             from scipy.optimize import differential_evolution
@@ -1131,6 +1144,7 @@ class Cancellation:
 
         bounds = [self._knob_bounds(p) for p in self.knobs]
         max_steps = int(self.optimize.get("max_steps", 50))
+        seed = int(self.optimize.get("seed", 0))
 
         history: list[tuple[tuple[float, ...], float, bool]] = []
 
@@ -1159,7 +1173,7 @@ class Cancellation:
         result = differential_evolution(
             objective,
             bounds=bounds,
-            seed=0,
+            seed=seed,
             maxiter=max_steps,
             polish=False,
         )
