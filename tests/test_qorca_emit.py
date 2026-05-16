@@ -283,3 +283,116 @@ def test_hea_emits_no_amp_branch_section():
     from polygram._qorca_emit import render_machine_markdown
 
     assert "## amp branch" not in render_machine_markdown(_hea_dictionary())
+
+
+class TestRung5Emit:
+    """Q-OrCA emission for Rung5 dictionaries — k-parameterised
+    `## amp branch` section, MPSRung1 substrate on q0–q2 unchanged."""
+
+    def _rung5_pair(self, k=2, amp_knobs_per_feature=None):
+        from polygram import Dictionary, Feature
+        from polygram.encoding import Rung5
+
+        if amp_knobs_per_feature is None:
+            amp_knobs_per_feature = [
+                tuple((0.1 + 0.1 * i, 0.2 + 0.1 * i) for i in range(k))
+                for _ in range(2)
+            ]
+        feats = [
+            Feature(
+                name=name, cluster="s1", beta=b, alpha=0.0, gamma=0.0,
+                phi=0.0, amp_knobs=amp_knobs_per_feature[idx],
+            )
+            for idx, (name, b) in enumerate((("a", -0.3), ("b", 0.3)))
+        ]
+        return Dictionary(
+            name="Rung5EmitTest",
+            features=feats,
+            hierarchy={"s1": ["a", "b"]},
+            encoding=Rung5(n_amp_qubits=k),
+        )
+
+    def test_amp_branch_header_carries_k(self):
+        from polygram._qorca_emit import render_machine_markdown
+
+        md = render_machine_markdown(self._rung5_pair(k=3))
+        assert "rung-5 MPS-substrate (k=3 amp qubits)" in md
+
+    def test_amp_branch_table_has_k_pairs_per_feature(self):
+        from polygram._qorca_emit import render_machine_markdown
+
+        md = render_machine_markdown(self._rung5_pair(k=4))
+        assert "## amp branch" in md
+        block = md.rsplit("## amp branch", 1)[1]
+        for i in range(4):
+            assert f"theta_{i}" in block
+            assert f"psi_{i}" in block
+
+    def test_amp_branch_table_no_rung4_columns(self):
+        # Rung5 emission uses the indexed scheme, not Rung4's named
+        # theta_amp/theta_amp_b/etc. columns.
+        from polygram._qorca_emit import render_machine_markdown
+
+        md = render_machine_markdown(self._rung5_pair(k=2))
+        block = md.rsplit("## amp branch", 1)[1]
+        assert "theta_amp_b" not in block
+        assert "psi_amp_b" not in block
+
+    def test_amp_branch_rows_carry_per_qubit_pairs(self):
+        from polygram._qorca_emit import render_machine_markdown
+
+        d = self._rung5_pair(
+            k=2,
+            amp_knobs_per_feature=[
+                ((0.11, 0.22), (0.33, 0.44)),
+                ((0.55, 0.66), (0.77, 0.88)),
+            ],
+        )
+        md = render_machine_markdown(d)
+        block = md.rsplit("## amp branch", 1)[1]
+        assert "| a | 0.11 | 0.22 | 0.33 | 0.44 |" in block
+        assert "| b | 0.55 | 0.66 | 0.77 | 0.88 |" in block
+
+    def test_context_section_unchanged_3_qubits(self):
+        # The MPSRung1 substrate stays on q0–q2 — the amp branch is
+        # informational and lives outside the q-orca context block.
+        from polygram._qorca_emit import render_machine_markdown
+
+        md = render_machine_markdown(self._rung5_pair(k=4))
+        assert "| qubits   | list<qubit> | [q0, q1, q2]       |" in md
+
+    def test_build_machine_tolerates_amp_branch_section(self):
+        from polygram._qorca_emit import build_machine
+
+        d = self._rung5_pair(k=3)
+        machine = build_machine(d)
+        assert machine.name == "Rung5EmitTest"
+
+    def test_gram_via_qorca_path_matches_polygram_analytic_gram(self):
+        # Polygram's analytic Dictionary.gram() applies the Rung5 amp
+        # factor on top of the MPSRung1-equivalent gram (q-orca ignores
+        # the `## amp branch` section). Confirm the relationship at
+        # the analytic level.
+        import numpy as np
+
+        from polygram.encoding import MPSRung1, Rung5, rung5_amp_overlap
+
+        d = self._rung5_pair(k=2)
+        g_r5 = d.gram()
+        d_mps = Dictionary(
+            name=d.name,
+            features=d.features,
+            hierarchy=d.hierarchy,
+            encoding=MPSRung1(),
+        )
+        g_mps = d_mps.gram()
+        n = len(d.features)
+        amp = np.ones((n, n), dtype=complex)
+        for i in range(n):
+            for j in range(n):
+                amp[i, j] = rung5_amp_overlap(
+                    d.features[i].amp_knobs, d.features[j].amp_knobs
+                )
+        np.testing.assert_allclose(
+            g_r5, g_mps.astype(complex) * amp, atol=1e-12
+        )
