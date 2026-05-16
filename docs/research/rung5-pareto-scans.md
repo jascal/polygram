@@ -138,6 +138,108 @@ python examples/rung5_pareto_scans.py pca-amp-ablation \
 
 All three are deterministic (seeded) and torch-free.
 
+## What the scans mean for project theory
+
+Each scan maps cleanly to a specific result in the
+[May 2026 theoretical treatment](theory/polygram.pdf). The
+correspondence is sharp enough that the scans should be read as
+empirical validators of the formal claims, not as standalone numeric
+curiosities.
+
+### Scan 1 ↔ Prop 6.9 (Gram condition number) + §4 (manifold geometry)
+
+Prop 6.9 bounds `κ(G) ≤ (1 + (N−1)ρ) / (1 − (N−1)ρ)` where `ρ` is the
+maximum pairwise overlap of the dictionary's Polygrams. The bound is
+vacuous at our scan-1 N (we exceed `(N−1)ρ < 1`), but the *trend* it
+predicts is the load-bearing insight: smaller pairwise overlaps give
+better-conditioned grams.
+
+For random order-n Polygrams in ambient dim `2^n`, sphere
+concentration gives expected `|⟨f|g⟩|² ~ 2^{−n}`, so expected
+`ρ ~ 2^{−n/2}`. In our hybrid `Polygram(M=3, k)` encoding the
+effective order is `n = 3 + k`, and ρ drops as `2^{−(3+k)/2}` as k
+grows. The 5-decade conditioning improvement from Rung5(k=3) to
+Rung5(k=5) at N=64 is the Gershgorin shadow of moving features onto
+a larger sphere. **The k-axis is literally the manifold's
+ambient-dimension knob**, and the win is structural, not incidental.
+
+### Scan 2 ↔ Prop 4.1 (manifold dimension) + the dimensional wall
+
+Prop 4.1: the Polygram manifold has real dimension `2n + 1` inside an
+ambient sphere of dim `2·2^n − 1`. For our hybrid that means at most
+`2^n = 8·2^k` linearly-independent features can live on the manifold.
+The cliff at N = cap in scan 2 is this dimensional wall **empirically
+observed**: smallest non-zero singular value decays smoothly until
+N approaches cap, drops 2 decades right at N = cap, and at N > cap
+the rank saturates at cap while the gram becomes effectively singular
+(`σ_min/σ_max ~ 1e−17`).
+
+In the language of Cor 4.2, the missing directions number
+`2^{n+1} − 2n − 2`. At k=4 that's `256 − 8 − 2 = 246` codimensions
+per Polygram — at N > 128 those codimensions become null-space of
+the gram. The cliff is sharp because the polygram manifold is
+*real-analytic* (Prop 4.1): codimension doesn't decay continuously,
+it switches from "present" to "absent" the moment N exceeds cap.
+
+### Scan 3 ↔ "default reduces to MPS" as manifold collapse
+
+This is the cleanest theory lesson the scans deliver. With
+`assign_amp_knobs=False`, every feature's amp factor is `|0⟩^⊗k` and
+the encoded states all live on the `MPSRung1` sub-manifold — real
+dimension `2·3 + 1 = 7`, *not* `2(3 + k) + 1 = 2k + 7`. We're trying
+to embed 64 features on a 7-dim manifold; Prop 4.1 says you can't,
+and the gram dutifully reports rank 8 with condition `1e18`. Turning
+on PCA amp-knob assignment spreads features across the full
+`2k + 7`-dim hybrid manifold, recovering full rank.
+
+**The PCA branch isn't "adding fidelity" — it's preventing manifold
+collapse.** Scan 3's Spearman barely moves because the PCA axes used
+for the amp knobs (PC4..PC{3 + 2k}) are orthogonal to the cluster-
+bearing PC1..PC3 axes in our synth: they add volume to the embedding
+without refining its cluster geometry, exactly as §4.2's volume
+calculation `vol[Σ_n] = π^n` would predict. More k buys more volume,
+not more curvature in the right places.
+
+### The synthesis: capacity vs. fidelity, and the (M, k) split
+
+The scans cleanly separate two questions the theoretical treatment
+keeps distinct:
+
+- **Can the dictionary geometrically represent N features?** Pure
+  manifold-dimension question. Answered by `8·2^k ≥ 1.1·N` (the 10%
+  headroom buffer is the practical translation of scan 2's cliff).
+- **Does the encoded gram track decoder geometry?** Pure
+  parameter→state-map question. Depends on *which PCA axes feed
+  which knobs*, not on the manifold's size. The k-axis does not help
+  here — it's an MPS-substrate-quality question, not a Polygram-amp
+  question.
+
+This vindicates the paper's choice to *operationally* split
+`n = M + k` (base vs amplitude factors) while *theoretically*
+refusing to use the distinction for any theorem (the M+k notation in
+§3.1 is explicitly marked operational). The split is a *strategy*
+choice — which factors carry cluster structure vs. capacity — not a
+structural one. Our hybrid puts cluster structure on the bond-dim-2
+MPS substrate (M=3 qubits) and capacity on the amp branch (k qubits).
+Scan 3 makes this concrete: amp knobs respond to PCA noise
+(capacity), while phase knobs respond to cluster structure
+(fidelity).
+
+### The bigger picture for the encoding ladder
+
+Polygram 0.7.0's Rung5 expansion is moving along the **capacity axis**
+of the Polygram family. Future work that wants to move along the
+**fidelity axis** needs a different mechanism — e.g. learned
+per-knob PCA-axis assignments that respect cluster geometry, or a
+richer MPS substrate (the M-axis of the unified `Polygram(M, k)`
+future flagged in [rung5-encoding.md](rung5-encoding.md)).
+
+The conditioning win Rung5 ships is real and load-bearing for
+downstream Gram-inversion solves — but it is not a quality win, and
+confusing the two would lead to over-spending on k when the
+underlying problem is geometry, not capacity. The scans are the
+empirical guard against that confusion.
+
 ## Open follow-ups
 
 - **Real-SAE replication.** Run scan 1 against a Gemma-Scope SAE
