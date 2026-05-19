@@ -106,6 +106,11 @@ class BlockFormation:
 # adjacency is undirected; we canonicalise on insert).
 CrossBlockKey = tuple[int, int, int, int]
 
+# One materialised cross-block edge: `(key, cosine)`. Used by the
+# cached `cross_block_edges_tuple` on `ClusteredDictionary` and by
+# any downstream code iterating edges with their similarities.
+CrossBlockEdge = tuple[CrossBlockKey, float]
+
 
 # Block topology — flat adjacency for v1. A `dict[block_id, list[block_id]]`
 # records which blocks are linked at the topology level (e.g.,
@@ -149,6 +154,15 @@ class ClusteredDictionary:
     block_topology: BlockTopology | None = None
     block_formation: BlockFormation = field(
         default_factory=lambda: BlockFormation(strategy="user_declared")
+    )
+    # Cached tuple of `(key, value)` pairs from `cross_block_pairs`.
+    # Built once in `__post_init__` so downstream consumers (sampled
+    # cross-block walks, the amortised benchmark) avoid re-materialising
+    # `list(dict.items())` on every call. Excluded from init / repr /
+    # equality so it's an implementation detail, not part of the
+    # dataclass identity.
+    cross_block_edges_tuple: tuple[CrossBlockEdge, ...] = field(
+        default=(), init=False, compare=False, repr=False,
     )
 
     def __post_init__(self) -> None:
@@ -256,6 +270,16 @@ class ClusteredDictionary:
                     f"has out-of-range feat_j_idx={fj} for block {bj} "
                     f"(block has {len(self.blocks[bj].features)} features)"
                 )
+
+        # Build the cross-block-edges tuple cache. Avoids
+        # re-materialising `list(cross_block_pairs.items())` on every
+        # downstream call (the implementation gap PR #93 surfaced on
+        # the `cross_block_overlap` benchmark op).
+        object.__setattr__(
+            self,
+            "cross_block_edges_tuple",
+            tuple(self.cross_block_pairs.items()),
+        )
 
     @property
     def n_features(self) -> int:

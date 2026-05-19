@@ -198,8 +198,12 @@ def _clustered_op_cross_block_overlap(
 ) -> tuple[int, int]:
     """Clustered: sample `sample_size` cached cross-block edges.
 
+    Uses the precomputed `cross_block_edges_tuple` so the per-op cost
+    is just `rng.choice` + tuple indexing — no re-materialisation of
+    the cross_block_pairs dict on every call.
+
     Returns (requested, effective). Capped to total edge count."""
-    edges = list(clustered.cross_block_pairs.items())
+    edges = clustered.cross_block_edges_tuple
     eff = min(sample_size, len(edges))
     if eff == 0:
         return sample_size, 0
