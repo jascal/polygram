@@ -28,6 +28,22 @@
 
 ### Performance
 
+- **`_materialise_blocks` eliminates per-feature `dataclasses.replace`.**
+  The per-block hierarchy is now built from each feature's
+  original `cluster` value rather than synthesised via a
+  per-feature `replace(f, cluster=…)`. Object-allocation reduction
+  measured at full N=24,576: MPS 60%, Rung3 69%, Rung4 77%
+  (post-fix vs pre-fix in
+  `docs/research/data/clustered_amortised_benchmark_full_*_v2.json`).
+  Build wall-clock improves 2.55× on MPS, 1.16–1.18× on Rung3/Rung4.
+  Does NOT meet the proposal's gram-cross-over success criterion —
+  see `docs/research/clustered-amortised-benchmark.md`'s
+  post-lighter-container sweep section for the honest diagnosis.
+  Behaviour change: blocks built via cosine / co_firing strategies
+  now preserve each feature's *original* cluster name in the
+  per-block hierarchy (previously they were all rewritten to a
+  synthetic `<parent>_b<idx>` name); user_declared blocks already
+  preserved the original cluster values and are unaffected.
 - **`ClusteredDictionary.cross_block_edges_tuple` cache.**
   `cross_block_pairs` is now also exposed as a precomputed tuple
   at build time so sampled cross-block walks avoid the

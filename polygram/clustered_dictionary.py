@@ -36,7 +36,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from collections import defaultdict
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Literal
 
 from pathlib import Path
@@ -1323,28 +1323,30 @@ def _materialise_blocks(
 ) -> list[Dictionary]:
     """Construct one `Dictionary` per block from the partition.
 
-    For `strategy="user_declared"` blocks preserve the supplied
-    hierarchy's cluster names. For the other strategies each block is
-    a single synthetic cluster named `<parent_name>_b<idx>`.
+    Each block's hierarchy is built from the *original* cluster values
+    of its constituent features. For `strategy="user_declared"` this
+    preserves the supplied hierarchy's cluster names by definition.
+    For cosine / co_firing, where a block aggregates features from
+    multiple original clusters, the new block's hierarchy faithfully
+    surfaces that — rather than collapsing every feature into a
+    synthetic ``<parent_name>_b<idx>`` cluster as the pre-PR-#99 path
+    did.
+
+    The pre-#99 path called ``dataclasses.replace(f, cluster=…)``
+    on every block-resident Feature, which dominated the amortised
+    benchmark's block-formation cost (#93: ~35-41k objects, ~435 MB
+    RSS at N=24,576). This path skips the replace entirely.
     """
     blocks: list[Dictionary] = []
     for block_idx, indices in enumerate(block_indices):
         block_feats = [features[i] for i in indices]
         block_name = f"{parent_name}_b{block_idx}"
-        if block_formation.strategy == "user_declared" and hierarchy is not None:
-            # Preserve original Feature.cluster values; rebuild hierarchy
-            # restricted to this block's members.
-            block_hierarchy: dict[str, list[str]] = defaultdict(list)
-            for f in block_feats:
-                block_hierarchy[f.cluster].append(f.name)
-            block_hierarchy_resolved: dict[str, list[str]] = dict(block_hierarchy)
-        else:
-            # Synthesise a single cluster for the block. Rewrite each
-            # feature's `cluster` field to match so Dictionary's
-            # hierarchy invariant holds.
-            cluster = block_name
-            block_feats = [replace(f, cluster=cluster) for f in block_feats]
-            block_hierarchy_resolved = {cluster: [f.name for f in block_feats]}
+
+        block_hierarchy: dict[str, list[str]] = defaultdict(list)
+        for f in block_feats:
+            block_hierarchy[f.cluster].append(f.name)
+        block_hierarchy_resolved: dict[str, list[str]] = dict(block_hierarchy)
+
         blocks.append(
             Dictionary(
                 name=block_name,
