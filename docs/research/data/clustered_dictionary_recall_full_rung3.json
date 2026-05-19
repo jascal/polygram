@@ -1,0 +1,28 @@
+{
+  "polygram_version": "0.9.0",
+  "git_commit": "17fb55a1061964b23afded28bd6b7eac3b5232d1",
+  "fixture": "scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors",
+  "n_total_features": 24576,
+  "n_subset_features": 24576,
+  "d_model": 768,
+  "seed": 0,
+  "encoding": "rung3",
+  "block_size": 16,
+  "cosine_threshold": 0.3,
+  "redundancy_threshold": 0.7,
+  "flat": {
+    "n_pairs": 1738,
+    "wall_seconds": 47.65798430600262
+  },
+  "clustered": {
+    "n_pairs": 1738,
+    "wall_seconds": 53.95075190199714,
+    "n_blocks": 2619,
+    "mean_block_size": 9.383734249713632,
+    "n_cross_block_edges_total": 484862,
+    "n_cross_block_redundant": 1226
+  },
+  "recall": 1.0,
+  "precision": 1.0,
+  "speedup": 0.8833608916623538
+}
