@@ -218,3 +218,69 @@ fit on a single dictionary), not **cosine-speedup**. The openspec
 proposal's "100× speedup" target was based on the implicit
 assumption of expensive per-pair compute and stands as future work
 once a behavioural-validation killer experiment is wired up.
+
+## Full-N=24576 sweep (2026-05-19, polygram 0.9.0)
+
+Re-ran the §9 experiment at the SAE's full feature width (24,576
+features × 768 d_model — the same fixture, no subsampling) across
+all three MPS-substrate encodings to validate that the partition
+behaviour holds at the proposal's nominal "SAE scale."
+
+| Encoding | K | n_blocks | mean_block_size | cross-block edges | Flat (ms) | Clustered (ms) | Recall | Precision | Speedup |
+|---|---|---|---|---|---|---|---|---|---|
+| MPSRung1 | 8 | 4,037 | 6.1 | 501,362 | 52,808 | 57,080 | **1.000** | 1.000 | 0.93× |
+| Rung3 | 16 | 2,619 | 9.4 | 484,862 | 47,658 | 53,950 | **1.000** | 1.000 | 0.88× |
+| Rung4 | 32 | 1,878 | 13.1 | 461,852 | 52,216 | 56,003 | **1.000** | 1.000 | 0.93× |
+
+Raw artifacts (separate per-encoding JSONs):
+[`data/clustered_dictionary_recall_full_mps.json`](data/clustered_dictionary_recall_full_mps.json),
+[`…_full_rung3.json`](data/clustered_dictionary_recall_full_rung3.json),
+[`…_full_rung4.json`](data/clustered_dictionary_recall_full_rung4.json).
+
+**Recall holds at 1.000 at full SAE width.** Identical 1,738
+redundant pairs detected by both pipelines across every K. The
+N=2k / N=8k results were not an artifact of subset selection.
+
+**Speedup remains in the ~0.9× band.** Bigger K reduces both the
+block count and the cross-block edge set (4,037 → 1,878 blocks;
+501k → 462k edges), but flat's BLAS-backed cosine matmul is
+already the cheap operation; no K change makes clustered overtake
+it on this workload.
+
+**Why "100× at SAE scale" was the wrong target.** Per the
+walkthrough script, both pipelines compute the same `(N×N)` cosine
+graph — clustered then does *additional* block-formation and
+adjacency-enumeration work on the same data. Block formation isn't
+algorithmically cheaper than the redundancy enumeration it's meant
+to accelerate; they're the same `O(N²)` cost twice over. A
+sub-O(N²) block former (LSH, mini-batch k-means on activation
+co-firing) would close that gap, but is its own research project.
+
+**The bet still wins on (2) "fewer redundant features."** Polygram
+ships a real `O(N²)` redundancy detector and a clustered partition
+that catches the same pairs at full SAE width. The honest framing:
+clustering is correct, not faster, for single-shot redundancy
+detection. Its speedup lives downstream — every later analytic
+operation (per-block Gram, Cancellation, Q-OrCA emit) costs `O(K²)`
+per block instead of `O(N²)` globally.
+
+### §12 follow-up status
+
+- **§12.1 (recall < 0.95 → switch default to co_firing)** — not
+  triggered. Recall is 1.000 at full N across every shipped MPS
+  encoding. `BlockFormation.strategy="cosine"` remains the right
+  default; co_firing stays a future option, not a forced default.
+- **§12.2 (speedup < 100× → audit per-block Gram path)** —
+  triggered, but the diagnosis isn't "the Gram path is slow."
+  It's "block formation is itself O(N²) cosine work, so clustered
+  can never beat flat at single-shot redundancy detection on the
+  same fixture." Two non-overlapping follow-ups:
+  - Replace `_form_blocks_cosine`'s exact-cosine pair graph with a
+    sub-O(N²) approximate method (LSH / random-projection /
+    HNSW-ANN). Research-level scope, not in the current backlog.
+  - Build a *downstream-amortised* benchmark that measures
+    per-block Gram or Cancellation throughput across many
+    operations on one fixed `ClusteredDictionary` — the regime
+    where clustering's `O(K²)` per-block cost actually pays off.
+    The current script measures the wrong workload for clustering
+    to win on.
