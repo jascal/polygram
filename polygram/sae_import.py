@@ -666,7 +666,8 @@ def from_sae_lens(
             auto_promote_warning = (
                 f"auto-promoted to clustered: N={len(feature_ids)} "
                 f"exceeds {type(target_encoding).__name__}."
-                f"max_features={encoding_cap}"
+                f"max_features={encoding_cap}. "
+                f"Pass clustered=False for the strict ValueError."
             )
     if len(feature_ids) == 0:
         raise ValueError("feature_ids is empty; nothing to import")
