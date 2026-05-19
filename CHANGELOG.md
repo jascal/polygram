@@ -26,8 +26,40 @@
   in `SelectionReport.warnings`. Cosine-strategy-only;
   co_firing / user_declared are suppressed.
 
+### Added
+
+- **`BlockView` public surface.** New `polygram.clustered_dictionary.BlockView`
+  frozen dataclass carrying per-block metadata: `indices`,
+  `decoder_slice`, `encoding`, `feature_names`, `feature_clusters`.
+  `ClusteredDictionary` exposes the parallel `block_views: tuple[BlockView, ...]`
+  property and `block_view(idx) -> BlockView` accessor. Populated by
+  both canonical builders (`build_clustered_dictionary` populates
+  indices + metadata with `decoder_slice=None` to avoid the per-block
+  copy overhead; consumers compute the slice on demand from
+  `view.indices` against the parent matrix). `from_compression_panels`
+  populates the same fields with `decoder_slice=None` since the
+  compression panel path doesn't carry raw decoder vectors.
+  See `polygram/clustered_dictionary.py:BlockView` for the rationale
+  and the deferred-lazy-property scope note.
+
 ### Performance
 
+- **`_materialise_blocks` eliminates per-feature `dataclasses.replace`.**
+  The per-block hierarchy is now built from each feature's
+  original `cluster` value rather than synthesised via a
+  per-feature `replace(f, cluster=…)`. Object-allocation reduction
+  measured at full N=24,576: MPS 60%, Rung3 69%, Rung4 77%
+  (post-fix vs pre-fix in
+  `docs/research/data/clustered_amortised_benchmark_full_*_v2.json`).
+  Build wall-clock improves 2.55× on MPS, 1.16–1.18× on Rung3/Rung4.
+  Does NOT meet the proposal's gram-cross-over success criterion —
+  see `docs/research/clustered-amortised-benchmark.md`'s
+  post-lighter-container sweep section for the honest diagnosis.
+  Behaviour change: blocks built via cosine / co_firing strategies
+  now preserve each feature's *original* cluster name in the
+  per-block hierarchy (previously they were all rewritten to a
+  synthetic `<parent>_b<idx>` name); user_declared blocks already
+  preserved the original cluster values and are unaffected.
 - **`ClusteredDictionary.cross_block_edges_tuple` cache.**
   `cross_block_pairs` is now also exposed as a precomputed tuple
   at build time so sampled cross-block walks avoid the

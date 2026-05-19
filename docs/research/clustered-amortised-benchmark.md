@@ -167,7 +167,102 @@ threshold sweeps; repeated detection across activation cohorts;
 incremental rediscovery after `Cancellation`. Each of those is a
 legitimate use case.
 
-## What this means for the bet
+## Post-lighter-container sweep (2026-05-19, simpler-fix landing)
+
+The `add-lighter-per-block-container` proposal scoped a `BlockView` /
+lazy-materialisation refactor targeting the per-feature
+`dataclasses.replace` overhead surfaced above. After investigating
+the bottleneck more carefully, **the simpler fix that actually
+addresses the diagnosis is just eliminating the `replace` itself**
+in `_materialise_blocks` — keep the original `Feature.cluster`
+values, build each block's hierarchy from those, skip the
+per-feature copy entirely. The full lazy-materialisation surface
+is deferred until evidence demands it (none has surfaced).
+
+Re-ran the same benchmark configuration (full N=24,576, n_repeats=2,
+sample_size=256) on the post-fix tree. Raw artifacts:
+[`…_mps_v2.json`](data/clustered_amortised_benchmark_full_mps_v2.json),
+[`…_rung3_v2.json`](data/clustered_amortised_benchmark_full_rung3_v2.json),
+[`…_rung4_v2.json`](data/clustered_amortised_benchmark_full_rung4_v2.json).
+
+### Allocation reduction (the actual win)
+
+| Encoding | K | object Δ before | object Δ after | reduction |
+|---|---|---|---|---|
+| MPSRung1 | 8 | 41,172 | 16,413 | **60%** |
+| Rung3 | 16 | 35,696 | 11,062 | **69%** |
+| Rung4 | 32 | 32,684 | 7,520 | **77%** |
+
+Bigger K → fewer blocks → bigger relative win. The reduction is
+substantial and load-bearing for memory-pressure-sensitive
+workloads (sae-forge's cascade-host shim was running into RSS
+ceilings; this directly helps).
+
+### Build wall-clock (modest win; gates fail)
+
+| Encoding | K | build before (ms) | build after (ms) | speedup |
+|---|---|---|---|---|
+| MPSRung1 | 8 | 120,676 | 47,400 | 2.55× |
+| Rung3 | 16 | 57,937 | 49,253 | 1.18× |
+| Rung4 | 32 | 54,514 | 47,146 | 1.16× |
+
+The MPS speedup is large because the original allocation pressure
+was largest there (most blocks). On larger K the build is already
+dominated by the cosine pair graph + greedy seed walk, not the
+per-Feature replace — so removing replace barely shifts the
+wall-clock. **The proposal's "build ≥ 5× faster" gate fails on
+every encoding.**
+
+### Gram cross-over (gate fails; diagnosis reframed)
+
+| Encoding | K | gram cross-over before | gram cross-over after |
+|---|---|---|---|
+| MPSRung1 | 8 | 50 | 248 |
+| Rung3 | 16 | 372 | 695 |
+| Rung4 | 32 | none | none |
+
+**The proposal's "cross_over ≤ 8 on gram" gate fails badly.**
+Cross-over actually got *worse* (not better). The math is honest:
+both `flat_per_op` and `clustered_per_op` dropped roughly together
+(system thermal / cache state between runs is ~3× variance at this
+scale), but the *gap* between them shrank dramatically. Build cost
+dropped modestly, the per-op gap shrank more — net cross-over goes
+the wrong way.
+
+### What this means for the proposal's diagnosis
+
+The proposal blamed `dataclasses.replace` for the gram cross-over
+failure. That blame was **partial**: the replace overhead was real
+(60–77% of allocations and a meaningful build-time chunk) but
+**not** the load-bearing cost of the gram path itself. Per-op gram
+cost is dominated by `Dictionary.gram()`'s analytic state
+materialisation — which is the same shape of `O(N²)`-equivalent
+work flat's cosine matmul does, just sharded across blocks. No
+amount of cheaper block construction shifts that.
+
+To actually meet the gram cross-over criterion, the per-op path
+needs one of:
+
+1. A `BlockView.gram()` (or equivalent) that bypasses
+   `Dictionary` construction entirely AND runs faster than the
+   current per-block analytic path. This is the proposal's
+   original "BlockView" surface, but the win lives in
+   re-implementing `gram` directly on the lightweight container —
+   *not* in deferring the Dictionary construction.
+2. A vectorised cross-block gram that batches state preparation
+   across blocks before tensoring through the q-orca compiler,
+   reducing the Python-overhead-per-block constant.
+3. Acceptance that gram throughput at SAE scale needs a
+   fundamentally different approach (sub-O(N²) approximate
+   clustering + the same per-block gram).
+
+None of these are this PR's scope. The simpler fix that shipped
+(eliminating the replace) is the cheap engineering win the
+proposal's diagnosis correctly identified, and it stands on its
+own as an allocation-pressure reduction. Updating the bet
+accordingly.
+
+
 
 Lands on the [core interpretability bet](../../.claude/projects/-Users-allans-code-polygram/memory/project_interpretability_bet.md)'s
 "smaller + cheaper at inference" sub-claim as **mixed, honest, and
