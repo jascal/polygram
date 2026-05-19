@@ -30,6 +30,17 @@ The returned `BenchmarkReport` SHALL carry per-op wall-clock seconds for both pa
   within 10% — explicitly recording the regime where clustering
   does not pay off
 
+#### Scenario: cross_block_overlap sample size is reported and representative
+
+- **WHEN** `run_amortised_benchmark(..., op="cross_block_overlap",
+  n_repeats=k)` is called on a `ClusteredDictionary` whose
+  cross-block edge set has fewer than `64 * k` entries
+- **THEN** the per-op sample size SHALL be capped at the available
+  edge count and the report SHALL record both the requested and
+  effective sample size, so reviewers can tell whether the
+  measurement reflects a representative slice or a saturated walk
+  of every edge
+
 ### Requirement: built-in operations cover the analytic surface
 
 `run_amortised_benchmark` SHALL support at least three built-in `op` values:

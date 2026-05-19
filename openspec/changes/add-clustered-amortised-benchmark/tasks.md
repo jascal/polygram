@@ -10,14 +10,14 @@
 
 ## 2. Example script
 
-- [ ] 2.1 `examples/clustered_amortised_benchmark.py` mirroring `clustered_dictionary_walkthrough.py` style: `--sae`, `--n-features`, `--encoding`, `--op`, `--n-repeats`, `--output` args.
+- [ ] 2.1 `examples/clustered_amortised_benchmark.py` mirroring `clustered_dictionary_walkthrough.py` style: `--sae`, `--n-features`, `--encoding`, `--op`, `--n-repeats`, `--output` args. `--op all` SHALL run the full op matrix (`gram`, `cross_block_overlap`, `redundancy`) in one invocation and emit a single combined JSON — keeps the "reproduce the table from the research note" path one command long.
 - [ ] 2.2 Falls back to the bundled toy SAE fixture when `--sae` is omitted, so the script runs in CI.
 - [ ] 2.3 Stamps `polygram_version` + `git_commit` at the top of the JSON output (matching the PR #91 nit fix).
 
 ## 3. Research note
 
 - [ ] 3.1 `docs/research/clustered-amortised-benchmark.md` documenting methodology and cross-over result per encoding (MPSRung1, Rung3, Rung4).
-- [ ] 3.2 Test the hypothesis from the proposal: measured cross-over within ~10× of the predicted ~2 ops? If much higher, surface the dominant cost (likely per-block `dataclasses.replace` round-trip — the caveat from `clustered-dictionary-recall-vs-flat.md`).
+- [ ] 3.2 Test the hypothesis from the proposal against the proposal's success criterion (`cross_over_n_repeats ≤ 8` on `gram` across MPS/Rung3/Rung4). If the measured cross-over fails the criterion, surface the dominant cost. Measure **RSS delta** around block formation (`resource.getrusage(RUSAGE_SELF).ru_maxrss` before/after) and **per-block Python object count** (`gc.get_count()` deltas or a `len(gc.get_objects())` snapshot at each phase). If RSS climbs disproportionately during block formation but the per-op path is also slow, `dataclasses.replace` round-trip is the prime suspect per `clustered-dictionary-recall-vs-flat.md`'s "Caveats". Record both numbers in the research note regardless of pass/fail — they're the diagnostic baseline future work needs.
 - [ ] 3.3 Emit `docs/research/data/clustered_amortised_benchmark.json` with the raw numbers (one record per encoding × op combination).
 - [ ] 3.4 Cross-link the new note from `clustered-dictionary-recall-vs-flat.md`'s "follow-up status" subsection — replacing the "filing pending" placeholder.
 
@@ -31,7 +31,7 @@
 - [ ] 5.1 `openspec validate add-clustered-amortised-benchmark --strict`.
 - [ ] 5.2 Full pytest pass.
 - [ ] 5.3 Run the benchmark at full N=24,576 on the real SAE fixture; record results in `clustered-amortised-benchmark.md`.
-- [ ] 5.4 Update `[[project-interpretability-bet]]` memory entry with the measured cross-over numbers — the "smaller + cheaper" sub-claim gets its first downstream throughput data.
+- [ ] 5.4 Update `[[project-interpretability-bet]]` memory entry with the measured cross-over numbers and a direct link to the new `docs/research/clustered-amortised-benchmark.md` note — the "smaller + cheaper" sub-claim gets its first downstream throughput data plus a navigable pointer from the memory index. Mirror the cross-link inside the memory entry's body so future sessions land on the writeup in one click.
 
 ## 6. Closing
 

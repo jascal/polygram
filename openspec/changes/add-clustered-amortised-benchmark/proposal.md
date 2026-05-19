@@ -64,6 +64,19 @@ scale is the right intermediate signal.
   + `dictionary.gram()` machinery.
 - **Risk**: low. Strictly additive — no existing API touched.
 
+## Success criterion
+
+**Pass:** measured `cross_over_n_repeats ≤ 8` on the `gram` op
+across MPSRung1, Rung3, and Rung4 at full N=24,576 on the real SAE
+fixture (a ~4× margin over the predicted ~2 and a ~12× margin
+under `n_repeats=64`).
+
+**Fail:** cross-over exceeds 8 ops on any tested encoding, OR is
+`None` (no cross-over within `n_repeats=64`). Either outcome
+triggers the per-block-overhead diagnosis path called out in
+Task 3.2 — the dataclasses.replace round-trip is the prime suspect
+per `clustered-dictionary-recall-vs-flat.md`'s "Caveats" section.
+
 ## Hypothesis to test
 
 Clustered's per-op cost is `O(K²)` per block × `n_blocks ≈ N/K` blocks
