@@ -47,7 +47,7 @@ def test_record_rejects_nan_projection():
 def test_select_too_many_features_rejected():
     records = load_toy_sae(FIXTURE)
     with pytest.raises(ValueError, match="caps a Dictionary at 8"):
-        from_sae_lens(records, list(range(9)))
+        from_sae_lens(records, list(range(9)), clustered=False)
 
 
 def test_select_empty_rejected():
@@ -291,11 +291,11 @@ class TestFromSaeLensClustered:
         assert report.n_cross_block_edges == result.n_cross_block_edges
 
     def test_clustered_true_skips_8_cap(self):
-        # Without clustered=True, 16 features raises. With it, no raise.
+        # Explicit `clustered=False` keeps the legacy strict raise on
+        # 16 features against the 8-cap. With `clustered=True`, no raise.
         records = load_toy_sae(FIXTURE)
         with pytest.raises(ValueError, match="caps a Dictionary"):
-            from_sae_lens(records, list(range(16)))
-        # Same call with clustered=True succeeds.
+            from_sae_lens(records, list(range(16)), clustered=False)
         _result, _report = from_sae_lens(
             records, list(range(16)), clustered=True
         )
@@ -326,7 +326,31 @@ class TestFromSaeLensClustered:
     def test_clustered_error_message_points_to_clustered(self):
         records = load_toy_sae(FIXTURE)
         with pytest.raises(ValueError, match="clustered=True"):
-            from_sae_lens(records, list(range(16)))
+            from_sae_lens(records, list(range(16)), clustered=False)
+
+    def test_oversized_n_auto_promotes_to_clustered(self):
+        from polygram.clustered_dictionary import ClusteredDictionary
+
+        records = load_toy_sae(FIXTURE)
+        # No `clustered` kwarg; N=16 > MPSRung1.max_features=8 should
+        # auto-promote rather than raise.
+        result, report = from_sae_lens(records, list(range(16)))
+        assert isinstance(result, ClusteredDictionary)
+        assert any(
+            w.startswith("auto-promoted to clustered")
+            for w in report.warnings
+        )
+
+    def test_default_within_cap_returns_flat_dictionary(self):
+        from polygram.dictionary import Dictionary
+
+        records = load_toy_sae(FIXTURE)
+        result, report = from_sae_lens(records, list(range(8)))
+        assert isinstance(result, Dictionary)
+        assert not any(
+            w.startswith("auto-promoted to clustered")
+            for w in report.warnings
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +394,7 @@ class TestPerEncodingFeatureCapLoader:
         # The duplicate would normally cause other validation issues,
         # so we test the cap raises FIRST.
         with pytest.raises(ValueError) as exc_info:
-            from_sae_lens(records, ids, encoding=Rung3())
+            from_sae_lens(records, ids, encoding=Rung3(), clustered=False)
         msg = str(exc_info.value)
         # Error names the encoding and its cap.
         assert "Rung3" in msg
@@ -379,7 +403,7 @@ class TestPerEncodingFeatureCapLoader:
     def test_mpsrung1_nine_features_raises_with_encoding_name(self):
         records = load_toy_sae(FIXTURE)
         with pytest.raises(ValueError) as exc_info:
-            from_sae_lens(records, list(range(9)))
+            from_sae_lens(records, list(range(9)), clustered=False)
         msg = str(exc_info.value)
         assert "MPSRung1" in msg
         assert "8" in msg
@@ -387,5 +411,5 @@ class TestPerEncodingFeatureCapLoader:
     def test_error_message_suggests_clustered_path(self):
         records = load_toy_sae(FIXTURE)
         with pytest.raises(ValueError) as exc_info:
-            from_sae_lens(records, list(range(9)))
+            from_sae_lens(records, list(range(9)), clustered=False)
         assert "clustered=True" in str(exc_info.value)
