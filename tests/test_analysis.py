@@ -128,6 +128,8 @@ def test_knob_selection_guidance_constant_exposed():
 
 
 def test_predict_refuses_oversized_subset(records):
+    # Triage operates on flat dictionaries only and pins
+    # `clustered=False` internally; oversized subsets must raise.
     with pytest.raises(ValueError, match="caps a Dictionary"):
         predict_cancellation_depth(records, list(range(9)))
 

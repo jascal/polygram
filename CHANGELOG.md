@@ -2,7 +2,33 @@
 
 ## Unreleased
 
-(nothing yet)
+### Behaviour changes
+
+- **`from_sae_lens` auto-promotes to clustered on cap overflow.**
+  The `clustered` kwarg is now tri-state: `clustered=None` (the new
+  default) auto-promotes to `ClusteredDictionary` when
+  `len(feature_ids) > encoding.max_features`, appending an
+  `"auto-promoted to clustered: …"` entry to
+  `SelectionReport.warnings`. `clustered=False` keeps the legacy
+  strict `ValueError`; `clustered=True` is unchanged. Callers that
+  caught the previous default `ValueError` should either expect a
+  `ClusteredDictionary` or pass `clustered=False` explicitly. See
+  OpenSpec change `auto-promote-clustered-on-cap-overflow`.
+
+- **`SAEImportConfig.assign_amp_knobs` and `assign_phase_knobs`
+  default to `True`.** Per the
+  [sm-sae](https://jascal.github.io/sm-sae/) benchmark's measured
+  Recommended-defaults table — without these, cancellation on Rung3+
+  dictionaries is stuck at the structural floor. The legacy `False`
+  behaviour is reachable by passing the kwargs explicitly. See
+  OpenSpec change `apply-sm-sae-recommended-defaults`.
+
+### Removed
+
+- Dead `_LEGACY_MAX_FEATURES = 8` fallback in
+  `polygram/clustered_dictionary.py` — every encoding has exposed
+  `max_features` natively since the archived
+  `per-encoding-feature-cap` change.
 
 ## 0.8.0 — 2026-05-16
 

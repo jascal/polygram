@@ -184,6 +184,12 @@ def predict_cancellation_depth(
     flipped to π — both endpoints give the same value because
     `cos(π) = cos(−π)`.
     """
+    # Triage operates on flat `Dictionary` (it accesses `.features`
+    # directly). Force the strict-cap path so an oversized subset raises
+    # `ValueError` instead of silently auto-promoting to
+    # `ClusteredDictionary` which we don't support here. Callers can
+    # override with `clustered=True` once a clustered triage path lands.
+    from_sae_lens_kwargs.setdefault("clustered", False)
     dictionary, report = from_sae_lens(
         sae_dict, feature_ids, **from_sae_lens_kwargs
     )

@@ -574,7 +574,7 @@ def from_sae_lens(
     gamma_range: tuple[float, float] | None = None,
     config: "SAEImportConfig | None" = None,
     profile: "str | GeometricProfile | None" = None,
-    clustered: bool = False,
+    clustered: bool | None = None,
     block_formation: "BlockFormation | None" = None,
     assign_amp_knobs: bool | None = None,
     assign_phase_knobs: bool | None = None,
@@ -609,8 +609,17 @@ def from_sae_lens(
     α, φ default to 0. γ is per-feature PCA-derived when
     ``assign_gamma=True`` (the default). Per-field kwargs (`n_clusters`,
     `gamma_range`, `assign_gamma`, etc.) override profile defaults;
-    profile defaults override strategy internal defaults. Refuses
-    subsets larger than 8 features.
+    profile defaults override strategy internal defaults.
+
+    Capacity handling (``clustered`` kwarg):
+
+    - ``None`` (default) — auto. Returns a flat ``Dictionary`` when
+      ``len(feature_ids) <= encoding.max_features``; auto-promotes to
+      ``ClusteredDictionary`` and appends an auto-promote entry to
+      ``SelectionReport.warnings`` otherwise.
+    - ``True`` — always build a ``ClusteredDictionary``.
+    - ``False`` — strict; raises ``ValueError`` if the subset exceeds
+      the encoding's cap.
     """
     # Precedence: per-field kwarg (non-None) > config > profile defaults
     # > SAEImportConfig defaults. Profile is resolved at call time
@@ -640,16 +649,26 @@ def from_sae_lens(
             n_clusters = resolved_profile.default_n_clusters
     target_encoding = encoding or MPSRung1()
     encoding_cap = int(target_encoding.max_features)
-    if not clustered and len(feature_ids) > encoding_cap:
-        raise ValueError(
-            f"selected {len(feature_ids)} features, but the "
-            f"{type(target_encoding).__name__} encoding caps a "
-            f"Dictionary at {encoding_cap} features. Pick a smaller "
-            f"subset, switch to an encoding with a larger cap "
-            f"(e.g., Rung3 for 16, HEA_Rung2 with larger n_qubits for "
-            f"2**n_qubits), or pass `clustered=True` to build a "
-            f"`ClusteredDictionary` instead."
-        )
+    auto_promote_warning: str | None = None
+    if len(feature_ids) > encoding_cap:
+        if clustered is False:
+            raise ValueError(
+                f"selected {len(feature_ids)} features, but the "
+                f"{type(target_encoding).__name__} encoding caps a "
+                f"Dictionary at {encoding_cap} features. Pick a smaller "
+                f"subset, switch to an encoding with a larger cap "
+                f"(e.g., Rung3 for 16, HEA_Rung2 with larger n_qubits "
+                f"for 2**n_qubits), omit `clustered=False` to "
+                f"auto-promote, or pass `clustered=True` explicitly."
+            )
+        if clustered is None:
+            clustered = True
+            auto_promote_warning = (
+                f"auto-promoted to clustered: N={len(feature_ids)} "
+                f"exceeds {type(target_encoding).__name__}."
+                f"max_features={encoding_cap}. "
+                f"Pass clustered=False for the strict ValueError."
+            )
     if len(feature_ids) == 0:
         raise ValueError("feature_ids is empty; nothing to import")
 
@@ -662,6 +681,8 @@ def from_sae_lens(
     n_features_input = len(records)
 
     warnings: list[str] = []
+    if auto_promote_warning is not None:
+        warnings.append(auto_promote_warning)
 
     # Cluster-assignment paths (run upstream of strategy dispatch and
     # bypass the profile's KnobAssignment). cluster_assignments and

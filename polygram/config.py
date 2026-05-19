@@ -458,28 +458,33 @@ class RegrowConfig(_ConfigMixin):
 class SAEImportConfig(_ConfigMixin):
     """Tuning for :func:`polygram.sae_import.from_sae_lens`.
 
-    Note: ``assign_gamma`` defaults to ``True`` (the README's recommended
-    setting on real SAEs). The legacy ``assign_gamma=False`` behaviour is
-    reachable by passing ``assign_gamma=False`` explicitly.
+    Note: ``assign_gamma``, ``assign_amp_knobs``, and
+    ``assign_phase_knobs`` all default to ``True`` — ``assign_gamma``
+    per the README's recommendation on real SAEs, and the two knob
+    fields per `sm-sae <https://jascal.github.io/sm-sae/>`_'s measured
+    Recommended-defaults table. The legacy ``False`` behaviours are
+    each reachable by passing the corresponding kwarg explicitly.
     """
 
     assign_gamma: bool = True
     gamma_range: tuple[float, float] = (-0.25, 0.25)
     n_clusters: int = 2
     profile: str | None = None
-    # encoding-aware-knob-assignment. Default False preserves byte-
-    # identical behaviour. When True, the loader populates higher-rung
-    # encodings' amp-branch knobs from decoder PCA (see
-    # polygram/geometry/amp_assignment.py). No-op for MPSRung1 /
-    # HEA_Rung2.
-    assign_amp_knobs: bool = False
-    # add-phase-knob-assignment. Default False preserves byte-identical
-    # behaviour. When True, the loader populates MPS-substrate α and φ
-    # knobs from decoder PCA (PC2 and PC3 — see
+    # Defaults to True per sm-sae's measured recommendation
+    # (https://jascal.github.io/sm-sae/, Recommended-defaults table).
+    # Populates higher-rung encodings' amp-branch knobs from decoder
+    # PCA (see polygram/geometry/amp_assignment.py). No-op for
+    # MPSRung1 / HEA_Rung2. Pass `assign_amp_knobs=False` explicitly
+    # for the pre-sm-sae behaviour.
+    assign_amp_knobs: bool = True
+    # Defaults to True per sm-sae's measured recommendation. Populates
+    # MPS-substrate α and φ knobs from decoder PCA (PC2 and PC3 — see
     # polygram/geometry/phase_assignment.py). Applies to MPSRung1,
-    # Rung3, Rung4 (all share MPS-substrate phase knobs). No-op for
-    # HEA_Rung2 (different knob structure).
-    assign_phase_knobs: bool = False
+    # Rung3, Rung4, Rung5 (all share MPS-substrate phase knobs). No-op
+    # for HEA_Rung2 (different knob structure). Pass
+    # `assign_phase_knobs=False` explicitly for the pre-sm-sae
+    # behaviour.
+    assign_phase_knobs: bool = True
     # add-learned-axis-assignment. Default `None` preserves byte-
     # identical behaviour. When `True`, the loader instantiates a
     # default `LearnedKnobAssignment` and uses it instead of the

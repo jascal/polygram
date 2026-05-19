@@ -128,17 +128,18 @@ def test_phase_knobs_activate_rung4():
 # ---------------------------------------------------------------------------
 
 
-def test_default_false_is_byte_identical_to_pre_change():
-    """`assign_phase_knobs=False` (the default) produces a Rung4 gram
-    bit-identical to omitting the kwarg entirely."""
+def test_default_matches_explicit_true_post_sm_sae():
+    """`assign_phase_knobs=True` is the default since the sm-sae
+    Recommended-defaults change. Omitting the kwarg is byte-identical
+    to passing `True`; this test pins that invariant."""
     records, ids = _load_toy_records(8)
 
     d_default, _ = from_sae_lens(records, ids, encoding=Rung4())
-    d_explicit_false, _ = from_sae_lens(
-        records, ids, encoding=Rung4(), assign_phase_knobs=False,
+    d_explicit_true, _ = from_sae_lens(
+        records, ids, encoding=Rung4(), assign_phase_knobs=True,
     )
 
-    np.testing.assert_array_equal(d_default.gram(), d_explicit_false.gram())
+    np.testing.assert_array_equal(d_default.gram(), d_explicit_true.gram())
 
 
 def test_phase_knobs_true_is_no_op_for_hea_rung2():

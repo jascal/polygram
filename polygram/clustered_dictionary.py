@@ -45,27 +45,6 @@ import numpy as np
 from polygram.dictionary import Dictionary, Feature
 from polygram.encoding import HEA_Rung2, MPSRung1, Rung3
 
-# Fallback when per-encoding-feature-cap (PR #42) hasn't shipped — the
-# loader-side cap is the universal 8 from sae_import. Once #42 lands,
-# every encoding exposes `max_features` directly and the fallback is
-# unused; until then the defensive getattr() preserves the legacy
-# constant.
-_LEGACY_MAX_FEATURES = 8
-
-
-def _encoding_max_features(encoding: object) -> int:
-    """Return the encoding's feature cap, defaulting to the legacy 8.
-
-    Honours `encoding.max_features` when present (per-encoding-feature-cap),
-    falls back to the module-level constant otherwise. The fallback path
-    will be removed once PR #42 merges.
-    """
-    cap = getattr(encoding, "max_features", None)
-    if cap is None:
-        return _LEGACY_MAX_FEATURES
-    return int(cap)
-
-
 # Strategy literal for `BlockFormation`. Module-level alias so callers
 # don't have to repeat the union when typing config arguments.
 BlockFormationStrategy = Literal["cosine", "co_firing", "user_declared"]
@@ -209,10 +188,7 @@ class ClusteredDictionary:
                     f"{encoding!r}; block {i} has {block.encoding!r}"
                 )
 
-        # Per-block size cap. Honour `encoding.max_features` when the
-        # encoding declares it (PR #42 path); fall back to the legacy
-        # universal 8 otherwise.
-        cap = _encoding_max_features(encoding)
+        cap = int(encoding.max_features)
         for i, block in enumerate(self.blocks):
             n = len(block.features)
             if n > cap:
@@ -915,11 +891,10 @@ def compute_cosine_pair_graph(
 def _resolve_block_size_max(
     encoding: object, override: int | None
 ) -> int:
-    """Resolve the per-block cap: caller's override > encoding's
-    `max_features` > legacy 8."""
+    """Resolve the per-block cap: caller's override > encoding's `max_features`."""
     if override is not None:
         return int(override)
-    return _encoding_max_features(encoding)
+    return int(encoding.max_features)
 
 
 def _form_blocks_cosine(
