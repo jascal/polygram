@@ -26,6 +26,22 @@
   in `SelectionReport.warnings`. Cosine-strategy-only;
   co_firing / user_declared are suppressed.
 
+### Added
+
+- **`BlockView` public surface.** New `polygram.clustered_dictionary.BlockView`
+  frozen dataclass carrying per-block metadata: `indices`,
+  `decoder_slice`, `encoding`, `feature_names`, `feature_clusters`.
+  `ClusteredDictionary` exposes the parallel `block_views: tuple[BlockView, ...]`
+  property and `block_view(idx) -> BlockView` accessor. Populated by
+  both canonical builders (`build_clustered_dictionary` populates
+  indices + metadata with `decoder_slice=None` to avoid the per-block
+  copy overhead; consumers compute the slice on demand from
+  `view.indices` against the parent matrix). `from_compression_panels`
+  populates the same fields with `decoder_slice=None` since the
+  compression panel path doesn't carry raw decoder vectors.
+  See `polygram/clustered_dictionary.py:BlockView` for the rationale
+  and the deferred-lazy-property scope note.
+
 ### Performance
 
 - **`_materialise_blocks` eliminates per-feature `dataclasses.replace`.**

@@ -115,6 +115,62 @@ class BlockFormation:
             )
 
 
+@dataclass(frozen=True)
+class BlockView:
+    """Lightweight per-block carrier used by `ClusteredDictionary`.
+
+    A `BlockView` holds the minimum metadata a per-block analysis needs
+    without forcing a full `Dictionary` materialisation: parent feature
+    indices, the (potentially non-copying) decoder slice, the shared
+    encoding, and the per-block feature names + their original cluster
+    values. Built once at `build_clustered_dictionary` time; surfaced via
+    `ClusteredDictionary.block_view(idx)` and the parallel
+    `block_views` property.
+
+    The proposal `add-lighter-per-block-container` originally scoped
+    `BlockView` as the source of truth behind a lazy `.blocks` property.
+    The lazy-property refactor was deferred (see the
+    `docs/research/clustered-amortised-benchmark.md` post-lighter-container
+    sweep section): per-op gram cost is dominated by `Dictionary.gram()`'s
+    q-orca markdown roundtrip, not by Dictionary construction, so the
+    lazy surface doesn't move the gram cross-over criterion. `BlockView`
+    still ships as a public API for consumers that want the lightweight
+    metadata directly (the amortised benchmark's sampled-cosine path is
+    the first known consumer pattern; a future `BlockView.gram()` that
+    bypasses Dictionary construction would be the natural extension).
+
+    Fields:
+
+    - ``indices`` — feature indices into the parent decoder_vectors /
+      features list. Tuple of ints; dataclass stays hashable.
+    - ``decoder_slice`` — ``(K, d_model)`` numpy slice of the per-block
+      decoder rows. Numpy returns a non-copying view for the contiguous-
+      index slicing this is built from. Optional: when unavailable
+      (e.g., callers that hold pre-built Dictionaries rather than the
+      raw decoder matrix) it's ``None`` so downstream consumers see
+      the metadata even without the slice.
+    - ``encoding`` — shared with the parent ``ClusteredDictionary``.
+    - ``feature_names`` — preserved for downstream reporting
+      (per-block manifests, Q-OrCA emit). Tuple so the dataclass is
+      hashable.
+    - ``feature_clusters`` — original cluster label for each feature
+      in the block, in the same order as ``indices`` / ``feature_names``.
+      Carried so a hypothetical future `Dictionary` reconstructor can
+      rebuild the per-block hierarchy without a back-reference to the
+      parent feature list.
+    """
+
+    indices: tuple[int, ...]
+    decoder_slice: np.ndarray | None
+    encoding: "MPSRung1 | HEA_Rung2 | Rung3"
+    feature_names: tuple[str, ...]
+    feature_clusters: tuple[str, ...]
+
+    @property
+    def n_features(self) -> int:
+        return len(self.indices)
+
+
 # Cross-block adjacency key. `(block_i_idx, feat_i_idx, block_j_idx,
 # feat_j_idx)` with the invariant `block_i_idx < block_j_idx` (the
 # adjacency is undirected; we canonicalise on insert).
@@ -177,6 +233,18 @@ class ClusteredDictionary:
     # dataclass identity.
     cross_block_edges_tuple: tuple[CrossBlockEdge, ...] = field(
         default=(), init=False, compare=False, repr=False,
+    )
+    # Parallel-to-`blocks` lightweight metadata per block. Populated
+    # by `build_clustered_dictionary` (with `decoder_slice` views) and
+    # by `from_compression_panels` (with `decoder_slice=None` — those
+    # callers don't carry raw decoder vectors). Surfaced via
+    # `block_view(idx)` and the `block_views` property. Optional: an
+    # empty tuple is permitted and treated as "BlockView metadata
+    # unavailable" by the accessor, so legacy direct
+    # `ClusteredDictionary(name=…, blocks=…)` construction keeps
+    # working unchanged.
+    _block_views: tuple[BlockView, ...] = field(
+        default=(), repr=False, compare=False,
     )
 
     def __post_init__(self) -> None:
@@ -482,6 +550,7 @@ class ClusteredDictionary:
 
         feature_to_block: dict[int, tuple[int, int]] = {}
         blocks: list[Dictionary] = []
+        block_views: list[BlockView] = []
         for block_idx, panel in enumerate(panels):
             # `panel.anchor` is read but unused for block construction
             # (the anchor is just the panel-internal seed); the block
@@ -506,6 +575,23 @@ class ClusteredDictionary:
                     features=feats,
                     hierarchy={cluster_name: [f.name for f in feats]},
                     encoding=encoding,
+                )
+            )
+            block_views.append(
+                BlockView(
+                    indices=members,
+                    # The caller passes a state-dict but no explicit raw
+                    # decoder slice; we could slice w_dec here but the
+                    # row indices are SAE feature IDs (potentially
+                    # non-contiguous) so the slice would copy. Leave
+                    # `None` and let consumers fall back to the full
+                    # decoder if they need it — callers of
+                    # `from_compression_panels` haven't asked for the
+                    # slice as of #100.
+                    decoder_slice=None,
+                    encoding=encoding,
+                    feature_names=tuple(f.name for f in feats),
+                    feature_clusters=tuple(f.cluster for f in feats),
                 )
             )
 
@@ -545,7 +631,40 @@ class ClusteredDictionary:
                 strategy="user_declared",
                 cosine_threshold=cosine_threshold,
             ),
+            _block_views=tuple(block_views),
         )
+
+    def block_view(self, idx: int) -> BlockView:
+        """Return the lightweight `BlockView` metadata for block ``idx``.
+
+        Raises ``IndexError`` for out-of-range ``idx``. Raises
+        ``LookupError`` when the parent ``ClusteredDictionary`` was
+        built via a path that doesn't populate `_block_views`
+        (legacy direct construction; pre-#100 callsites). The
+        canonical builders — ``build_clustered_dictionary`` and
+        ``ClusteredDictionary.from_compression_panels`` — both
+        populate it.
+        """
+        if not self._block_views:
+            raise LookupError(
+                "ClusteredDictionary.block_view: BlockView metadata "
+                "is unavailable. Construct via "
+                "`build_clustered_dictionary(...)` or "
+                "`ClusteredDictionary.from_compression_panels(...)`."
+            )
+        return self._block_views[idx]
+
+    @property
+    def block_views(self) -> tuple[BlockView, ...]:
+        """Parallel-to-``blocks`` lightweight metadata tuple.
+
+        Empty tuple when BlockView metadata is unavailable (legacy
+        direct construction). Callers that need a guaranteed slice
+        should prefer the explicit ``block_view(idx)`` accessor —
+        it surfaces a clear ``LookupError`` rather than returning
+        an empty tuple.
+        """
+        return self._block_views
 
     def cross_block_redundant_pairs(
         self, threshold: float = 0.7
@@ -1288,11 +1407,33 @@ def build_clustered_dictionary(
         block_indices, decoder_vectors, block_formation.cosine_threshold,
         cosine_pairs=cosine_pairs,
     )
+
+    # Build the BlockView metadata in parallel with the eagerly-
+    # materialised `blocks`. `decoder_slice` is left as `None`
+    # rather than eagerly copying — fancy-indexing each block's rows
+    # would add ~K × d_model × 4 × n_blocks bytes of RSS at build
+    # time (measured: +75 MB on the full-N MPS benchmark), and
+    # consumers can compute the slice from `view.indices` against
+    # the parent decoder matrix when they actually need it. The
+    # asymmetry of "indices stored, slice on-demand" is documented
+    # in `BlockView`'s class docstring.
+    block_views = tuple(
+        BlockView(
+            indices=tuple(indices),
+            decoder_slice=None,
+            encoding=encoding,
+            feature_names=tuple(features[i].name for i in indices),
+            feature_clusters=tuple(features[i].cluster for i in indices),
+        )
+        for indices in block_indices
+    )
+
     return ClusteredDictionary(
         name=name,
         blocks=blocks,
         cross_block_pairs=cross_block_pairs,
         block_formation=block_formation,
+        _block_views=block_views,
     )
 
 

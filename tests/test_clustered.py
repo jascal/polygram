@@ -9,6 +9,7 @@ import pytest
 from polygram.clustered_dictionary import (
     BlockFormation,
     BlockSparseGram,
+    BlockView,
     ClusteredDictionary,
     CrossBlockRedundancyReport,
     build_clustered_dictionary,
@@ -1315,3 +1316,141 @@ def test_degenerate_partition_no_warning_for_user_declared():
         if str(w.message).startswith("Degenerate cosine partition")
     ]
     assert degen == [], f"user_declared must not trigger cosine warning: {degen}"
+
+
+# ---------------------------------------------------------------------------
+# BlockView surface (add-lighter-per-block-container)
+# ---------------------------------------------------------------------------
+
+
+def test_block_view_shape_after_build_clustered_dictionary():
+    """`build_clustered_dictionary` populates `_block_views` whose
+    indices, feature_names, feature_clusters, and decoder_slice shape
+    match the partition."""
+    vectors = np.eye(8, dtype=np.float32)
+    features = [_feature(f"f{i}", cluster="all") for i in range(8)]
+    import warnings as _w
+    with _w.catch_warnings():
+        _w.simplefilter("ignore", UserWarning)
+        cd = build_clustered_dictionary(
+            name="bv_shape",
+            features=features,
+            decoder_vectors=vectors,
+            encoding=MPSRung1(),
+            block_formation=BlockFormation(strategy="cosine", cosine_threshold=0.5),
+        )
+    views = cd.block_views
+    assert len(views) == cd.n_blocks
+    for idx, view in enumerate(views):
+        assert isinstance(view, BlockView)
+        block = cd.blocks[idx]
+        assert len(view.indices) == len(block.features) == view.n_features
+        assert view.feature_names == tuple(f.name for f in block.features)
+        assert view.encoding == cd.encoding
+        # `decoder_slice` is None by default for the canonical builder
+        # — eagerly copying would add ~K × d_model RSS per block (see
+        # the field's docstring). Consumers slice from `view.indices`
+        # against the parent decoder matrix when they need it.
+        assert view.decoder_slice is None
+        # The indices into the parent decoder produce the expected
+        # per-block slice shape on demand.
+        slice_on_demand = vectors[list(view.indices)]
+        assert slice_on_demand.shape == (
+            len(block.features), vectors.shape[1],
+        )
+
+
+def test_block_view_indices_address_parent_features():
+    """A BlockView's indices map cleanly back to the parent feature
+    list: `parent_features[view.indices[i]].name == view.feature_names[i]`.
+    Pins the contract that BlockView is index-into-parent, not a
+    copy."""
+    rng = np.random.default_rng(0)
+    n = 16
+    vectors = rng.standard_normal((n, 8)).astype(np.float32)
+    vectors /= np.linalg.norm(vectors, axis=1, keepdims=True)
+    features = [_feature(f"f{i}", cluster=f"c{i // 4}") for i in range(n)]
+    cd = build_clustered_dictionary(
+        name="bv_indices",
+        features=features,
+        decoder_vectors=vectors,
+        encoding=MPSRung1(),
+        block_formation=BlockFormation(strategy="cosine", cosine_threshold=0.5),
+    )
+    for view in cd.block_views:
+        for local_idx, parent_idx in enumerate(view.indices):
+            assert features[parent_idx].name == view.feature_names[local_idx]
+            assert features[parent_idx].cluster == view.feature_clusters[local_idx]
+
+
+def test_block_view_accessor_returns_correct_entry():
+    vectors = np.eye(6, dtype=np.float32)
+    features = [_feature(f"f{i}", cluster="all") for i in range(6)]
+    import warnings as _w
+    with _w.catch_warnings():
+        _w.simplefilter("ignore", UserWarning)
+        cd = build_clustered_dictionary(
+            name="bv_accessor",
+            features=features,
+            decoder_vectors=vectors,
+            encoding=MPSRung1(),
+            block_formation=BlockFormation(strategy="cosine", cosine_threshold=0.5),
+        )
+    for idx in range(cd.n_blocks):
+        assert cd.block_view(idx) is cd.block_views[idx]
+
+
+def test_block_view_unavailable_on_legacy_direct_construction():
+    """When a `ClusteredDictionary` is built via the legacy direct
+    `cls(name=…, blocks=…)` path WITHOUT `_block_views`, the
+    accessor surfaces a clear LookupError rather than silently
+    returning empty metadata. Pins the contract."""
+    feats = [_feature(f"f{i}", cluster="all") for i in range(4)]
+    one_block = Dictionary(
+        name="legacy_b0",
+        features=feats,
+        hierarchy={"all": [f.name for f in feats]},
+        encoding=MPSRung1(),
+    )
+    cd = ClusteredDictionary(
+        name="legacy",
+        blocks=[one_block],
+        cross_block_pairs={},
+    )
+    assert cd.block_views == ()
+    with pytest.raises(LookupError, match="BlockView metadata is unavailable"):
+        cd.block_view(0)
+
+
+def test_block_view_from_compression_panels_path():
+    """`from_compression_panels` populates _block_views (with
+    decoder_slice=None, per that path's docstring)."""
+    import numpy as np
+
+    class _StubPanel:
+        def __init__(self, feature_ids, anchor=None):
+            self.feature_ids = tuple(feature_ids)
+            self.anchor = anchor if anchor is not None else feature_ids[0]
+            self.cosines_to_anchor = (1.0,) * len(feature_ids)
+
+    panels = [
+        _StubPanel((0, 1)),
+        _StubPanel((2, 3)),
+    ]
+    rng = np.random.default_rng(0)
+    state_dict = {
+        "W_dec": rng.standard_normal((4, 8)).astype(np.float32),
+    }
+    cd = ClusteredDictionary.from_compression_panels(
+        panels=panels,
+        state_dict=state_dict,
+        encoding=MPSRung1(),
+        name="from_panels",
+    )
+    assert len(cd.block_views) == 2
+    for view in cd.block_views:
+        # Compression-panel path doesn't pass an explicit decoder
+        # slice — the field is None by contract.
+        assert view.decoder_slice is None
+        assert len(view.feature_names) == view.n_features
+        assert view.encoding == MPSRung1()

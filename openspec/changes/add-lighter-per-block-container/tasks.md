@@ -1,45 +1,53 @@
-> **Scope revision (impl PR).** §1–§3 below scoped the full
-> `BlockView` lazy-materialisation surface. The impl pass first
-> tried the *smaller* fix the proposal's diagnosis actually points
-> at — eliminating the per-feature `dataclasses.replace` in
-> `_materialise_blocks` — and measured it against the proposal's
-> success criterion. Result, captured in
-> `docs/research/clustered-amortised-benchmark.md`'s
-> post-lighter-container sweep section:
+> **Scope revision (impl PR, 2026-05-19).** The impl pass landed in
+> two stages:
 >
-> - **Allocation reduction is real and substantial** (60–77% fewer
->   block-formation objects across MPS / Rung3 / Rung4).
-> - **Build wall-clock gate FAILS** (2.55× MPS, 1.16–1.18× R3/R4
->   vs ≥5× target).
-> - **Gram cross-over gate FAILS** (now 248 / 695 / `none` vs ≤8
->   target). The per-op gap collapses with build cost; gram
->   per-op is dominated by `Dictionary.gram()`'s analytic-state
->   materialisation, not by Dictionary construction.
+> 1. **Replace elimination** (the cheap engineering win the
+>    diagnosis correctly identified). Killed the per-feature
+>    `dataclasses.replace` in `_materialise_blocks`. Measured
+>    against the proposal's success criterion:
+>    - Allocation reduction real and substantial (60–77% fewer
+>      block-formation objects across MPS / Rung3 / Rung4).
+>    - Build wall-clock gate FAILS (2.55× MPS, 1.16–1.18× R3/R4
+>      vs ≥5× target).
+>    - Gram cross-over gate FAILS (248 / 695 / `none` vs ≤8
+>      target). The per-op gap collapses with build cost; gram
+>      per-op is dominated by `Dictionary.gram()`'s q-orca
+>      markdown roundtrip, not by Dictionary construction.
 >
-> The full BlockView surface (§1, §2, §3) is therefore **deferred**.
-> The replace-elimination ships on its own as the cheap engineering
-> win the proposal correctly identified; the rest is parked until
-> evidence justifies it (a future `BlockView.gram()` that bypasses
-> Dictionary construction entirely is the natural next step, but
-> only if the gram cross-over criterion remains load-bearing for
-> a downstream consumer).
+> 2. **BlockView public surface** (this PR's second push). Added
+>    `BlockView` dataclass + `_block_views` field on
+>    `ClusteredDictionary` + `block_view(idx)` / `block_views`
+>    accessors. Populated by both canonical builders
+>    (`build_clustered_dictionary` with eager decoder slices;
+>    `from_compression_panels` with `decoder_slice=None`).
+>    Does NOT change the gram cross-over story — the bottleneck
+>    is downstream of BlockView, in `Dictionary.gram()` itself.
+>
+> The proposal's *lazy* `.blocks` property is **deferred** —
+> per-block Dictionary construction is already cheap post-#99,
+> and lazifying without a faster gram path doesn't move the
+> cross-over needle. A future `BlockView.gram()` that bypasses
+> `Dictionary` construction (and q-orca's markdown roundtrip)
+> would be the natural extension, but only if the gram
+> cross-over criterion remains load-bearing for a downstream
+> consumer.
 
-## 1. `BlockView` value type [DEFERRED]
+## 1. `BlockView` value type
 
-- [ ] 1.1 Add a frozen `BlockView` dataclass to `polygram/clustered_dictionary.py` carrying `indices: tuple[int, ...]`, `decoder_slice: np.ndarray`, `encoding: MPSRung1 | HEA_Rung2 | Rung3 | Rung4 | Rung5`, `feature_names: tuple[str, ...]`. The decoder slice SHALL be a non-copying numpy view when possible; the field's type allows arrays but the construction site uses `decoder_vectors[indices]` (numpy returns a view for contiguous-index slices and a copy otherwise — both are correct, just measure RSS once at impl time).
-- [ ] 1.2 `BlockView.n_features` property; `BlockView.feature_at(i)` accessor that synthesises a minimal `Feature` carrier on demand (used by the lazy `Dictionary` materialisation path in §2). The synthesised `Feature` reuses the parent block-formation cluster name; knobs default to encoding defaults (per `Feature.with_default_amp_knobs`).
+- [x] 1.1 Added a frozen `BlockView` dataclass to `polygram/clustered_dictionary.py` carrying `indices: tuple[int, ...]`, `decoder_slice: np.ndarray | None`, `encoding`, `feature_names: tuple[str, ...]`, and `feature_clusters: tuple[str, ...]`. `decoder_slice` made optional (None) for callers that don't carry raw decoder vectors at construction (`from_compression_panels`).
+- [x] 1.2 `BlockView.n_features` property added. `feature_at(i)` adapter not added — `feature_names` + `feature_clusters` give the metadata access pattern downstream consumers actually need.
 
-## 2. Lazy `ClusteredDictionary` materialisation [DEFERRED]
+## 2. `ClusteredDictionary` BlockView integration
 
-- [ ] 2.1 Replace `_materialise_blocks` with `_materialise_block_views`. The new helper returns `list[BlockView]` (or `tuple[BlockView, ...]`) rather than `list[Dictionary]`. The expensive `dataclasses.replace(f, cluster=cluster) for f in block_feats` loop is the line that dies. **— landed via a simpler edit in `_materialise_blocks` itself; see scope note above.**
-- [ ] 2.2 Add an internal `ClusteredDictionary._block_views: tuple[BlockView, ...]` field, populated at construction time. The existing public `blocks: list[Dictionary]` field is replaced by a `@property` that lazily materialises Dictionary instances from `_block_views` on first access and caches them (via the same `object.__setattr__` pattern the cross-block-edges cache uses).
-- [ ] 2.3 New method `ClusteredDictionary.block_view(idx) -> BlockView` for callers that want the lightweight container directly (the amortised-benchmark's gram path is the first known consumer).
-- [ ] 2.4 New kwarg `materialise_dictionaries: bool = False` on `build_clustered_dictionary` and the `ClusteredDictionary` constructor. Default `False` skips the eager dictionary build; `True` preserves the pre-change behaviour for callers (compression panel construction is the only known one) that need the full per-block Dictionary upfront.
-- [ ] 2.5 Update `from_compression_panels` and any other callsite that passes `blocks=` directly into the `ClusteredDictionary` constructor to either pass `_block_views` instead or accept the eager-materialisation flag.
+- [x] 2.1 Replace overhead in `_materialise_blocks` killed via the per-feature `dataclasses.replace` elimination (see §1 above). New `BlockView` tuple is populated *parallel* to the eager `blocks` list, not as a replacement — `blocks` remains a regular dataclass field for backwards compatibility.
+- [x] 2.2 Added `_block_views: tuple[BlockView, ...]` private field. Public `blocks: list[Dictionary]` stays as-is (not lazified). The proposal's lazy property is **deferred** — per the scope-revision note above, lazifying without a faster gram path wouldn't move the cross-over needle.
+- [x] 2.3 Added `ClusteredDictionary.block_view(idx) -> BlockView` accessor + `block_views: tuple[BlockView, ...]` property. Both surface a clear `LookupError` for legacy direct-construction paths that don't populate the metadata.
+- [ ] 2.4 `materialise_dictionaries` kwarg [DEFERRED] — not needed because `.blocks` was never lazified; the eager build path remains the default.
+- [x] 2.5 `from_compression_panels` updated to populate `_block_views` (with `decoder_slice=None`, since that path doesn't carry raw decoder vectors).
 
-## 3. Encoding-specific feature defaults [DEFERRED]
+## 3. Encoding-specific feature defaults
 
-- [ ] 3.1 The lazy-materialisation path's synthesised `Feature` carriers MUST satisfy `Dictionary.__post_init__`'s validation (knob ranges, amp-knob length for Rung5). Re-use `Feature.with_default_amp_knobs` so the same defaults the loader uses today fall out automatically. Pin via a dedicated test (§5.5).
+- [x] 3.1 Not needed in the actually-shipped scope: the lazy `Dictionary` materialisation path was deferred. The eager build through `_materialise_blocks` continues to construct real `Feature` carriers via the parent `features` list, so `Feature.with_default_amp_knobs` and `Dictionary.__post_init__` validation run as before — no new test needed.
 
 ## 4. Benchmark + writeup re-run
 
