@@ -40,7 +40,6 @@ expected behaviour:
 from __future__ import annotations
 
 import gc
-import os
 import resource
 import subprocess
 import sys

@@ -156,7 +156,7 @@ def main() -> None:
         print(f"  clustered_per_op  = {report.clustered_wall_seconds_per_op*1000:.2f} ms")
         print(f"  build_once        = {report.clustered_block_formation_seconds*1000:.1f} ms")
         if report.cross_over_n_repeats is None:
-            print(f"  cross_over        = none (clustered ≥ flat per-op — worst case for clustering)")
+            print("  cross_over        = none (clustered ≥ flat per-op — worst case for clustering)")
         else:
             print(f"  cross_over        = {report.cross_over_n_repeats} ops")
         print(f"  rss_delta_kb      = {report.rss_delta_kb}")
