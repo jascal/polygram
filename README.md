@@ -72,6 +72,9 @@ cap. Two paths to that scale:
   `polygram.clustered_dictionary.build_clustered_dictionary`)
   block-decomposes the SAE into per-encoding-cap-sized blocks plus
   a sparse cross-block adjacency; analyses delegate per-block.
+  Recall vs flat (measured at full N=24,576 across
+  MPSRung1 / Rung3 / Rung4) is documented in
+  [`docs/research/clustered-dictionary-recall-vs-flat.md`](docs/research/clustered-dictionary-recall-vs-flat.md).
 
 ## Quickstart
 

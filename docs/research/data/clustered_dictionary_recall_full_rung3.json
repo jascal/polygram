@@ -1,4 +1,6 @@
 {
+  "polygram_version": "0.9.0",
+  "git_commit": "17fb55a1061964b23afded28bd6b7eac3b5232d1",
   "fixture": "scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors",
   "n_total_features": 24576,
   "n_subset_features": 24576,

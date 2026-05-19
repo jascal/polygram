@@ -226,11 +226,13 @@ features × 768 d_model — the same fixture, no subsampling) across
 all three MPS-substrate encodings to validate that the partition
 behaviour holds at the proposal's nominal "SAE scale."
 
-| Encoding | K | n_blocks | mean_block_size | cross-block edges | Flat (ms) | Clustered (ms) | Recall | Precision | Speedup |
-|---|---|---|---|---|---|---|---|---|---|
-| MPSRung1 | 8 | 4,037 | 6.1 | 501,362 | 52,808 | 57,080 | **1.000** | 1.000 | 0.93× |
-| Rung3 | 16 | 2,619 | 9.4 | 484,862 | 47,658 | 53,950 | **1.000** | 1.000 | 0.88× |
-| Rung4 | 32 | 1,878 | 13.1 | 461,852 | 52,216 | 56,003 | **1.000** | 1.000 | 0.93× |
+| Encoding | K | n_blocks | (vs N=8k) | mean_block_size | cross-block edges | Flat (ms) | Clustered (ms) | Recall | Precision | Speedup |
+|---|---|---|---|---|---|---|---|---|---|---|
+| MPSRung1 | 8 | 4,037 | +2,254 (2.26×) | 6.1 | 501,362 | 52,808 | 57,080 | **1.000** | 1.000 | 0.93× |
+| Rung3 | 16 | 2,619 | +1,296 (1.98×) | 9.4 | 484,862 | 47,658 | 53,950 | **1.000** | 1.000 | 0.88× |
+| Rung4 | 32 | 1,878 | +832 (1.79×) | 13.1 | 461,852 | 52,216 | 56,003 | **1.000** | 1.000 | 0.93× |
+
+Block count grows **sub-linearly** with N (~3× more features → 1.8–2.3× more blocks), tightening as K rises — bigger encodings absorb proportionally more density per block at the same cosine threshold.
 
 Raw artifacts (separate per-encoding JSONs):
 [`data/clustered_dictionary_recall_full_mps.json`](data/clustered_dictionary_recall_full_mps.json),
@@ -284,3 +286,8 @@ per block instead of `O(N²)` globally.
     where clustering's `O(K²)` per-block cost actually pays off.
     The current script measures the wrong workload for clustering
     to win on.
+
+Both follow-ups are unfiled as of this writing — the next
+actionable ticket is the downstream-amortised benchmark
+(filing pending). Cross-link from `openspec/changes/` once a
+proposal lands.

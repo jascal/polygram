@@ -280,7 +280,20 @@ def main() -> int:
     print(f"  precision = {precision:.4f}")
     print(f"  speedup   = {speedup:.1f}× (target ≥ 100× at SAE scale)")
 
+    import subprocess
+    import polygram
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).parent.parent,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        commit = "unknown"
+
     artifact = {
+        "polygram_version": polygram.__version__,
+        "git_commit": commit,
         "fixture": fixture_label,
         "n_total_features": int(n_total),
         "n_subset_features": int(n_features),
