@@ -13,6 +13,8 @@ Public surface (re-exported from this module):
 - **Behavioural / compression**: ``BehaviouralValidator``,
   ``ValidationReport``, ``Compressor``, ``Regrower``,
   ``EpochCompressor``.
+- **Experts** (v0.8.2+): ``cluster_experts``, ``ExpertDictionary``.
+  See ``polygram.experts``.
 - **Configuration**: ``CancellationConfig``, ``CompressionConfig``,
   ``EpochCompressionConfig``, ``RegrowConfig``, ``SAEImportConfig``,
   ``ValidationConfig``.
@@ -85,6 +87,7 @@ from polygram.geometry import (
     spearman_objective,
     uniform_sphere,
 )
+from polygram.experts import ExpertDictionary, cluster_experts
 from polygram.sae_import import (
     SAEFeatureRecord,
     SelectionReport,
@@ -125,6 +128,7 @@ __all__ = [
     "EpochResult",
     "Experiment",
     "ExperimentResult",
+    "ExpertDictionary",
     "Feature",
     "GeometricProfile",
     "HEA_Rung2",
@@ -156,6 +160,7 @@ __all__ = [
     "ValidationSummary",
     "available_profiles",
     "behavioural_objective",
+    "cluster_experts",
     "clustered",
     "from_sae_lens",
     "get_profile",
