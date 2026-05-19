@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+(nothing yet)
+
+## 0.9.0 — 2026-05-19
+
+### Added
+
+- **`add-cluster-experts-mvp` shipped.** New `polygram.experts`
+  module with `ExpertDictionary` (frozen dataclass partitioning a
+  flat `Dictionary` into routable expert blocks plus a precomputed
+  feature→expert map) and the `cluster_experts(dictionary,
+  decoder_vectors, *, method="cosine", coherence_threshold,
+  max_features_per_expert, activations)` factory. Routing via
+  `ExpertDictionary.route(activations, top_k)` returns top-k expert
+  indices by summed per-expert activation — numpy-only, no torch
+  dependency. `method="coactivation"` is reserved (raises
+  `NotImplementedError`) and will light up when
+  `clustered_dictionary._form_blocks_co_firing` is implemented.
+  Both symbols re-exported from `polygram`. See OpenSpec change
+  `add-cluster-experts-mvp` for scope and explicit follow-ups
+  (Louvain/HDBSCAN, MLP router, bio metrics, min/max
+  cluster-size post-processing).
+
 ### Behaviour changes
 
 - **`from_sae_lens` auto-promotes to clustered on cap overflow.**
