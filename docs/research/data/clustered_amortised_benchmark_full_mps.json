@@ -1,0 +1,58 @@
+{
+  "polygram_version": "0.9.0",
+  "git_commit": "5a8e49cd9f56fb24f1288bd315eeca5764cc1a83",
+  "fixture": "scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors",
+  "n_total_features": 24576,
+  "n_subset_features": 24576,
+  "d_model": 768,
+  "seed": 0,
+  "encoding": "mps",
+  "block_size": 8,
+  "cosine_threshold": 0.3,
+  "n_repeats": 2,
+  "sample_size": 256,
+  "ops": [
+    {
+      "op_name": "gram",
+      "n_repeats": 2,
+      "flat_wall_seconds_per_op": 15.18518986699928,
+      "clustered_wall_seconds_per_op": 12.731348749999597,
+      "clustered_block_formation_seconds": 120.67620319599519,
+      "cross_over_n_repeats": 50,
+      "rss_delta_kb": 444796,
+      "object_count_delta": 41172,
+      "sample_size_requested": 256,
+      "sample_size_effective": 256,
+      "polygram_version": "0.9.0",
+      "git_commit": "5a8e49cd9f56fb24f1288bd315eeca5764cc1a83"
+    },
+    {
+      "op_name": "cross_block_overlap",
+      "n_repeats": 2,
+      "flat_wall_seconds_per_op": 0.0010091549993376248,
+      "clustered_wall_seconds_per_op": 0.05160738400081755,
+      "clustered_block_formation_seconds": 58.750362617000064,
+      "cross_over_n_repeats": null,
+      "rss_delta_kb": 0,
+      "object_count_delta": 41172,
+      "sample_size_requested": 256,
+      "sample_size_effective": 256,
+      "polygram_version": "0.9.0",
+      "git_commit": "5a8e49cd9f56fb24f1288bd315eeca5764cc1a83"
+    },
+    {
+      "op_name": "redundancy",
+      "n_repeats": 2,
+      "flat_wall_seconds_per_op": 48.48619587500434,
+      "clustered_wall_seconds_per_op": 5.826848611999594,
+      "clustered_block_formation_seconds": 56.84198621199903,
+      "cross_over_n_repeats": 2,
+      "rss_delta_kb": 0,
+      "object_count_delta": 41172,
+      "sample_size_requested": 256,
+      "sample_size_effective": 256,
+      "polygram_version": "0.9.0",
+      "git_commit": "5a8e49cd9f56fb24f1288bd315eeca5764cc1a83"
+    }
+  ]
+}

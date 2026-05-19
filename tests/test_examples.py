@@ -173,6 +173,34 @@ def test_cancellation_example_runs(tmp_path: Path):
     assert (out / "ToySAEAnimals4_at_optimum_summary.md").exists()
 
 
+def test_clustered_amortised_benchmark_smoke(tmp_path: Path, monkeypatch, capsys):
+    """Smoke test the example script on the bundled toy fixture
+    (--sae omitted). Verify the JSON output has the expected shape
+    when `--op all` is selected.
+    """
+    import json
+    import sys
+    out = tmp_path / "bench.json"
+    monkeypatch.setattr(
+        sys, "argv",
+        [
+            "clustered_amortised_benchmark.py",
+            "--op", "all",
+            "--n-repeats", "2",
+            "--sample-size", "4",
+            "--output", str(out),
+        ],
+    )
+    from examples.clustered_amortised_benchmark import main
+    main()
+    data = json.loads(out.read_text())
+    assert data["polygram_version"]
+    assert "git_commit" in data
+    assert {"gram", "cross_block_overlap", "redundancy"} == {
+        r["op_name"] for r in data["ops"]
+    }
+
+
 def test_sae_safetensors_runs(tmp_path: Path):
     """Synthesize a .safetensors fixture, load it, build a Dictionary,
     and emit a verifying .q.orca.md."""

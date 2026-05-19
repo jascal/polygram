@@ -287,7 +287,16 @@ per block instead of `O(N²)` globally.
     The current script measures the wrong workload for clustering
     to win on.
 
-Both follow-ups are unfiled as of this writing — the next
-actionable ticket is the downstream-amortised benchmark
-(filing pending). Cross-link from `openspec/changes/` once a
-proposal lands.
+The downstream-amortised benchmark landed as a separate change
+(`add-clustered-amortised-benchmark`) with the full sweep results
+in [`clustered-amortised-benchmark.md`](clustered-amortised-benchmark.md).
+**Headline:** the proposal's gram-cross-over criterion FAILS at
+every shipped K, but the redundancy op (which this writeup
+pinned as the worst case for clustering) unexpectedly *wins* with
+cross-over=2 once the clustered path uses analytic per-block
+gram + threshold-filtering on N² is correctly attributed to flat.
+See that note for the engineering follow-ups
+(lighter per-block container; cached cross-block-edges
+iteration). The sub-O(N²) approximate block former remains
+unfiled; lower priority now that per-block container overhead
+appears load-bearing.
