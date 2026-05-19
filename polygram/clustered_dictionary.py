@@ -33,6 +33,7 @@ For explicit construction outside the loader, use `build_clustered_dictionary`.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
@@ -71,6 +72,19 @@ class BlockFormation:
       reduces per-block compute at the cost of more cross-block edges.
     - `firing_corpus` — required when `strategy == "co_firing"`;
       `None` for the other strategies.
+
+    Degenerate-partition diagnostic (cosine strategy only): when the
+    constructed partition has zero multi-feature blocks — i.e., no
+    pair of decoder vectors cleared `cosine_threshold` — a
+    ``UserWarning`` is emitted by ``build_clustered_dictionary``
+    naming the configured threshold, the observed maximum
+    off-diagonal cosine, and a recommended fallback threshold
+    (heuristic: ``max_observed_cosine * 0.8``, clipped to
+    ``[0.05, 0.5]``). The recommended workflow when this fires is
+    to rebuild with the suggested threshold; downstream analyses
+    on a singleton-only partition degenerate silently otherwise.
+    The warning is suppressed for non-cosine strategies, which have
+    their own failure modes.
     """
 
     strategy: BlockFormationStrategy
@@ -921,6 +935,37 @@ def _resolve_block_size_max(
     return int(encoding.max_features)
 
 
+def _max_off_diagonal_cosine(decoder_vectors: np.ndarray) -> float:
+    """Return the maximum off-diagonal cosine in the decoder pair graph.
+
+    Used by `build_clustered_dictionary` to feed the degenerate-partition
+    warning. Only called when the cosine partition produced no
+    multi-feature blocks — i.e., on the failure path — so cost is
+    explicitly acceptable. Chunked to match `compute_cosine_pair_graph`'s
+    1024-row memory ceiling.
+    """
+    n = decoder_vectors.shape[0]
+    if n < 2:
+        return 0.0
+    unit = decoder_vectors.astype(np.float32, copy=False)
+    norms = np.linalg.norm(unit, axis=1, keepdims=True)
+    norms = np.where(norms < 1e-12, 1.0, norms)
+    unit = unit / norms
+    chunk = 1024 if n > 1024 else n
+    max_observed = -1.0
+    for start in range(0, n, chunk):
+        end = min(start + chunk, n)
+        sims = unit[start:end] @ unit.T
+        # Mask out the diagonal slice corresponding to this chunk so
+        # the chunk's `i==j` entries (cosine = 1) don't dominate.
+        for local_i in range(end - start):
+            sims[local_i, start + local_i] = -1.0
+        block_max = float(sims.max())
+        if block_max > max_observed:
+            max_observed = block_max
+    return max(0.0, max_observed)
+
+
 def _form_blocks_cosine(
     features: list[Feature],
     decoder_vectors: np.ndarray,
@@ -1217,6 +1262,28 @@ def build_clustered_dictionary(
     blocks = _materialise_blocks(
         name, features, block_indices, encoding, block_formation, hierarchy
     )
+
+    # Degenerate-partition diagnostic. When `cosine_threshold` is too
+    # high to cluster anything (every block ends up a singleton),
+    # downstream analyses fall apart silently. Surface this loudly so
+    # users can tune the threshold instead of debugging from
+    # nothing. Cosine-strategy-only — co_firing / user_declared have
+    # their own failure modes that don't map to this signal.
+    if block_formation.strategy == "cosine":
+        n_multi_feature_blocks = sum(1 for b in blocks if len(b.features) > 1)
+        if n_multi_feature_blocks == 0 and len(features) >= 2:
+            max_cosine = _max_off_diagonal_cosine(decoder_vectors)
+            recommended = max(0.05, min(0.5, max_cosine * 0.8))
+            warnings.warn(
+                _degenerate_partition_message(
+                    threshold=block_formation.cosine_threshold,
+                    max_cosine=max_cosine,
+                    recommended=recommended,
+                ),
+                UserWarning,
+                stacklevel=2,
+            )
+
     cross_block_pairs = _compute_cross_block_edges(
         block_indices, decoder_vectors, block_formation.cosine_threshold,
         cosine_pairs=cosine_pairs,
@@ -1226,6 +1293,23 @@ def build_clustered_dictionary(
         blocks=blocks,
         cross_block_pairs=cross_block_pairs,
         block_formation=block_formation,
+    )
+
+
+def _degenerate_partition_message(
+    *, threshold: float, max_cosine: float, recommended: float
+) -> str:
+    """Canonical message for the degenerate-partition warning.
+
+    Centralised so the loader-side `SelectionReport.warnings` plumbing
+    can emit byte-identical text — useful for round-trip tests and
+    structured-log consumers downstream.
+    """
+    return (
+        f"Degenerate cosine partition: n_multi_feature_blocks=0 at "
+        f"cosine_threshold={threshold}. "
+        f"Max observed off-diagonal cosine: {max_cosine:.4f}. "
+        f"Recommended fallback: {recommended:.3f}"
     )
 
 

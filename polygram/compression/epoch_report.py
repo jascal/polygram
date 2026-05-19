@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from polygram.dictionary import Dictionary
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SIG_FIGS = 6
 
 
@@ -97,7 +97,24 @@ class EpochIteration:
 
 @dataclass(frozen=True, eq=False)
 class EpochReport:
-    """Post-`run()` artifact carrying provenance + the iteration list."""
+    """Post-`run()` artifact carrying provenance + the iteration list.
+
+    ``redundancy_ratio`` is the load-bearing diagnostic for whether a
+    compression run helped or hurt downstream behavioural metrics. On
+    recent Gemma-2-2B SAE runs the ratio landed between 60% and 74%,
+    correlating strongly with KL outcomes — helpful on sparse SAEs,
+    catastrophic on dense ones. The sibling ``n_features_input``
+    field carries the divisor so the ratio is interpretable without
+    external context.
+
+    Legacy-payload sentinel: pre-v2 reports loaded via
+    :meth:`from_json` / :meth:`from_dict` lack the divisor; in that
+    case ``redundancy_ratio`` is set to ``0.0`` (NOT ``nan``).
+    Downstream consumers and human readers consistently misread
+    ``nan`` as a real measurement; the sentinel keeps the field
+    safely sortable / comparable while remaining identifiable as
+    "no measurement available".
+    """
 
     schema_version: int
     source_checkpoint: str
@@ -106,6 +123,8 @@ class EpochReport:
     output_checkpoint_sha256: str
     convergence_reason: str
     n_features_zeroed_total: int
+    n_features_input: int
+    redundancy_ratio: float
     n_panels_total: int
     coverage_achieved: float
     wall_seconds: float
@@ -162,6 +181,23 @@ class EpochReport:
         iterations = tuple(
             _iteration_from_dict(it) for it in payload["iterations"]
         )
+
+        # Schema v2 added `n_features_input` + `redundancy_ratio`.
+        # Legacy v1 payloads omit both — we surface the divisor as 0
+        # and the ratio as 0.0 (defensive sentinel; we explicitly
+        # avoid `nan` because downstream consumers misread it as a
+        # real measurement). When the divisor is missing the ratio
+        # is genuinely uncomputable, but the report still loads.
+        n_features_input = int(payload.get("n_features_input", 0))
+        if "redundancy_ratio" in payload:
+            redundancy_ratio = float(payload["redundancy_ratio"])
+        elif n_features_input > 0:
+            redundancy_ratio = (
+                int(payload["n_features_zeroed_total"]) / n_features_input
+            )
+        else:
+            redundancy_ratio = 0.0
+
         return cls(
             schema_version=int(payload["schema_version"]),
             source_checkpoint=str(payload["source_checkpoint"]),
@@ -170,6 +206,8 @@ class EpochReport:
             output_checkpoint_sha256=str(payload["output_checkpoint_sha256"]),
             convergence_reason=str(payload["convergence_reason"]),
             n_features_zeroed_total=int(payload["n_features_zeroed_total"]),
+            n_features_input=n_features_input,
+            redundancy_ratio=redundancy_ratio,
             n_panels_total=int(payload["n_panels_total"]),
             coverage_achieved=float(payload["coverage_achieved"]),
             wall_seconds=float(payload["wall_seconds"]),
@@ -189,6 +227,8 @@ class EpochReport:
             and self.output_checkpoint_sha256 == other.output_checkpoint_sha256
             and self.convergence_reason == other.convergence_reason
             and self.n_features_zeroed_total == other.n_features_zeroed_total
+            and self.n_features_input == other.n_features_input
+            and _floats_eq(self.redundancy_ratio, other.redundancy_ratio)
             and self.n_panels_total == other.n_panels_total
             and _floats_eq(self.coverage_achieved, other.coverage_achieved)
             and _floats_eq(self.wall_seconds, other.wall_seconds)
@@ -206,6 +246,7 @@ class EpochReport:
             self.output_checkpoint_sha256,
             self.convergence_reason,
             self.n_features_zeroed_total,
+            self.n_features_input,
             self.n_panels_total,
         ))
 
@@ -220,6 +261,8 @@ class EpochReport:
             "output_checkpoint_sha256": self.output_checkpoint_sha256,
             "convergence_reason": self.convergence_reason,
             "n_features_zeroed_total": int(self.n_features_zeroed_total),
+            "n_features_input": int(self.n_features_input),
+            "redundancy_ratio": _json_finite(self.redundancy_ratio),
             "n_panels_total": int(self.n_panels_total),
             "coverage_achieved": _json_finite(self.coverage_achieved),
             "wall_seconds": _json_finite(self.wall_seconds),

@@ -1078,6 +1078,7 @@ def _cmd_compress_epoch(args: argparse.Namespace) -> int:
         f"convergence_reason={result.report.convergence_reason} "
         f"iterations={len(result.report.iterations)} "
         f"n_features_zeroed_total={result.report.n_features_zeroed_total} "
+        f"redundancy_ratio={result.report.redundancy_ratio:.3f} "
         f"coverage_achieved={result.report.coverage_achieved:.3f}\n"
     )
     return 0
