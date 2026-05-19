@@ -106,6 +106,11 @@ class BlockFormation:
 # adjacency is undirected; we canonicalise on insert).
 CrossBlockKey = tuple[int, int, int, int]
 
+# One materialised cross-block edge: `(key, cosine)`. Used by the
+# cached `cross_block_edges_tuple` on `ClusteredDictionary` and by
+# any downstream code iterating edges with their similarities.
+CrossBlockEdge = tuple[CrossBlockKey, float]
+
 
 # Block topology — flat adjacency for v1. A `dict[block_id, list[block_id]]`
 # records which blocks are linked at the topology level (e.g.,
@@ -156,7 +161,7 @@ class ClusteredDictionary:
     # `list(dict.items())` on every call. Excluded from init / repr /
     # equality so it's an implementation detail, not part of the
     # dataclass identity.
-    cross_block_edges_tuple: tuple[tuple[CrossBlockKey, float], ...] = field(
+    cross_block_edges_tuple: tuple[CrossBlockEdge, ...] = field(
         default=(), init=False, compare=False, repr=False,
     )
 
