@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+(nothing yet)
+
+## 0.10.0 — 2026-05-19
+
 ### Added
 
 - **`add-polygram-010-diagnostics` shipped (impl track).**
