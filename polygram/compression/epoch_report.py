@@ -106,6 +106,14 @@ class EpochReport:
     catastrophic on dense ones. The sibling ``n_features_input``
     field carries the divisor so the ratio is interpretable without
     external context.
+
+    Legacy-payload sentinel: pre-v2 reports loaded via
+    :meth:`from_json` / :meth:`from_dict` lack the divisor; in that
+    case ``redundancy_ratio`` is set to ``0.0`` (NOT ``nan``).
+    Downstream consumers and human readers consistently misread
+    ``nan`` as a real measurement; the sentinel keeps the field
+    safely sortable / comparable while remaining identifiable as
+    "no measurement available".
     """
 
     schema_version: int

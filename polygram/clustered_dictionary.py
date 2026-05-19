@@ -33,6 +33,7 @@ For explicit construction outside the loader, use `build_clustered_dictionary`.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterator, Mapping, Sequence
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
@@ -1273,7 +1274,6 @@ def build_clustered_dictionary(
         if n_multi_feature_blocks == 0 and len(features) >= 2:
             max_cosine = _max_off_diagonal_cosine(decoder_vectors)
             recommended = max(0.05, min(0.5, max_cosine * 0.8))
-            import warnings
             warnings.warn(
                 _degenerate_partition_message(
                     threshold=block_formation.cosine_threshold,
