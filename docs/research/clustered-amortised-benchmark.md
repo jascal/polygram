@@ -59,9 +59,16 @@ cross_over = smallest k where clustered_total(k) < flat_total(k)
   pre-computed at build time (per-op cost ≈ dict lookup); flat
   resamples N choose 2 every op.
 - **`redundancy`** — pinned as the worst case for clustering per
-  PR #91. Both paths produce the same set of pairs; flat's single
-  cosine matmul beats clustered's per-block grams + cross-block
-  walk. Crossover SHALL be `None` here, by design.
+  PR #91. Both paths produce the same set of pairs **above a
+  cosine threshold of 0.7** (the polygram-wide default for
+  decoder-vector duplicate detection — see
+  `_REDUNDANCY_THRESHOLD` in `polygram/benchmarks/clustered_amortised.py`
+  and matches the threshold used by #91's killer experiment for
+  apples-to-apples comparison). Flat's single cosine matmul +
+  threshold filter is the baseline; clustered does per-block grams
+  + cross-block walk above the same threshold. Crossover SHALL be
+  `None` here, by design — except the new measurement flips that
+  assumption (see Finding 3 below).
 
 ## Results — full N=24,576, polygram 0.9.0, `n_repeats=2`
 
