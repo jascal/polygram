@@ -371,18 +371,24 @@ class TestBuildClusteredDictionaryCosine:
 
     def test_singleton_blocks_for_isolated_features(self):
         # Six orthogonal features → cosine threshold 0.5 puts each in
-        # its own block (no pairs above threshold).
+        # its own block (no pairs above threshold). This is exactly
+        # the degenerate-partition case the 0.10 warning fires on; we
+        # acknowledge the warning here so the test stays focused on
+        # the geometric outcome rather than the diagnostic surface.
+        import warnings as _w
         vectors = np.eye(6, dtype=np.float32)
         features = [_feature(f"iso_{i}", cluster="iso") for i in range(6)]
-        cd = build_clustered_dictionary(
-            name="isolated",
-            features=features,
-            decoder_vectors=vectors,
-            encoding=MPSRung1(),
-            block_formation=BlockFormation(
-                strategy="cosine", cosine_threshold=0.5
-            ),
-        )
+        with _w.catch_warnings():
+            _w.simplefilter("ignore", UserWarning)
+            cd = build_clustered_dictionary(
+                name="isolated",
+                features=features,
+                decoder_vectors=vectors,
+                encoding=MPSRung1(),
+                block_formation=BlockFormation(
+                    strategy="cosine", cosine_threshold=0.5
+                ),
+            )
         assert cd.n_blocks == 6
         assert all(len(b.features) == 1 for b in cd.blocks)
         assert cd.n_cross_block_edges == 0
@@ -1186,3 +1192,126 @@ class TestClusteredFromCompressionPanels:
         # Each block's feature count matches its panel's member count.
         for block, panel in zip(cd.blocks, panels):
             assert len(block.features) == len(panel.feature_ids)
+
+
+# ---------------------------------------------------------------------------
+# Degenerate-partition warning (polygram-010-diagnostics §2)
+# ---------------------------------------------------------------------------
+
+
+def _orthogonal_decoder(n: int, d: int = 16) -> np.ndarray:
+    """N orthogonal-ish decoder rows (standard basis vectors padded
+    with noise way below any sensible cosine_threshold). No pair has
+    cosine ≥ 0.05 — guarantees a degenerate cosine partition."""
+    rng = np.random.default_rng(0)
+    rows = np.zeros((n, d), dtype=np.float32)
+    for i in range(n):
+        rows[i, i % d] = 1.0
+        rows[i] += rng.normal(scale=1e-4, size=d).astype(np.float32)
+        rows[i] /= np.linalg.norm(rows[i])
+    return rows
+
+
+def _features(n: int) -> list[Feature]:
+    return [Feature(name=f"f{i}", cluster="all", beta=0.0) for i in range(n)]
+
+
+def test_degenerate_partition_warns():
+    """Task 3.4 — synthetic orthogonal decoders at default threshold
+    0.3 produce zero multi-feature blocks; the warning fires naming
+    the threshold, the observed max cosine, and a recommended
+    fallback."""
+    vectors = _orthogonal_decoder(8)
+    bf = BlockFormation(strategy="cosine", cosine_threshold=0.3)
+    with pytest.warns(UserWarning, match="Degenerate cosine partition"):
+        cd = build_clustered_dictionary(
+            name="degen",
+            features=_features(8),
+            decoder_vectors=vectors,
+            encoding=MPSRung1(),
+            block_formation=bf,
+        )
+    # Every block is a singleton — that's what the warning measures.
+    assert all(len(b.features) == 1 for b in cd.blocks)
+
+
+def test_degenerate_partition_warning_names_threshold_and_max_cosine():
+    """The warning text MUST surface `cosine_threshold` and an
+    observed max cosine so the user can act on it."""
+    import warnings as _w
+    vectors = _orthogonal_decoder(8)
+    bf = BlockFormation(strategy="cosine", cosine_threshold=0.3)
+    with _w.catch_warnings(record=True) as captured:
+        _w.simplefilter("always")
+        build_clustered_dictionary(
+            name="degen2",
+            features=_features(8),
+            decoder_vectors=vectors,
+            encoding=MPSRung1(),
+            block_formation=bf,
+        )
+    msgs = [str(w.message) for w in captured if issubclass(w.category, UserWarning)]
+    degen = [m for m in msgs if m.startswith("Degenerate cosine partition")]
+    assert len(degen) == 1, msgs
+    assert "cosine_threshold=0.3" in degen[0]
+    assert "Max observed off-diagonal cosine" in degen[0]
+    assert "Recommended fallback" in degen[0]
+
+
+def test_borderline_cosine_partition_does_not_warn():
+    """Task 3.8 — when SOME pairs cross the threshold (even if most
+    don't), the warning MUST NOT fire. Pins the trigger to the
+    actually-degenerate case so healthy-but-sparse SAEs don't spam
+    the warning."""
+    import warnings as _w
+    rng = np.random.default_rng(0)
+    base = rng.standard_normal(16).astype(np.float32)
+    base /= np.linalg.norm(base)
+    vectors = _orthogonal_decoder(8)
+    # Plant one near-duplicate pair so at least one block is multi-feature.
+    vectors[0] = base
+    vectors[1] = base + rng.normal(scale=0.02, size=16).astype(np.float32)
+    vectors[1] /= np.linalg.norm(vectors[1])
+    bf = BlockFormation(strategy="cosine", cosine_threshold=0.3)
+    with _w.catch_warnings(record=True) as captured:
+        _w.simplefilter("always")
+        cd = build_clustered_dictionary(
+            name="borderline",
+            features=_features(8),
+            decoder_vectors=vectors,
+            encoding=MPSRung1(),
+            block_formation=bf,
+        )
+    assert any(len(b.features) >= 2 for b in cd.blocks)
+    degen = [
+        str(w.message) for w in captured
+        if str(w.message).startswith("Degenerate cosine partition")
+    ]
+    assert degen == [], f"warning should not fire here: {degen}"
+
+
+def test_degenerate_partition_no_warning_for_user_declared():
+    """Task 3.5 — the warning is cosine-strategy-only; user_declared
+    has different failure modes and should not surface this signal."""
+    import warnings as _w
+    vectors = _orthogonal_decoder(8)
+    feats = _features(8)
+    # Hierarchy with 8 singleton clusters — every block ends up
+    # single-feature, the same shape the cosine warning fires on.
+    hierarchy = {f"c{i}": [f.name] for i, f in enumerate(feats)}
+    bf = BlockFormation(strategy="user_declared", cosine_threshold=0.3)
+    with _w.catch_warnings(record=True) as captured:
+        _w.simplefilter("always")
+        build_clustered_dictionary(
+            name="ud",
+            features=feats,
+            decoder_vectors=vectors,
+            encoding=MPSRung1(),
+            block_formation=bf,
+            hierarchy=hierarchy,
+        )
+    degen = [
+        str(w.message) for w in captured
+        if str(w.message).startswith("Degenerate cosine partition")
+    ]
+    assert degen == [], f"user_declared must not trigger cosine warning: {degen}"

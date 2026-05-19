@@ -32,6 +32,8 @@ def _hand_built_report() -> EpochReport:
         output_checkpoint_sha256="b" * 64,
         convergence_reason="stable_clusters",
         n_features_zeroed_total=11,
+        n_features_input=16,
+        redundancy_ratio=11 / 16,
         n_panels_total=3,
         coverage_achieved=0.954,
         wall_seconds=6420.7,
@@ -78,7 +80,8 @@ class TestRoundTrip:
             "schema_version", "source_checkpoint",
             "source_checkpoint_sha256", "output_checkpoint",
             "output_checkpoint_sha256", "convergence_reason",
-            "n_features_zeroed_total", "n_panels_total",
+            "n_features_zeroed_total", "n_features_input",
+            "redundancy_ratio", "n_panels_total",
             "coverage_achieved", "wall_seconds", "iterations",
         ):
             assert key in payload
@@ -88,3 +91,70 @@ class TestRoundTrip:
         rt = EpochReport.from_json(r.to_json())
         assert rt.iterations[0].panels[0].feature_ids == r.iterations[0].panels[0].feature_ids
         assert rt.iterations[0].panels[0].anchor == r.iterations[0].panels[0].anchor
+
+
+class TestRedundancyRatio:
+    def test_ratio_matches_division(self):
+        """Task 3.1 — `redundancy_ratio == n_features_zeroed_total /
+        n_features_input` on a fresh report."""
+        r = _hand_built_report()
+        assert abs(
+            r.redundancy_ratio
+            - r.n_features_zeroed_total / r.n_features_input
+        ) < 1e-12
+
+    def test_ratio_round_trips_through_json(self):
+        """Task 3.2 — to_json → from_json preserves the new field."""
+        r = _hand_built_report()
+        rt = EpochReport.from_json(r.to_json())
+        assert rt.redundancy_ratio == r.redundancy_ratio
+        assert rt.n_features_input == r.n_features_input
+
+    def test_legacy_payload_loads_without_new_fields(self):
+        """Task 3.3 — legacy v1 payload (no redundancy_ratio,
+        no n_features_input) loads without crashing. Ratio is
+        either computed from any available divisor or set to the
+        0.0 sentinel (NOT nan)."""
+        import json
+        import math
+        legacy_payload = {
+            "schema_version": 1,
+            "source_checkpoint": "/path/source.safetensors",
+            "source_checkpoint_sha256": "a" * 64,
+            "output_checkpoint": "/path/out.safetensors",
+            "output_checkpoint_sha256": "b" * 64,
+            "convergence_reason": "stable_clusters",
+            "n_features_zeroed_total": 5,
+            "n_panels_total": 1,
+            "coverage_achieved": 0.5,
+            "wall_seconds": 100.0,
+            "iterations": [],
+        }
+        rt = EpochReport.from_json(json.dumps(legacy_payload))
+        assert rt.n_features_input == 0
+        # Divisor missing → 0.0 sentinel, NOT nan.
+        assert rt.redundancy_ratio == 0.0
+        assert not math.isnan(rt.redundancy_ratio)
+
+    def test_zero_n_features_input_sentinel_is_zero_not_nan(self):
+        """Defensive: when n_features_input=0 (degenerate),
+        redundancy_ratio is 0.0, not nan. Downstream consumers
+        consistently misread nan as a real measurement."""
+        import math
+        r = EpochReport(
+            schema_version=SCHEMA_VERSION,
+            source_checkpoint="/s",
+            source_checkpoint_sha256="0" * 64,
+            output_checkpoint="/o",
+            output_checkpoint_sha256="1" * 64,
+            convergence_reason="max_iterations",
+            n_features_zeroed_total=0,
+            n_features_input=0,
+            redundancy_ratio=0.0,
+            n_panels_total=0,
+            coverage_achieved=0.0,
+            wall_seconds=0.0,
+            iterations=(),
+        )
+        assert r.redundancy_ratio == 0.0
+        assert not math.isnan(r.redundancy_ratio)

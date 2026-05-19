@@ -944,6 +944,7 @@ def from_sae_lens(
     n_cross_block_edges_stat: int | None = None
 
     if clustered:
+        import warnings as _stdwarnings
         from polygram.clustered_dictionary import (
             BlockFormation,
             build_clustered_dictionary,
@@ -954,14 +955,29 @@ def from_sae_lens(
             bf_hierarchy = hierarchy
         else:
             bf_hierarchy = None
-        clustered_dict = build_clustered_dictionary(
-            name=name,
-            features=features,
-            decoder_vectors=projs,
-            encoding=encoding or MPSRung1(),
-            block_formation=bf,
-            hierarchy=bf_hierarchy,
-        )
+
+        # Capture build_clustered_dictionary's UserWarnings into the
+        # SelectionReport so loader callers see the diagnostic without
+        # plumbing `warnings.catch_warnings` themselves.
+        with _stdwarnings.catch_warnings(record=True) as captured:
+            _stdwarnings.simplefilter("always")
+            clustered_dict = build_clustered_dictionary(
+                name=name,
+                features=features,
+                decoder_vectors=projs,
+                encoding=encoding or MPSRung1(),
+                block_formation=bf,
+                hierarchy=bf_hierarchy,
+            )
+        for w in captured:
+            text = str(w.message)
+            if text.startswith("Degenerate cosine partition"):
+                warnings.append(text)
+            else:
+                # Re-emit anything else so we don't swallow non-targeted
+                # warnings (e.g. third-party deprecations from numpy).
+                _stdwarnings.warn(w.message, w.category, stacklevel=2)
+
         n_blocks_stat = clustered_dict.n_blocks
         mean_block_size_stat = clustered_dict.mean_block_size
         n_cross_block_edges_stat = clustered_dict.n_cross_block_edges

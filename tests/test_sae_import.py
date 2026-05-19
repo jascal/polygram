@@ -413,3 +413,79 @@ class TestPerEncodingFeatureCapLoader:
         with pytest.raises(ValueError) as exc_info:
             from_sae_lens(records, list(range(9)), clustered=False)
         assert "clustered=True" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Degenerate-partition warning plumbed through SelectionReport
+# (polygram-010-diagnostics §2.2)
+# ---------------------------------------------------------------------------
+
+
+def _write_orthogonal_sae(path):
+    """Write a tiny SAE whose decoder rows are near-orthogonal so the
+    cosine partition is guaranteed to be degenerate at threshold 0.3."""
+    import json
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    n_features = 12
+    d_model = 16
+    rows = np.zeros((n_features, d_model), dtype=np.float64)
+    for i in range(n_features):
+        rows[i, i % d_model] = 1.0
+        rows[i] += rng.normal(scale=1e-4, size=d_model)
+        rows[i] /= float(np.linalg.norm(rows[i]))
+    payload = {
+        "schema_version": 1,
+        "description": "orthogonal SAE for degenerate-partition test",
+        "features": [
+            {
+                "feature_id": i,
+                "name": f"f{i}",
+                "projection": rows[i].tolist(),
+            }
+            for i in range(n_features)
+        ],
+    }
+    path.write_text(json.dumps(payload))
+    return list(range(n_features))
+
+
+def test_from_sae_lens_surfaces_degenerate_partition_warning_in_selection_report(
+    tmp_path,
+):
+    """Task 3.6 — when the loader path builds a clustered dictionary
+    whose cosine partition is degenerate, the warning text SHALL
+    appear in `SelectionReport.warnings` so callers see the
+    diagnostic without `catch_warnings`."""
+    fix = tmp_path / "orth.json"
+    ids = _write_orthogonal_sae(fix)
+    records = load_toy_sae(fix)
+    _result, report = from_sae_lens(records, ids, clustered=True)
+    degen_entries = [
+        w for w in report.warnings
+        if w.startswith("Degenerate cosine partition")
+    ]
+    assert len(degen_entries) == 1, report.warnings
+
+
+def test_degenerate_partition_warning_survives_dataclass_replace(tmp_path):
+    """Task 3.7 (scoped) — `SelectionReport` doesn't currently expose
+    `to_dict` / `from_dict` (a separate enhancement; mentioned in the
+    impl PR's commit message). The strict "round-trip through
+    serialisation" test the proposal sketched needs that surface
+    first. As an interim invariant we verify the warning text
+    survives a `dataclasses.replace` cycle — sufficient to catch any
+    future regression that drops the warnings field on
+    `SelectionReport`'s frozen-dataclass identity."""
+    from dataclasses import replace as _replace
+    fix = tmp_path / "orth_replace.json"
+    ids = _write_orthogonal_sae(fix)
+    records = load_toy_sae(fix)
+    _result, report = from_sae_lens(records, ids, clustered=True)
+    cloned = _replace(report)
+    assert cloned.warnings == report.warnings
+    assert any(
+        w.startswith("Degenerate cosine partition")
+        for w in cloned.warnings
+    )

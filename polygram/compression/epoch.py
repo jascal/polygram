@@ -331,6 +331,7 @@ class EpochCompressor:
         # mutate `current_state` in-memory. We only write to disk at
         # the end (or per-iteration via temp + replace if save_intermediate).
         current_state = load_file(str(self.sae_checkpoint))
+        n_features_input = int(current_state["W_dec"].shape[0])
 
         iterations: list[EpochIteration] = []
         cluster_fingerprints: list[frozenset] = []
@@ -582,6 +583,16 @@ class EpochCompressor:
         output_sha = sha256_file(out_path)
         wall_seconds = time.monotonic() - wall_start
 
+        n_zeroed = len(self._zeroed)
+        if n_features_input > 0:
+            redundancy_ratio = n_zeroed / n_features_input
+        else:
+            # Defensive sentinel; an SAE checkpoint with W_dec.shape[0] = 0
+            # is degenerate but we'd rather load than crash. We avoid `nan`
+            # because downstream consumers (and the eyeball test on
+            # JSON output) consistently misread it as a real measurement.
+            redundancy_ratio = 0.0
+
         report = EpochReport(
             schema_version=SCHEMA_VERSION,
             source_checkpoint=str(self.sae_checkpoint),
@@ -589,7 +600,9 @@ class EpochCompressor:
             output_checkpoint=str(out_path),
             output_checkpoint_sha256=output_sha,
             convergence_reason=convergence_reason,
-            n_features_zeroed_total=len(self._zeroed),
+            n_features_zeroed_total=n_zeroed,
+            n_features_input=n_features_input,
+            redundancy_ratio=_round_float(float(redundancy_ratio)),
             n_panels_total=sum(len(it.panels) for it in iterations),
             coverage_achieved=_round_float(float(final_coverage)),
             wall_seconds=_round_float(float(wall_seconds)),

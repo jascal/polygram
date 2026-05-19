@@ -2,7 +2,38 @@
 
 ## Unreleased
 
-(nothing yet)
+### Added
+
+- **`add-polygram-010-diagnostics` shipped (impl track).**
+  `EpochReport` carries new first-class fields `redundancy_ratio:
+  float` and `n_features_input: int`. The ratio (observed in the
+  60–74% range across recent Gemma-2 runs, correlating strongly
+  with downstream KL outcomes) is now readable directly off the
+  report instead of being a downstream derivation. Schema bumped
+  to v2; legacy v1 payloads load with a forward-compat shim that
+  computes the ratio from any available divisor or sets the
+  defensive `0.0` sentinel (not `nan`, which downstream consumers
+  consistently misread as a real measurement). `polygram analyze`
+  surfaces the ratio alongside `n_features_zeroed_total`.
+- **`BlockFormation` degenerate-partition warning.**
+  `build_clustered_dictionary` now emits a `UserWarning` when the
+  cosine partition has zero multi-feature blocks — every block is
+  a singleton because no decoder pair cleared `cosine_threshold`.
+  The warning names the configured threshold, the observed
+  maximum off-diagonal cosine, and a recommended fallback
+  threshold (`max_observed_cosine * 0.8`, clipped). When invoked
+  via `from_sae_lens(..., clustered=True)`, the same text appears
+  in `SelectionReport.warnings`. Cosine-strategy-only;
+  co_firing / user_declared are suppressed.
+
+### Performance
+
+- **`ClusteredDictionary.cross_block_edges_tuple` cache.**
+  `cross_block_pairs` is now also exposed as a precomputed tuple
+  at build time so sampled cross-block walks avoid the
+  `list(dict.items())` re-materialisation surfaced by the
+  amortised benchmark. Measured per-op cost on `cross_block_overlap`
+  at full N=24,576 dropped 51.6 ms → 0.18 ms (287×).
 
 ## 0.9.0 — 2026-05-19
 
