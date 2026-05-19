@@ -13,7 +13,7 @@ Public surface (re-exported from this module):
 - **Behavioural / compression**: ``BehaviouralValidator``,
   ``ValidationReport``, ``Compressor``, ``Regrower``,
   ``EpochCompressor``.
-- **Experts** (v0.8.2+): ``cluster_experts``, ``ExpertDictionary``.
+- **Experts** (v0.9.0+): ``cluster_experts``, ``ExpertDictionary``.
   See ``polygram.experts``.
 - **Configuration**: ``CancellationConfig``, ``CompressionConfig``,
   ``EpochCompressionConfig``, ``RegrowConfig``, ``SAEImportConfig``,
@@ -96,7 +96,7 @@ from polygram.sae_import import (
     load_toy_sae,
 )
 
-__version__ = "0.8.1"
+__version__ = "0.9.0"
 
 __all__ = [
     "BatchExperiment",
