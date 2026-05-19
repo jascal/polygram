@@ -119,21 +119,21 @@ def test_amp_knobs_activate_higher_rung_capacity_rung3():
 # ---------------------------------------------------------------------------
 
 
-def test_default_false_is_byte_identical_to_pre_change():
-    """`assign_amp_knobs=False` (the default) produces a Rung4 gram
-    bit-identical to omitting the kwarg entirely. The pre-change
-    behaviour is the default; this test pins it."""
+def test_default_matches_explicit_true_post_sm_sae():
+    """`assign_amp_knobs=True` is the default since the sm-sae
+    Recommended-defaults change. Omitting the kwarg is byte-identical
+    to passing `True`; this test pins that invariant."""
     records, ids = _load_toy_records(8)
 
     d_default, _ = from_sae_lens(records, ids, encoding=Rung4())
-    d_explicit_false, _ = from_sae_lens(
-        records, ids, encoding=Rung4(), assign_amp_knobs=False,
+    d_explicit_true, _ = from_sae_lens(
+        records, ids, encoding=Rung4(), assign_amp_knobs=True,
     )
 
     g_default = d_default.gram()
-    g_explicit_false = d_explicit_false.gram()
+    g_explicit_true = d_explicit_true.gram()
 
-    np.testing.assert_array_equal(g_default, g_explicit_false)
+    np.testing.assert_array_equal(g_default, g_explicit_true)
 
 
 def test_amp_knobs_true_is_no_op_for_mpsrung1():
