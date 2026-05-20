@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from polygram.dictionary import Dictionary
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 SIG_FIGS = 6
 
 
@@ -139,6 +139,32 @@ class EpochReport:
     post_A: float | None = None
     forge_mse: float | None = None
     informative_metric: Literal["post_A", "both", "forge_mse"] | None = None
+    # Cluster-structure metadata (added by
+    # emit-cluster-metadata-from-epoch-compressor). `n_clusters` is the
+    # count of distinct non-negative cluster ids in
+    # `cluster_assignments`; `cluster_assignments[i]` is the cluster id
+    # of feature i in the FINAL iteration's compression, OR `-1` if
+    # feature i was fully zeroed across all iterations. Tuple length
+    # equals `n_features_input`. Both default to schema-v3 sentinel
+    # values when loading a pre-v4 payload.
+    n_clusters: int = 0
+    cluster_assignments: tuple[int, ...] | None = None
+
+    def __post_init__(self) -> None:
+        # n_clusters non-negative.
+        if int(self.n_clusters) < 0:
+            raise ValueError(
+                f"EpochReport.n_clusters must be >= 0; got {self.n_clusters}"
+            )
+        # Per-element validation when cluster_assignments is populated.
+        if self.cluster_assignments is not None:
+            for cid in self.cluster_assignments:
+                if int(cid) < -1:
+                    raise ValueError(
+                        f"EpochReport.cluster_assignments contains "
+                        f"{cid}; the only valid sub-zero sentinel is -1 "
+                        f"(fully-zeroed feature)."
+                    )
 
     # ---- JSON ------------------------------------------------------
 
@@ -227,6 +253,16 @@ class EpochReport:
         )
         informative = payload.get("informative_metric")
 
+        # Schema v4 added cluster-structure metadata. Pre-v4 payloads
+        # omit both keys; default `n_clusters=0` and
+        # `cluster_assignments=None` so consumers can detect the
+        # legacy state and apply their own fallback.
+        n_clusters = int(payload.get("n_clusters", 0))
+        ca_raw = payload.get("cluster_assignments")
+        cluster_assignments = (
+            tuple(int(x) for x in ca_raw) if ca_raw is not None else None
+        )
+
         return cls(
             schema_version=int(payload["schema_version"]),
             source_checkpoint=str(payload["source_checkpoint"]),
@@ -245,6 +281,8 @@ class EpochReport:
             post_A=post_A,
             forge_mse=forge_mse,
             informative_metric=informative,
+            n_clusters=n_clusters,
+            cluster_assignments=cluster_assignments,
         )
 
     # ---- Equality (NaN-aware on float fields) ----------------------
@@ -274,6 +312,8 @@ class EpochReport:
             and floats_eq(self.post_A, other.post_A)
             and floats_eq(self.forge_mse, other.forge_mse)
             and self.informative_metric == other.informative_metric
+            and self.n_clusters == other.n_clusters
+            and self.cluster_assignments == other.cluster_assignments
         )
 
     def __hash__(self) -> int:
@@ -288,6 +328,8 @@ class EpochReport:
             self.rank_ratio,
             self.post_A,
             self.forge_mse,
+            self.n_clusters,
+            self.cluster_assignments,
         ))
 
     # ---- Internal --------------------------------------------------
@@ -321,6 +363,15 @@ class EpochReport:
                 float(self.forge_mse) if self.forge_mse is not None else None
             ),
             "informative_metric": self.informative_metric,
+            # Schema v4 — cluster-structure metadata. Preserve integer
+            # types for round-trip; cluster_assignments serialises as a
+            # JSON array (or null when None).
+            "n_clusters": int(self.n_clusters),
+            "cluster_assignments": (
+                list(self.cluster_assignments)
+                if self.cluster_assignments is not None
+                else None
+            ),
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 

@@ -593,6 +593,22 @@ class EpochCompressor:
             # JSON output) consistently misread it as a real measurement.
             redundancy_ratio = 0.0
 
+        # Materialise the final-iteration cluster structure into a
+        # per-feature assignment tuple (length = n_features_input):
+        #   - cluster_assignments[i] = j  -> feature i belongs to
+        #     cluster j (>= 0) in the final iteration's compression.
+        #   - cluster_assignments[i] = -1 -> feature i was fully zeroed
+        #     across all iterations (no cluster).
+        #   - Features that survived as singletons (not in any
+        #     fingerprint, not in self._zeroed) get fresh cluster ids
+        #     appended after the multi-feature ones.
+        cluster_assignments = _final_cluster_assignments(
+            cluster_fingerprints,
+            n_features_input=n_features_input,
+            zeroed_set=self._zeroed,
+        )
+        n_clusters = len({cid for cid in cluster_assignments if cid >= 0})
+
         report = EpochReport(
             schema_version=SCHEMA_VERSION,
             source_checkpoint=str(self.sae_checkpoint),
@@ -607,7 +623,34 @@ class EpochCompressor:
             coverage_achieved=_round_float(float(final_coverage)),
             wall_seconds=_round_float(float(wall_seconds)),
             iterations=tuple(iterations),
+            n_clusters=n_clusters,
+            cluster_assignments=cluster_assignments,
         )
+
+        # Write the sidecar `<out>_compression_report.json` atomically.
+        # Pattern matches `Compressor.apply()`'s sidecar convention so
+        # downstream consumers (e.g. sae-forge's
+        # `FeatureBasis.from_polygram_checkpoint`) discover the
+        # n_clusters / cluster_assignments fields automatically.
+        sidecar_path = out_path.with_name(
+            out_path.name.removesuffix(out_path.suffix)
+            + "_compression_report.json"
+        )
+        tmp_sidecar = tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=str(sidecar_path.parent),
+            prefix=f".{sidecar_path.stem}.",
+            suffix=".tmp",
+            delete=False,
+        )
+        tmp_sidecar.close()
+        tmp_sidecar_path = Path(tmp_sidecar.name)
+        try:
+            tmp_sidecar_path.write_text(report.to_json())
+            os.replace(tmp_sidecar_path, sidecar_path)
+        except Exception:
+            tmp_sidecar_path.unlink(missing_ok=True)
+            raise
 
         # Rebuild a Dictionary on the populated zeroed slots, capped at
         # 8 (rung-1 MPS encoding cap). For SAEs that compressed nothing,
@@ -1425,3 +1468,78 @@ def _round_panels(panels: list[Panel]) -> tuple[Panel, ...]:
             )
         )
     return tuple(out)
+
+
+def _final_cluster_assignments(
+    cluster_fingerprints: list[frozenset],
+    *,
+    n_features_input: int,
+    zeroed_set: set[int],
+) -> tuple[int, ...]:
+    """Materialise per-feature cluster ids from the final iteration's
+    cluster fingerprint.
+
+    `cluster_fingerprints[-1]` is a `frozenset[frozenset[int]]` — the
+    set of clusters in the FINAL iteration's compression, where each
+    cluster is a frozenset of feature ids. This helper turns that into
+    a length-``n_features_input`` tuple where element ``i`` is:
+
+      - The cluster id (>= 0) feature i belongs to.
+      - ``-1`` if feature i was fully zeroed across all iterations
+        (i.e. ``i in zeroed_set`` AND i not in any multi-feature
+        cluster in the final fingerprint).
+
+    Features that survived as singletons (not in any multi-feature
+    cluster, not in `zeroed_set`) get fresh cluster ids assigned AFTER
+    the multi-feature clusters. This matches the
+    `add-concept-anchored-finetune` polygram backend's expectation
+    that ``n_clusters`` counts both multi-feature clusters AND
+    surviving singletons (see Decision 1 in the change's design.md).
+
+    Cluster id assignment within the multi-feature group is
+    deterministic: sort clusters by ``min(members)`` ascending, assign
+    ids 0..k-1 in that order. Surviving singletons then get k, k+1, ...
+    in ascending feature-id order.
+
+    Args:
+        cluster_fingerprints: per-iteration cluster sets tracked by
+            ``EpochCompressor.run()``. May be empty (e.g.
+            ``max_iterations=0``) — in which case all surviving
+            features get singleton ids and zeroed features get -1.
+        n_features_input: total feature count of the input SAE.
+        zeroed_set: feature ids fully zeroed across all iterations
+            (`self._zeroed` at end of run).
+
+    Returns:
+        Length-``n_features_input`` tuple of ints.
+    """
+    final_clusters: list[set[int]] = []
+    if cluster_fingerprints:
+        last = cluster_fingerprints[-1]
+        # Sort clusters by their minimum member id for deterministic ids.
+        sorted_clusters = sorted(
+            (set(c) for c in last), key=lambda s: min(s) if s else -1
+        )
+        final_clusters = [c for c in sorted_clusters if c]
+
+    assignments = [-1] * int(n_features_input)
+    seen: set[int] = set()
+    for cid, members in enumerate(final_clusters):
+        for fid in sorted(members):
+            if 0 <= int(fid) < n_features_input:
+                assignments[int(fid)] = cid
+                seen.add(int(fid))
+
+    # Surviving singletons: features not in any multi-feature cluster
+    # AND not in zeroed_set. Assign fresh ids after the multi-feature
+    # clusters, in ascending feature-id order.
+    next_cid = len(final_clusters)
+    for fid in range(int(n_features_input)):
+        if fid in seen:
+            continue
+        if fid in zeroed_set:
+            continue  # -1 sentinel already set above
+        assignments[fid] = next_cid
+        next_cid += 1
+
+    return tuple(assignments)

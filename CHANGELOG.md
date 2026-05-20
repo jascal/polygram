@@ -2,7 +2,33 @@
 
 ## Unreleased
 
-(nothing yet)
+### Added
+
+- **`emit-cluster-metadata-from-epoch-compressor` shipped.**
+  `EpochCompressor.run(out_path)` now writes a sidecar
+  `<out_path>_compression_report.json` alongside the compressed
+  safetensors, matching the convention `Compressor.apply()` already
+  uses. `EpochReport` schema bumped 3 → 4 with two new fields:
+  - `n_clusters: int` — count of distinct non-negative cluster ids
+    in `cluster_assignments`.
+  - `cluster_assignments: tuple[int, ...] | None` — per-feature
+    cluster id (length `n_features_input`); `-1` for fully-zeroed
+    features.
+
+  Closes the asymmetry between the two compression entry points
+  surfaced by sae-forge PR #69's §8.4 falsifiable smoke: previously
+  `FeatureBasis.from_polygram_checkpoint` on an EpochCompressor
+  output saw `n_clusters=0` (defensive default) and the
+  `add-concept-anchored-finetune` polygram-clusters backend refused
+  the basis, forcing the smoke to inject synthetic
+  cluster_assignments. After this change a production
+  EpochCompressor output is fully self-describing.
+
+  Loader is back-compat: pre-v4 payloads load without error and
+  default the new fields to `0` / `None`. Frozen-fixture tests
+  (`test_byte_identical_epoch_result_against_frozen_reference` and
+  the multi-iter variant) regenerated against the v4 schema. See
+  `openspec/changes/emit-cluster-metadata-from-epoch-compressor/`.
 
 ## 0.11.0 — 2026-05-20
 
