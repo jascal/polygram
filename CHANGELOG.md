@@ -26,6 +26,36 @@
   `result.at_structural_floor` (True → "at floor / N/A") rather
   than (or in addition to) `cancellation_efficiency is None`.
 
+  **At-floor result JSON, before/after (same `Cancellation.run()`):**
+
+  ```jsonc
+  // polygram 0.10.x (legacy):
+  {
+    "before_overlap": 0.593133,
+    "after_overlap":  0.593133,
+    "structural_floor": 0.593133,
+    "cancellation_efficiency": null   // ambiguous: at-floor OR floor-undefined
+  }
+
+  // polygram 0.11.0:
+  {
+    "before_overlap": 0.593133,
+    "after_overlap":  0.593133,
+    "structural_floor": 0.593133,
+    "cancellation_efficiency": 0.0,   // legibly "no gap consumed because no gap existed"
+    "at_structural_floor": true       // new — distinguishes at-floor from floor-undefined
+  }
+
+  // Floor-undefined case (e.g. HEA with preserve_tiers=True on non-canonical knobs):
+  {
+    "before_overlap": 0.412,
+    "after_overlap":  0.118,
+    "structural_floor": NaN,
+    "cancellation_efficiency": null,  // unchanged from 0.10.x: floor itself unmeasurable
+    "at_structural_floor": false
+  }
+  ```
+
 ### Added
 
 - **`CancellationResult.at_structural_floor: bool`** field plus a

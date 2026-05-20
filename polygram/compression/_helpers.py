@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Literal
 
+import numpy as np
+
 
 def informative_metric(rank_ratio: float) -> Literal["post_A", "both", "forge_mse"]:
     """Derive the informative metric from the rank_ratio threshold.
@@ -22,7 +24,7 @@ def informative_metric(rank_ratio: float) -> Literal["post_A", "both", "forge_ms
 
 
 def compute_rank_ratio(
-    w_dec_kept: "np.ndarray[float]",
+    w_dec_kept: np.ndarray,
     d_model: int,
 ) -> float:
     """rank_ratio = basis_rank(W_dec_kept) / d_model.
@@ -30,8 +32,15 @@ def compute_rank_ratio(
     Args:
         w_dec_kept: kept features' decoder rows, shape (n_kept, d_model)
         d_model: decoder column dimension
+
+    Edge case: ``n_kept == 0`` (no kept features) returns ``0.0``
+    directly — ``np.linalg.matrix_rank`` cannot run on a zero-row
+    matrix (its SVD does a max-reduction over the empty singular-value
+    array and raises ``ValueError``). Short-circuiting matches the
+    natural interpretation: the kept basis spans none of the input.
     """
-    import numpy as np
+    if w_dec_kept.shape[0] == 0:
+        return 0.0
 
     rank = float(np.linalg.matrix_rank(w_dec_kept))
     return rank / d_model

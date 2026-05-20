@@ -33,13 +33,12 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from polygram.compression._helpers import (
     floats_eq,
-    informative_metric,
     json_finite,
 )
 
-# Stash WIP shipped with `_json_finite` references that the helpers
-# module exports without the underscore. Alias locally so callsites
-# don't have to be touched.
+# `_json_finite` is the name used at callsites in this module (carried
+# over from the original local helper before the move to `_helpers.py`).
+# Alias to the shared implementation so callsites stay touched-once.
 _json_finite = json_finite
 
 if TYPE_CHECKING:

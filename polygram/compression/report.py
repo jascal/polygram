@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from polygram.compression._helpers import (
     floats_eq,
-    informative_metric,
     json_finite,
 )
 
