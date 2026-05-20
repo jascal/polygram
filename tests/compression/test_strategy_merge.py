@@ -222,11 +222,24 @@ class TestErrorPaths:
         with pytest.raises(ValueError, match="unsupported merge_mode"):
             apply_merge(state, plan, merge_mode="kl_weighted")
 
-    def test_missing_required_key_raises(self):
+    def test_missing_optional_keys_does_not_raise(self):
+        """Per `compressor-partial-key-sae`, the merge strategy
+        requires only W_dec; missing optional keys (W_enc, b_enc,
+        b_dec) are silently skipped, not an error."""
         state = _state()
         del state["b_enc"]
         plan = _two_member_plan(rep=0, other=1)
-        with pytest.raises(KeyError, match="b_enc"):
+        # No exception; the missing b_enc is just skipped.
+        out, _ = apply_merge(state, plan, merge_mode="simple_mean")
+        assert "b_enc" not in out
+        assert "W_dec" in out
+
+    def test_missing_required_W_dec_raises(self):
+        """W_dec is the only key the merge strategy strictly requires."""
+        state = _state()
+        del state["W_dec"]
+        plan = _two_member_plan(rep=0, other=1)
+        with pytest.raises(KeyError, match="W_dec"):
             apply_merge(state, plan, merge_mode="simple_mean")
 
     def test_out_of_range_fid_raises(self):

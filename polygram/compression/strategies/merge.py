@@ -25,7 +25,8 @@ import numpy as np
 from polygram.compression.report import CompressionPlan
 
 
-_REQUIRED_KEYS: tuple[str, ...] = ("W_enc", "b_enc", "W_dec", "b_dec")
+_REQUIRED_KEYS: tuple[str, ...] = ("W_dec",)
+_OPTIONAL_KEYS: tuple[str, ...] = ("W_enc", "b_enc", "b_dec")
 _SUPPORTED_MERGE_MODES = ("freq_weighted", "simple_mean")
 _NORM_EPS = 1e-8
 
@@ -44,8 +45,15 @@ def apply_merge(
     cluster's members the freq-weighted path silently degrades to
     ``simple_mean`` (avoids division by zero).
 
-    Raises ``KeyError`` if any of W_enc / b_enc / W_dec / b_dec is
-    missing, or ``ValueError`` for unrecognised ``merge_mode``.
+    Required key: ``W_dec``. Raises ``KeyError`` if missing.
+
+    Optional keys: ``W_enc``, ``b_enc``, ``b_dec``. When present the
+    strategy zeros the corresponding columns / rows for each
+    non-representative member; when absent the per-key operation is
+    silently skipped so decoder-only callers succeed. ``b_dec`` is
+    global and never modified by either strategy.
+
+    Raises ``ValueError`` for unrecognised ``merge_mode``.
     """
     if merge_mode not in _SUPPORTED_MERGE_MODES:
         raise ValueError(
@@ -56,14 +64,13 @@ def apply_merge(
     if missing:
         raise KeyError(
             f"apply_merge: source checkpoint is missing required key(s) "
-            f"{missing!r}; the merge strategy needs a full SAE checkpoint "
-            f"with W_enc / b_enc / W_dec / b_dec"
+            f"{missing!r}; the merge strategy requires W_dec"
         )
 
     out = {k: np.array(v, copy=True) for k, v in state_dict.items()}
-    w_enc = out["W_enc"]
-    b_enc = out["b_enc"]
     w_dec = out["W_dec"]
+    w_enc = out.get("W_enc")
+    b_enc = out.get("b_enc")
     source_w_dec = state_dict["W_dec"]
 
     n_features_dec = w_dec.shape[0]
@@ -133,8 +140,10 @@ def apply_merge(
         for fid in members:
             if fid == rep:
                 continue
-            w_enc[:, fid] = 0
-            b_enc[fid] = 0
+            if w_enc is not None:
+                w_enc[:, fid] = 0
+            if b_enc is not None:
+                b_enc[fid] = 0
             w_dec[fid, :] = 0
 
     return out, merged_norms

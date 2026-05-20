@@ -27,13 +27,19 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
+
+from polygram.compression._helpers import (
+    floats_eq,
+    informative_metric,
+    json_finite,
+)
 
 if TYPE_CHECKING:
     from polygram.dictionary import Dictionary
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SIG_FIGS = 6
 
 
@@ -46,15 +52,6 @@ def _round_sig(v: float | None, sigfigs: int = SIG_FIGS) -> float | None:
     if fv == 0.0:
         return 0.0
     return float(format(fv, f".{sigfigs}g"))
-
-
-def _json_finite(v: float | None) -> float | None:
-    if v is None:
-        return None
-    fv = float(v)
-    if not math.isfinite(fv):
-        return None
-    return _round_sig(fv)
 
 
 @dataclass(frozen=True)
@@ -114,6 +111,16 @@ class EpochReport:
     ``nan`` as a real measurement; the sentinel keeps the field
     safely sortable / comparable while remaining identifiable as
     "no measurement available".
+
+    Convergence-test diagnostics (``rank_ratio``, ``post_A``, ``forge_mse``,
+    ``informative_metric``) mirror the ``CompressionReport`` fields.
+    ``rank_ratio = basis_rank(W_dec_kept) / d_model``.
+    ``post_A = 1 - var(h - h_proj) / var(h)`` — input-variance preserved
+    by the kept-features subspace. ``forge_mse`` is caller-provided
+    (None until set by the host repo's forge pipeline).
+    ``informative_metric`` is derived from ``rank_ratio`` thresholds:
+    ``"post_A"`` when rank_ratio < 0.95, ``"both"`` when 0.95–1.05,
+    ``"forge_mse"`` when > 1.05.
     """
 
     schema_version: int
@@ -129,6 +136,10 @@ class EpochReport:
     coverage_achieved: float
     wall_seconds: float
     iterations: tuple[EpochIteration, ...]
+    rank_ratio: float | None = None
+    post_A: float | None = None
+    forge_mse: float | None = None
+    informative_metric: Literal["post_A", "both", "forge_mse"] | None = None
 
     # ---- JSON ------------------------------------------------------
 
@@ -198,6 +209,25 @@ class EpochReport:
         else:
             redundancy_ratio = 0.0
 
+        # Schema v3 added convergence-test diagnostics; tolerate JSON
+        # null and absent-key alike.
+        rank_ratio = (
+            float(payload["rank_ratio"])
+            if payload.get("rank_ratio") is not None
+            else None
+        )
+        post_A = (
+            float(payload["post_A"])
+            if payload.get("post_A") is not None
+            else None
+        )
+        forge_mse = (
+            float(payload["forge_mse"])
+            if payload.get("forge_mse") is not None
+            else None
+        )
+        informative = payload.get("informative_metric")
+
         return cls(
             schema_version=int(payload["schema_version"]),
             source_checkpoint=str(payload["source_checkpoint"]),
@@ -212,6 +242,10 @@ class EpochReport:
             coverage_achieved=float(payload["coverage_achieved"]),
             wall_seconds=float(payload["wall_seconds"]),
             iterations=iterations,
+            rank_ratio=rank_ratio,
+            post_A=post_A,
+            forge_mse=forge_mse,
+            informative_metric=informative,
         )
 
     # ---- Equality (NaN-aware on float fields) ----------------------
@@ -228,15 +262,19 @@ class EpochReport:
             and self.convergence_reason == other.convergence_reason
             and self.n_features_zeroed_total == other.n_features_zeroed_total
             and self.n_features_input == other.n_features_input
-            and _floats_eq(self.redundancy_ratio, other.redundancy_ratio)
+            and floats_eq(self.redundancy_ratio, other.redundancy_ratio)
             and self.n_panels_total == other.n_panels_total
-            and _floats_eq(self.coverage_achieved, other.coverage_achieved)
-            and _floats_eq(self.wall_seconds, other.wall_seconds)
+            and floats_eq(self.coverage_achieved, other.coverage_achieved)
+            and floats_eq(self.wall_seconds, other.wall_seconds)
             and len(self.iterations) == len(other.iterations)
             and all(
                 _iter_eq(a, b)
                 for a, b in zip(self.iterations, other.iterations)
             )
+            and floats_eq(self.rank_ratio, other.rank_ratio)
+            and floats_eq(self.post_A, other.post_A)
+            and floats_eq(self.forge_mse, other.forge_mse)
+            and self.informative_metric == other.informative_metric
         )
 
     def __hash__(self) -> int:
@@ -248,6 +286,9 @@ class EpochReport:
             self.n_features_zeroed_total,
             self.n_features_input,
             self.n_panels_total,
+            self.rank_ratio,
+            self.post_A,
+            self.forge_mse,
         ))
 
     # ---- Internal --------------------------------------------------
@@ -262,13 +303,17 @@ class EpochReport:
             "convergence_reason": self.convergence_reason,
             "n_features_zeroed_total": int(self.n_features_zeroed_total),
             "n_features_input": int(self.n_features_input),
-            "redundancy_ratio": _json_finite(self.redundancy_ratio),
+            "redundancy_ratio": json_finite(self.redundancy_ratio),
             "n_panels_total": int(self.n_panels_total),
-            "coverage_achieved": _json_finite(self.coverage_achieved),
-            "wall_seconds": _json_finite(self.wall_seconds),
+            "coverage_achieved": json_finite(self.coverage_achieved),
+            "wall_seconds": json_finite(self.wall_seconds),
             "iterations": [
                 _iteration_to_dict(it) for it in self.iterations
             ],
+            "rank_ratio": json_finite(self.rank_ratio),
+            "post_A": json_finite(self.post_A),
+            "forge_mse": json_finite(self.forge_mse),
+            "informative_metric": self.informative_metric,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -292,7 +337,7 @@ def _panel_to_dict(p: Panel) -> dict[str, Any]:
         "panel_id": int(p.panel_id),
         "anchor": int(p.anchor),
         "feature_ids": [int(f) for f in p.feature_ids],
-        "cosines_to_anchor": [_json_finite(c) for c in p.cosines_to_anchor],
+        "cosines_to_anchor": [json_finite(c) for c in p.cosines_to_anchor],
     }
 
 
@@ -318,7 +363,7 @@ def _iteration_to_dict(it: EpochIteration) -> dict[str, Any]:
         "features_zeroed_this_iteration": [
             int(f) for f in it.features_zeroed_this_iteration
         ],
-        "cross_entropy_delta": _json_finite(it.cross_entropy_delta),
+        "cross_entropy_delta": json_finite(it.cross_entropy_delta),
         "convergence_state": str(it.convergence_state),
     }
 
@@ -349,12 +394,6 @@ def _iteration_from_dict(raw: dict[str, Any]) -> EpochIteration:
 # ============================================================================
 
 
-def _floats_eq(a: float, b: float) -> bool:
-    if math.isnan(a) and math.isnan(b):
-        return True
-    return a == b
-
-
 def _panel_eq(a: Panel, b: Panel) -> bool:
     if (
         a.panel_id != b.panel_id
@@ -364,7 +403,7 @@ def _panel_eq(a: Panel, b: Panel) -> bool:
     ):
         return False
     return all(
-        _floats_eq(x, y)
+        floats_eq(x, y)
         for x, y in zip(a.cosines_to_anchor, b.cosines_to_anchor)
     )
 
@@ -378,6 +417,6 @@ def _iter_eq(a: EpochIteration, b: EpochIteration) -> bool:
         and a.confirmed_pair_count == b.confirmed_pair_count
         and a.clusters_compressed == b.clusters_compressed
         and a.features_zeroed_this_iteration == b.features_zeroed_this_iteration
-        and _floats_eq(a.cross_entropy_delta, b.cross_entropy_delta)
+        and floats_eq(a.cross_entropy_delta, b.cross_entropy_delta)
         and a.convergence_state == b.convergence_state
     )

@@ -489,3 +489,67 @@ def test_degenerate_partition_warning_survives_dataclass_replace(tmp_path):
         w.startswith("Degenerate cosine partition")
         for w in cloned.warnings
     )
+
+
+class TestLoadSaeCheckpointOptional:
+    """`_load_sae_checkpoint_optional` returns only the subset of
+    requested keys that the file actually contains.
+
+    See `openspec/changes/compressor-partial-key-sae/specs/compressor-apply/spec.md`.
+    """
+
+    @staticmethod
+    def _write_partial(path: Path, keys: set[str]) -> None:
+        """Write a synth SAE containing exactly the named keys."""
+        from safetensors.numpy import save_file
+
+        rng = np.random.default_rng(0)
+        full = {
+            "W_dec": rng.standard_normal((4, 6)).astype(np.float32),
+            "W_enc": rng.standard_normal((6, 4)).astype(np.float32),
+            "b_enc": np.zeros((4,), dtype=np.float32),
+            "b_dec": np.zeros((6,), dtype=np.float32),
+        }
+        save_file({k: full[k] for k in keys}, str(path))
+
+    def test_returns_only_present_subset(self, tmp_path: Path):
+        from polygram.sae_import import _load_sae_checkpoint_optional
+
+        path = tmp_path / "partial.safetensors"
+        self._write_partial(path, {"W_dec", "W_enc"})
+        out = _load_sae_checkpoint_optional(
+            path, ["W_enc", "b_enc", "b_dec"]
+        )
+        assert set(out) == {"W_enc"}
+        assert out["W_enc"].dtype == np.float32
+
+    def test_returns_empty_when_no_keys_match(self, tmp_path: Path):
+        from polygram.sae_import import _load_sae_checkpoint_optional
+
+        path = tmp_path / "wdec_only.safetensors"
+        self._write_partial(path, {"W_dec"})
+        out = _load_sae_checkpoint_optional(
+            path, ["W_enc", "b_enc", "b_dec"]
+        )
+        assert out == {}
+
+    def test_full_file_loads_all_requested_keys(self, tmp_path: Path):
+        from polygram.sae_import import _load_sae_checkpoint_optional
+
+        path = tmp_path / "full.safetensors"
+        self._write_partial(path, {"W_dec", "W_enc", "b_enc", "b_dec"})
+        out = _load_sae_checkpoint_optional(
+            path, ["W_enc", "b_enc", "b_dec"]
+        )
+        assert set(out) == {"W_enc", "b_enc", "b_dec"}
+
+    def test_does_not_raise_on_absent_keys(self, tmp_path: Path):
+        """Contrast with `_load_sae_checkpoint` which raises ValueError."""
+        from polygram.sae_import import _load_sae_checkpoint_optional
+
+        path = tmp_path / "wdec_only.safetensors"
+        self._write_partial(path, {"W_dec"})
+        # No exception — that's the whole point of the helper.
+        out = _load_sae_checkpoint_optional(path, ["W_enc"])
+        assert out == {}
+

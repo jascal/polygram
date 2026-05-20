@@ -113,6 +113,15 @@ result.to_csv("examples/output/result.csv")
 See `examples/animals_interference.py` and the matching
 `examples/animals_interference.ipynb` notebook for the full walking tour.
 
+## Which tool should I use?
+
+| user question | tool | encoding requirement |
+|---|---|---|
+| "Can my encoding orthogonalize this pair?" | `Cancellation` | Rung3+ with amp knobs |
+| "Are these features coherent in my SAE?" | `cluster_experts` | any |
+| "What's the encoding's structural floor?" | `Cancellation` (phase-only baseline) | MPSRung1 |
+| "Compress while preserving structure" | `Compressor` / `ExpertDictionary` | — |
+
 ### Plots
 
 `result.plot(path)` saves a default figure: 1D sweep → line plot of

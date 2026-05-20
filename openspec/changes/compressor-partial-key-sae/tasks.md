@@ -1,25 +1,25 @@
 ## 1. New helper: `_load_sae_checkpoint_optional`
 
-- [ ] 1.1 Add `_load_sae_checkpoint_optional(path, keys: Iterable[str]) -> dict[str, np.ndarray]` to `polygram/sae_import.py`. Returns the subset of `keys` that the file actually contains; absent keys are silently omitted (no error). Applies the same dtype validation and key-alias resolution as `_load_sae_checkpoint` for the keys that ARE present.
-- [ ] 1.2 Module-level test: `tests/test_sae_import.py::test_load_sae_checkpoint_optional_returns_present_keys_only`.
+- [x] 1.1 Add `_load_sae_checkpoint_optional(path, keys: Iterable[str]) -> dict[str, np.ndarray]` to `polygram/sae_import.py`. Returns the subset of `keys` that the file actually contains; absent keys are silently omitted (no error). Applies the same dtype validation and key-alias resolution as `_load_sae_checkpoint` for the keys that ARE present.
+- [x] 1.2 Module-level test: `tests/test_sae_import.py::test_load_sae_checkpoint_optional_returns_present_keys_only`.
 
 ## 2. Strategy-dependent required-key set
 
-- [ ] 2.1 In `polygram/compression/compressor.py`, add a `_strategy_required_keys` constant or method mapping strategy → required-key tuple. `"zero"` → `("W_dec",)`, `"merge"` → `("W_dec",)`.
-- [ ] 2.2 Add a matching `_strategy_optional_keys` constant: both strategies have `("W_enc", "b_enc", "b_dec")` as optional. Listed explicitly for documentation clarity.
+- [x] 2.1 In `polygram/compression/compressor.py`, add a `_strategy_required_keys` constant or method mapping strategy → required-key tuple. `"zero"` → `("W_dec",)`, `"merge"` → `("W_dec",)`.
+- [x] 2.2 Add a matching `_strategy_optional_keys` constant: both strategies have `("W_enc", "b_enc", "b_dec")` as optional. Listed explicitly for documentation clarity.
 
 ## 3. `Compressor.apply` load-and-mirror logic
 
-- [ ] 3.1 Replace the hard-coded `_load_sae_checkpoint(self.sae_checkpoint, ["W_dec", "W_enc", "b_dec", "b_enc"])` at compressor.py:776–778 with two calls: required-key strict load + optional-key permissive load. Merge the two dicts into `source_state`.
+- [x] 3.1 Replace the hard-coded `_load_sae_checkpoint(self.sae_checkpoint, ["W_dec", "W_enc", "b_dec", "b_enc"])` at compressor.py:776–778 with two calls: required-key strict load + optional-key permissive load. Merge the two dicts into `source_state`.
 - [ ] 3.2 Track which keys came from the optional load as a `present_optional_keys: set[str]` so the write-back logic knows what to emit.
-- [ ] 3.3 The write step at the end of `apply()` emits only the keys in `(required_keys | present_optional_keys)`. Each key uses its loaded dtype unchanged.
+- [x] 3.3 The write step at the end of `apply()` emits only the keys in `(required_keys | present_optional_keys)`. Each key uses its loaded dtype unchanged.
 
 ## 4. Strategy dispatch handles missing keys
 
-- [ ] 4.1 `_dispatch_strategy(strategy, source_state, plan, ...)` SHALL check `state.get("W_enc") is not None` before zeroing/merging encoder cols. Same for `b_enc`.
-- [ ] 4.2 `_apply_zero` (or equivalent inner function): skip W_enc col zeroing when key absent; skip b_enc row zeroing when key absent.
-- [ ] 4.3 `_apply_merge` (or equivalent): skip W_enc col merge when absent; skip b_enc row merge when absent.
-- [ ] 4.4 `b_dec` continues to be untouched by all strategies; no logic change needed.
+- [x] 4.1 `_dispatch_strategy(strategy, source_state, plan, ...)` SHALL check `state.get("W_enc") is not None` before zeroing/merging encoder cols. Same for `b_enc`.
+- [x] 4.2 `_apply_zero` (or equivalent inner function): skip W_enc col zeroing when key absent; skip b_enc row zeroing when key absent.
+- [x] 4.3 `_apply_merge` (or equivalent): skip W_enc col merge when absent; skip b_enc row merge when absent.
+- [x] 4.4 `b_dec` continues to be untouched by all strategies; no logic change needed.
 
 ## 5. Tests
 
@@ -30,21 +30,21 @@
 
 ### 5.2 W_dec-only input
 
-- [ ] 5.2.1 `tests/compression/test_compressor_apply_partial_keys.py::test_w_dec_only_input_compresses_successfully` — construct a safetensors with only `W_dec`, run `Compressor(report, sae).run(out)`; assert success.
-- [ ] 5.2.2 `test_w_dec_only_output_mirrors_input` — the resulting output safetensors contains exactly `{"W_dec"}` as keys.
-- [ ] 5.2.3 `test_w_dec_only_zeros_correct_rows` — load the output, assert non-rep rows are zero per the validation report's confirmed pairs; assert rep rows are unchanged from input.
+- [x] 5.2.1 `tests/compression/test_compressor_apply_partial_keys.py::test_w_dec_only_input_compresses_successfully` — construct a safetensors with only `W_dec`, run `Compressor(report, sae).run(out)`; assert success.
+- [x] 5.2.2 `test_w_dec_only_output_mirrors_input` — the resulting output safetensors contains exactly `{"W_dec"}` as keys.
+- [x] 5.2.3 `test_w_dec_only_zeros_correct_rows` — load the output, assert non-rep rows are zero per the validation report's confirmed pairs; assert rep rows are unchanged from input.
 
 ### 5.3 Partial inputs (W_dec + W_enc, no biases)
 
-- [ ] 5.3.1 `test_w_dec_w_enc_only_input_compresses` — input has `W_dec` + `W_enc` but no biases; assert success.
-- [ ] 5.3.2 `test_w_dec_w_enc_output_mirrors_input` — output contains `{"W_dec", "W_enc"}` and nothing else.
-- [ ] 5.3.3 `test_w_dec_w_enc_zeroing_consistent` — both W_dec rows AND W_enc cols of non-reps are zeroed.
+- [x] 5.3.1 `test_w_dec_w_enc_only_input_compresses` — input has `W_dec` + `W_enc` but no biases; assert success.
+- [x] 5.3.2 `test_w_dec_w_enc_output_mirrors_input` — output contains `{"W_dec", "W_enc"}` and nothing else.
+- [x] 5.3.3 `test_w_dec_w_enc_zeroing_consistent` — both W_dec rows AND W_enc cols of non-reps are zeroed.
 
 ### 5.4 `_load_sae_checkpoint_optional` unit tests
 
-- [ ] 5.4.1 Returns dict with only present keys.
-- [ ] 5.4.2 Returns empty dict when none of the requested keys are present (no error).
-- [ ] 5.4.3 Applies dtype validation per-key (a corrupt key in an otherwise-fine file raises).
+- [x] 5.4.1 Returns dict with only present keys.
+- [x] 5.4.2 Returns empty dict when none of the requested keys are present (no error).
+- [x] 5.4.3 Applies dtype validation per-key (a corrupt key in an otherwise-fine file raises).
 
 ### 5.5 EpochCompressor (downstream caller) byte-equivalence
 
