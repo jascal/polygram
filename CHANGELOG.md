@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+(nothing yet)
+
+## 0.12.0 — 2026-05-20
+
 ### Added
 
 - **`emit-cluster-metadata-from-epoch-compressor` shipped.**
