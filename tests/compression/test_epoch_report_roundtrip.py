@@ -158,3 +158,62 @@ class TestRedundancyRatio:
         )
         assert r.redundancy_ratio == 0.0
         assert not math.isnan(r.redundancy_ratio)
+
+
+class TestClusterMetadata:
+    """Schema v4 fields from emit-cluster-metadata-from-epoch-compressor."""
+
+    def test_default_fields(self):
+        """A bare report from `_hand_built_report` has the schema-v4
+        defaults (n_clusters=0, cluster_assignments=None) because the
+        helper doesn't populate them."""
+        r = _hand_built_report()
+        assert r.n_clusters == 0
+        assert r.cluster_assignments is None
+
+    def test_populated_fields_round_trip(self):
+        import dataclasses
+        r = dataclasses.replace(
+            _hand_built_report(),
+            n_clusters=3,
+            cluster_assignments=(0, 0, 1, 1, 2, -1) + (0,) * 10,
+        )
+        rt = EpochReport.from_json(r.to_json())
+        assert rt.n_clusters == 3
+        assert rt.cluster_assignments == r.cluster_assignments
+
+    def test_v3_payload_loads_with_default_fields(self):
+        """A pre-v4 JSON payload (no n_clusters / cluster_assignments
+        keys) SHALL load without error; the new fields default to the
+        v3-equivalent sentinel values."""
+        import json
+        r = _hand_built_report()
+        payload = json.loads(r.to_json())
+        # Drop the v4 keys and downgrade schema_version
+        payload["schema_version"] = 3
+        del payload["n_clusters"]
+        del payload["cluster_assignments"]
+        rt = EpochReport.from_json(json.dumps(payload))
+        assert rt.schema_version == 3
+        assert rt.n_clusters == 0
+        assert rt.cluster_assignments is None
+
+    def test_negative_n_clusters_rejected(self):
+        import dataclasses
+        import pytest
+        with pytest.raises(ValueError, match="n_clusters"):
+            dataclasses.replace(_hand_built_report(), n_clusters=-1)
+
+    def test_below_minus_one_in_assignments_rejected(self):
+        import dataclasses
+        import pytest
+        with pytest.raises(ValueError, match="cluster_assignments"):
+            dataclasses.replace(
+                _hand_built_report(),
+                cluster_assignments=(0, -2, 1) + (0,) * 13,
+            )
+
+
+class TestSchemaVersion:
+    def test_current_schema_version_is_4(self):
+        assert SCHEMA_VERSION == 4
