@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from polygram.compression._helpers import (
     floats_eq,
-    json_finite,
 )
 
 if TYPE_CHECKING:
@@ -277,9 +276,21 @@ class CompressionReport:
             # round-trip equality. The new diagnostic fields below use
             # `json_finite` (6-sigfig quantization) intentionally.
             "scale_compression_ratio": float(self.scale_compression_ratio),
-            "rank_ratio": json_finite(self.rank_ratio),
-            "post_A": json_finite(self.post_A),
-            "forge_mse": json_finite(self.forge_mse),
+            # Diagnostic fields: preserve full float precision so the
+            # JSON round-trip is bit-exact. `json_finite`'s 6-sigfig
+            # quantization breaks strict equality (e.g. post_A
+            # 1.0596382e-07 → 1.05964e-07 on write, can't recover the
+            # original on read). NaN/Inf are still rejected by the
+            # dataclass on construction.
+            "rank_ratio": (
+                float(self.rank_ratio) if self.rank_ratio is not None else None
+            ),
+            "post_A": (
+                float(self.post_A) if self.post_A is not None else None
+            ),
+            "forge_mse": (
+                float(self.forge_mse) if self.forge_mse is not None else None
+            ),
             "informative_metric": self.informative_metric,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))

@@ -275,9 +275,17 @@ class RegrowReport:
                 for k, v in self.strategy_params.items()
             },
             "provenance": dict(self.provenance),
-            "rank_ratio": _json_finite(self.rank_ratio),
-            "post_A": _json_finite(self.post_A),
-            "forge_mse": _json_finite(self.forge_mse),
+            # Diagnostic fields: preserve full float precision; see the
+            # matching comment in `compression/report.py`.
+            "rank_ratio": (
+                float(self.rank_ratio) if self.rank_ratio is not None else None
+            ),
+            "post_A": (
+                float(self.post_A) if self.post_A is not None else None
+            ),
+            "forge_mse": (
+                float(self.forge_mse) if self.forge_mse is not None else None
+            ),
             "informative_metric": self.informative_metric,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
