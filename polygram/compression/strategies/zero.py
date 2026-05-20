@@ -18,7 +18,8 @@ import numpy as np
 from polygram.compression.report import CompressionPlan
 
 
-_REQUIRED_KEYS: tuple[str, ...] = ("W_enc", "b_enc", "W_dec", "b_dec")
+_REQUIRED_KEYS: tuple[str, ...] = ("W_dec",)
+_OPTIONAL_KEYS: tuple[str, ...] = ("W_enc", "b_enc", "b_dec")
 
 
 def apply_zero(
@@ -26,27 +27,30 @@ def apply_zero(
     plan: CompressionPlan,
 ) -> dict[str, np.ndarray]:
     """Return a new state-dict with the plan's `zeroed` features
-    silenced in `W_enc`, `b_enc`, and `W_dec`.
+    silenced in `W_dec` (always) and in `W_enc` / `b_enc` (when present).
 
     The input `state_dict` is not mutated. Arrays are copied; keys not
-    in `_REQUIRED_KEYS` are passed through unchanged.
+    in `_REQUIRED_KEYS ∪ _OPTIONAL_KEYS` are passed through unchanged.
 
-    Raises ``KeyError`` if any required key is missing — the
-    compression action only operates on full SAE checkpoints
-    containing encoder + decoder weights and biases.
+    Required key: ``W_dec``. Raises ``KeyError`` if it is missing.
+
+    Optional keys: ``W_enc``, ``b_enc``, ``b_dec``. When present the
+    strategy zeros the corresponding columns / rows for each zeroed
+    feature; when absent the per-key operation is silently skipped so
+    decoder-only callers (e.g. sae-forge's synth-basis) succeed.
+    ``b_dec`` is global and never modified.
     """
     missing = [k for k in _REQUIRED_KEYS if k not in state_dict]
     if missing:
         raise KeyError(
             f"apply_zero: source checkpoint is missing required key(s) "
-            f"{missing!r}; the zero strategy needs a full SAE checkpoint "
-            f"with W_enc / b_enc / W_dec / b_dec"
+            f"{missing!r}; the zero strategy requires W_dec"
         )
 
     out = {k: np.array(v, copy=True) for k, v in state_dict.items()}
-    w_enc = out["W_enc"]
-    b_enc = out["b_enc"]
     w_dec = out["W_dec"]
+    w_enc = out.get("W_enc")
+    b_enc = out.get("b_enc")
 
     n_features_dec = w_dec.shape[0]
     for cluster in plan.clusters:
@@ -56,8 +60,10 @@ def apply_zero(
                     f"apply_zero: feature id {fid} out of range for "
                     f"decoder shape {w_dec.shape!r}"
                 )
-            w_enc[:, fid] = 0
-            b_enc[fid] = 0
+            if w_enc is not None:
+                w_enc[:, fid] = 0
+            if b_enc is not None:
+                b_enc[fid] = 0
             w_dec[fid, :] = 0
 
     return out

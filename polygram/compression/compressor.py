@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 from polygram.behavioural.report import CandidatePair, ValidationReport
 from polygram.compression._hash import sha256_file
+from polygram.compression._helpers import informative_metric as _informative_metric
 from polygram.compression.report import (
     SCHEMA_VERSION,
     ClusterPlan,
@@ -48,6 +49,19 @@ from polygram.compression.strategies.zero import apply_zero
 
 
 _SUPPORTED_STRATEGIES: frozenset[str] = frozenset({"zero", "merge"})
+
+# Per-strategy required and optional key sets. Required keys are
+# strict-loaded (missing → ValueError); optional keys are probed via
+# `_load_sae_checkpoint_optional` and missing ones are silently
+# omitted. See `openspec/changes/compressor-partial-key-sae`.
+_STRATEGY_REQUIRED_KEYS: dict[str, tuple[str, ...]] = {
+    "zero": ("W_dec",),
+    "merge": ("W_dec",),
+}
+_STRATEGY_OPTIONAL_KEYS: dict[str, tuple[str, ...]] = {
+    "zero": ("W_enc", "b_enc", "b_dec"),
+    "merge": ("W_enc", "b_enc", "b_dec"),
+}
 _SUPPORTED_REP_SELECTIONS: frozenset[str] = frozenset(
     {"n_fires", "scale_aware", "kl_attribution"}
 )
@@ -838,13 +852,20 @@ class Compressor:
 
         from polygram.sae_import import (
             _load_sae_checkpoint,
+            _load_sae_checkpoint_optional,
             from_sae_lens,
             load_sae_safetensors,
         )
 
+        required_keys = _STRATEGY_REQUIRED_KEYS[self.strategy]
+        optional_keys = _STRATEGY_OPTIONAL_KEYS[self.strategy]
         source_state = _load_sae_checkpoint(
-            self.sae_checkpoint, ["W_dec", "W_enc", "b_dec", "b_enc"]
+            self.sae_checkpoint, list(required_keys)
         )
+        optional_state = _load_sae_checkpoint_optional(
+            self.sae_checkpoint, optional_keys
+        )
+        source_state.update(optional_state)
         source_sha = sha256_file(self.sae_checkpoint)
 
         # Compute scale stats from the source W_dec, then apply strategy.
@@ -865,6 +886,11 @@ class Compressor:
         scale_compression_ratio = _compute_scale_compression_ratio(
             source_state["W_dec"], plan, merged_norms
         )
+
+        # Compute convergence-test diagnostics from the post-strategy W_dec
+        # (the rewritten checkpoint's decoder rows for kept features).
+        rank_ratio = _compute_rank_ratio(rewritten["W_dec"], plan)
+        post_A = _compute_post_A(source_state["W_dec"], plan)
 
         out_path.parent.mkdir(parents=True, exist_ok=True)
         # Atomic write: temp file in the same directory, then os.replace.
@@ -905,6 +931,10 @@ class Compressor:
             n_features_kept=n_kept,
             n_clusters=len(plan.clusters),
             scale_compression_ratio=scale_compression_ratio,
+            rank_ratio=rank_ratio,
+            post_A=post_A,
+            forge_mse=None,
+            informative_metric=_informative_metric(rank_ratio) if rank_ratio is not None else None,
         )
 
         # MPSRung1 caps a Dictionary at `MPSRung1.max_features` (= 8).
@@ -1262,6 +1292,60 @@ def _compute_scale_compression_ratio(
     if total_before <= 0.0:
         return 1.0
     return total_after / total_before
+
+
+def _compute_rank_ratio(
+    w_dec_rewritten: np.ndarray,
+    plan: CompressionPlan,
+) -> float | None:
+    """rank_ratio = basis_rank(W_dec_kept) / d_model.
+
+    basis_rank is the numerical rank of the kept-features' decoder rows.
+    Returns None when there are no clusters (nothing was compressed).
+    """
+    if not plan.clusters:
+        return None
+    kept_ids = [c.representative for c in plan.clusters]
+    w_dec_kept = w_dec_rewritten[kept_ids, :]
+    d_model = w_dec_kept.shape[1]
+    rank = float(np.linalg.matrix_rank(w_dec_kept))
+    return rank / d_model
+
+
+def _compute_post_A(
+    w_dec_source: np.ndarray,
+    plan: CompressionPlan,
+) -> float | None:
+    """post_A = 1 - var(h - h_proj) / var(h).
+
+    Approximates input-variance preserved by the kept-features subspace.
+    Uses the source W_dec (before compression) as the basis for projection.
+    Returns None when there are no clusters or the kept decoder matrix
+    is singular.
+    """
+    if not plan.clusters:
+        return None
+    kept_ids = [c.representative for c in plan.clusters]
+    W_kept = w_dec_source[kept_ids, :]  # (n_kept, d_model)
+    # P = pinv(W_kept) @ W_kept projects a d_model vector onto the
+    # n_kept-dimensional column space of W_kept (which lives in R^d_model).
+    W_kept_pinv = np.linalg.pinv(W_kept)  # (d_model, n_kept)
+    P = W_kept_pinv @ W_kept  # (d_model, d_model) projection matrix
+
+    total_var = 0.0
+    projected_var = 0.0
+    for c in plan.clusters:
+        w_j = w_dec_source[c.representative, :]
+        w_norm_sq = float(np.dot(w_j, w_j))
+        if w_norm_sq < 1e-12:
+            continue
+        proj_w = P @ w_j
+        projected_var += float(np.dot(proj_w, proj_w))
+        total_var += w_norm_sq
+
+    if total_var < 1e-12:
+        return None
+    return 1.0 - (projected_var / total_var)
 
 
 def _aggregate_n_fires(report: ValidationReport) -> dict[int, int]:

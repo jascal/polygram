@@ -4,6 +4,100 @@
 
 (nothing yet)
 
+## 0.11.0 — 2026-05-20
+
+### Changed (behavior — load-bearing for downstream `polygram_bridge.py` scripts)
+
+- **`CancellationResult.cancellation_efficiency` semantics narrowed.**
+  When `before_overlap ≈ structural_floor ≈ after_overlap` within
+  `1e-6` (the new at-floor case), `cancellation_efficiency` is now
+  coerced to `0.0` instead of `None`. **`None` is now reserved for
+  the case where `structural_floor` itself is undefined** (e.g.
+  `NaN` floor on a non-canonical knob configuration). Pair this
+  with the new `at_structural_floor: bool` field on
+  `CancellationResult` to distinguish the two cases programmatically.
+
+  **Downstream migration:** `sm-sae/smsae/polygram_bridge.py`,
+  `econ-sae/econsae/polygram_bridge.py`, and
+  `bio-sae/biosae/polygram_bridge.py` all currently use
+  `result.cancellation_efficiency is None` to mean "N/A / at floor".
+  After bumping the polygram pin, the at-floor case will print
+  `0.00%` instead of `N/A`. Update those scripts to branch on
+  `result.at_structural_floor` (True → "at floor / N/A") rather
+  than (or in addition to) `cancellation_efficiency is None`.
+
+  **At-floor result JSON, before/after (same `Cancellation.run()`):**
+
+  ```jsonc
+  // polygram 0.10.x (legacy):
+  {
+    "before_overlap": 0.593133,
+    "after_overlap":  0.593133,
+    "structural_floor": 0.593133,
+    "cancellation_efficiency": null   // ambiguous: at-floor OR floor-undefined
+  }
+
+  // polygram 0.11.0:
+  {
+    "before_overlap": 0.593133,
+    "after_overlap":  0.593133,
+    "structural_floor": 0.593133,
+    "cancellation_efficiency": 0.0,   // legibly "no gap consumed because no gap existed"
+    "at_structural_floor": true       // new — distinguishes at-floor from floor-undefined
+  }
+
+  // Floor-undefined case (e.g. HEA with preserve_tiers=True on non-canonical knobs):
+  {
+    "before_overlap": 0.412,
+    "after_overlap":  0.118,
+    "structural_floor": NaN,
+    "cancellation_efficiency": null,  // unchanged from 0.10.x: floor itself unmeasurable
+    "at_structural_floor": false
+  }
+  ```
+
+### Added
+
+- **`CancellationResult.at_structural_floor: bool`** field plus a
+  `UserWarning` emitted by `Cancellation.run()` (and the rung3 /
+  rung4 / MPSRung1 variants) when `before ≈ floor ≈ after` within
+  `1e-6`. Makes the at-floor case observable without parsing
+  trajectories by eye. Closes P1 of the 2026-05-20 joint feedback
+  doc from bio-sae / sm-sae / econ-sae. README gains a
+  "Which tool should I use?" pivot table separating
+  `Cancellation` (encoding expressiveness) from `cluster_experts`
+  (feature coherence). See
+  `openspec/changes/add-cancellation-and-compression-diagnostics/`.
+
+- **Convergence-test diagnostics on `CompressionReport`,
+  `EpochReport`, and `RegrowReport`.** Four new optional fields per
+  report — `rank_ratio: float | None`, `post_A: float | None`,
+  `forge_mse: float | None`, and the derived
+  `informative_metric: Literal["post_A", "both", "forge_mse"] | None`.
+  `Compressor.apply()` computes `rank_ratio` (basis_rank of the
+  kept-features' decoder rows divided by `d_model`) and `post_A`
+  (subspace input-variance preservation); `forge_mse` is
+  caller-supplied (the host repo populates it post-hoc).
+  Schema versions bump (`CompressionReport` 1→2, `EpochReport`
+  2→3, `RegrowReport` 1→2); loaders accept prior-version
+  payloads with the new fields defaulting to `None`. Shared
+  helpers (`json_finite`, `floats_eq`, `informative_metric`,
+  `compute_rank_ratio`) live in
+  `polygram/compression/_helpers.py`.
+
+- **`compressor-partial-key-sae` shipped.** `Compressor.apply()` now
+  loads its input via a strategy-dependent required-key set plus a
+  permissive optional-key probe. Shipping strategies (`"zero"` /
+  `"merge"`) require only `W_dec`; `W_enc` / `b_enc` / `b_dec` are
+  loaded when present and silently omitted when absent. The output
+  safetensors mirrors the input's key set (no placeholder synthesis):
+  a `W_dec`-only input produces a `W_dec`-only output; a full-SAE
+  input produces a byte-equivalent full-SAE output. Driven by
+  sae-forge's synth-basis use case which writes a decoder-only
+  safetensors and previously forced placeholder-encoder workarounds.
+  New helper: `polygram.sae_import._load_sae_checkpoint_optional`.
+  See `openspec/changes/compressor-partial-key-sae/`.
+
 ## 0.10.0 — 2026-05-19
 
 ### Added

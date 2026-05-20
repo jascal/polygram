@@ -29,13 +29,23 @@ import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
+
+from polygram.compression._helpers import (
+    floats_eq,
+    json_finite,
+)
+
+# `_json_finite` is the name used at callsites in this module (carried
+# over from the original local helper before the move to `_helpers.py`).
+# Alias to the shared implementation so callsites stay touched-once.
+_json_finite = json_finite
 
 if TYPE_CHECKING:
     from polygram.dictionary import Dictionary
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SIG_FIGS = 6
 
 
@@ -48,15 +58,6 @@ def _round_sig(v: float | None, sigfigs: int = SIG_FIGS) -> float | None:
     if fv == 0.0:
         return 0.0
     return float(format(fv, f".{sigfigs}g"))
-
-
-def _json_finite(v: float | None) -> float | None:
-    if v is None:
-        return None
-    fv = float(v)
-    if not math.isfinite(fv):
-        return None
-    return _round_sig(fv)
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,10 @@ class RegrowReport:
     n_slots_left_zero: int
     strategy_params: dict[str, int | float] = field(default_factory=dict)
     provenance: dict[str, str] = field(default_factory=dict)
+    rank_ratio: float | None = None
+    post_A: float | None = None
+    forge_mse: float | None = None
+    informative_metric: Literal["post_A", "both", "forge_mse"] | None = None
 
     # ---- JSON ------------------------------------------------------
 
@@ -170,6 +175,24 @@ class RegrowReport:
             feature_ids=tuple(int(f) for f in plan_payload["feature_ids"]),
             slots=slots,
         )
+        # v1 payloads lack the convergence-test diagnostic fields;
+        # v2 payloads may carry them as JSON null.
+        rank_ratio = (
+            float(payload["rank_ratio"])
+            if payload.get("rank_ratio") is not None
+            else None
+        )
+        post_A = (
+            float(payload["post_A"])
+            if payload.get("post_A") is not None
+            else None
+        )
+        forge_mse = (
+            float(payload["forge_mse"])
+            if payload.get("forge_mse") is not None
+            else None
+        )
+        informative = payload.get("informative_metric")
         return cls(
             schema_version=int(payload["schema_version"]),
             source_checkpoint=str(payload["source_checkpoint"]),
@@ -185,6 +208,10 @@ class RegrowReport:
                 for k, v in payload["strategy_params"].items()
             },
             provenance={str(k): str(v) for k, v in payload["provenance"].items()},
+            rank_ratio=rank_ratio,
+            post_A=post_A,
+            forge_mse=forge_mse,
+            informative_metric=informative,
         )
 
     # ---- Equality (NaN-aware on float diagnostics) -----------------
@@ -204,6 +231,10 @@ class RegrowReport:
             and self.n_slots_left_zero == other.n_slots_left_zero
             and _params_eq(self.strategy_params, other.strategy_params)
             and self.provenance == other.provenance
+            and floats_eq(self.rank_ratio, other.rank_ratio)
+            and floats_eq(self.post_A, other.post_A)
+            and floats_eq(self.forge_mse, other.forge_mse)
+            and self.informative_metric == other.informative_metric
         )
 
     def __hash__(self) -> int:
@@ -214,6 +245,9 @@ class RegrowReport:
             self.strategy,
             self.plan.feature_ids,
             self.n_slots_repopulated,
+            self.rank_ratio,
+            self.post_A,
+            self.forge_mse,
         ))
 
     # ---- Internal --------------------------------------------------
@@ -241,6 +275,18 @@ class RegrowReport:
                 for k, v in self.strategy_params.items()
             },
             "provenance": dict(self.provenance),
+            # Diagnostic fields: preserve full float precision; see the
+            # matching comment in `compression/report.py`.
+            "rank_ratio": (
+                float(self.rank_ratio) if self.rank_ratio is not None else None
+            ),
+            "post_A": (
+                float(self.post_A) if self.post_A is not None else None
+            ),
+            "forge_mse": (
+                float(self.forge_mse) if self.forge_mse is not None else None
+            ),
+            "informative_metric": self.informative_metric,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 

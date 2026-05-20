@@ -177,14 +177,20 @@ def test_efficiency_one_when_floor_reached():
     assert abs(result.after_overlap - result.structural_floor) < 1e-9
 
 
-def test_efficiency_none_when_already_at_floor():
+def test_efficiency_zero_when_already_at_floor():
+    """Per `add-cancellation-and-compression-diagnostics`,
+    `cancellation_efficiency` is coerced from `None` to `0.0` when
+    the at-floor flag fires (`before ≈ floor ≈ after`). `None` is
+    reserved for the case where the floor itself is undefined
+    (e.g. `structural_floor=NaN`)."""
     canc = Cancellation(
         dictionary=_animals(),
         target_pair=("dog_poodle", "bird_hawk"),
         optimize={"method": "grid", "max_steps": 10},
     )
     result = canc.run()
-    assert result.cancellation_efficiency is None
+    assert result.at_structural_floor is True
+    assert result.cancellation_efficiency == 0.0
     assert abs(result.before_overlap - result.structural_floor) < 1e-9
 
 

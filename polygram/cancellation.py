@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import os
+import warnings
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -85,11 +86,23 @@ class CancellationResult:
     - `knobs: list[str]` — declared knob paths in trajectory column
       order
     - `structural_floor: float` — analytic floor when defined per the
-      `structural_floor()` contract; `float("nan")` otherwise. For
+      `structural_floor()` contract; `float("nan")` when the floor
+      calculation tripped (e.g. the encoding/knob configuration has no
+      defined floor, such as HEA with `preserve_tiers=True` on a
+      non-canonical knob list). This is **not** the same as "no floor
+      exists" — it means the floor could not be computed with the
+      current method. For
       `encoding="rung3"` results this carries the *MPS phase-only*
       floor `M − |V|` of the same (α, β, γ) — the baseline the rung-3
       optimizer is *trying to break*, NOT a bound the rung-3
       optimizer is constrained by.
+    - `at_structural_floor: bool` — `True` when `before ≈ floor ≈ after`
+      within `1e-6` tolerance, indicating the cancellation hit the
+      structural floor and cannot reduce overlap further via knob
+      optimisation. When `True`, `cancellation_efficiency` is `0.0`
+      and a `UserWarning` is emitted by `Cancellation.run()`. `False`
+      when the floor is `NaN` (undefined for the encoding/knob
+      configuration).
     - `cancellation_efficiency: float | None` —
       `(before − after) / (before − floor)`, clamped to `[0, 1]`.
       `None` when (a) the floor is `NaN` (undefined for the
@@ -118,6 +131,7 @@ class CancellationResult:
         default_factory=lambda: np.zeros(0, dtype=bool)
     )
     structural_floor: float = float("nan")
+    at_structural_floor: bool = False
     cancellation_efficiency: float | None = None
     theta_amp_optimum: float = float("nan")
     psi_aux_optimum: float = float("nan")
@@ -531,6 +545,17 @@ class Cancellation:
         efficiency = _compute_efficiency(
             before_overlap, float(after_overlap), floor
         )
+        at_floor = _check_at_floor(before_overlap, float(after_overlap), floor)
+        if at_floor:
+            warnings.warn(
+                f"Cancellation.run: before={before_overlap:.6g} ≈ "
+                f"floor={floor:.6g} ≈ after={after_overlap:.6g}; "
+                f"cancellation is operating at the structural floor",
+                UserWarning,
+                stacklevel=2,
+            )
+        if at_floor and efficiency is None:
+            efficiency = 0.0
 
         return CancellationResult(
             optimized_knobs={
@@ -550,6 +575,7 @@ class Cancellation:
             knobs=list(self.knobs),
             feasible_mask=feasible_mask,
             structural_floor=float(floor),
+            at_structural_floor=at_floor,
             cancellation_efficiency=efficiency,
         )
 
@@ -821,6 +847,9 @@ class Cancellation:
         # the result's overlap is exactly consistent with the dict.
         after_overlap = float(np.abs(after_gram[a_idx, b_idx]) ** 2)
         efficiency = _compute_efficiency(before_overlap, after_overlap, floor)
+        at_floor = _check_at_floor(before_overlap, after_overlap, floor)
+        if at_floor and efficiency is None:
+            efficiency = 0.0
 
         all_evals = list(outer_evals) + list(scipy_history)
         traj = np.array(
@@ -849,6 +878,7 @@ class Cancellation:
             knobs=list(self.knobs),
             feasible_mask=feasible_mask,
             structural_floor=float(floor),
+            at_structural_floor=at_floor,
             cancellation_efficiency=efficiency,
             theta_amp_optimum=float(final_theta_b),
             psi_aux_optimum=float(final_psi_b),
@@ -1041,6 +1071,9 @@ class Cancellation:
         after_gram = optimized_dict.gram()
         after_overlap = float(np.abs(after_gram[a_idx, b_idx]) ** 2)
         efficiency = _compute_efficiency(before_overlap, after_overlap, floor)
+        at_floor = _check_at_floor(before_overlap, after_overlap, floor)
+        if at_floor and efficiency is None:
+            efficiency = 0.0
 
         all_evals = list(outer_evals) + list(scipy_history)
         traj = np.array(
@@ -1071,6 +1104,7 @@ class Cancellation:
             knobs=list(self.knobs),
             feasible_mask=feasible_mask,
             structural_floor=float(floor),
+            at_structural_floor=at_floor,
             cancellation_efficiency=efficiency,
             theta_amp_optimum=float(final_theta_b3),
             psi_aux_optimum=float(final_psi_b3),
@@ -1207,6 +1241,9 @@ class Cancellation:
         after_gram = optimized_dict.gram()
         after_overlap = float(np.abs(after_gram[a_idx, b_idx]) ** 2)
         efficiency = _compute_efficiency(before_overlap, after_overlap, floor)
+        at_floor = _check_at_floor(before_overlap, after_overlap, floor)
+        if at_floor and efficiency is None:
+            efficiency = 0.0
 
         return CancellationResult(
             optimized_knobs={
@@ -1226,6 +1263,7 @@ class Cancellation:
             knobs=list(self.knobs),
             feasible_mask=feasible_mask,
             structural_floor=float(floor),
+            at_structural_floor=at_floor,
             cancellation_efficiency=efficiency,
             # theta_amp_optimum / psi_aux_optimum carry the first
             # amp-qubit's pair for parity with Rung3/Rung4 result
@@ -1335,6 +1373,19 @@ def _compute_efficiency(
     if gap < 1e-9:
         return None
     return float(np.clip((before - after) / gap, 0.0, 1.0))
+
+
+_FLOOR_TOLERANCE = 1e-6
+
+
+def _check_at_floor(before: float, after: float, floor: float) -> bool:
+    """Return True when before ≈ floor ≈ after within tolerance."""
+    if math.isnan(floor):
+        return False
+    return (
+        abs(before - floor) <= _FLOOR_TOLERANCE
+        and abs(after - floor) <= _FLOOR_TOLERANCE
+    )
 
 
 def _interpret_efficiency(

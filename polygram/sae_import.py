@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 
 if TYPE_CHECKING:
     from polygram.clustered_dictionary import (  # noqa: F401
@@ -222,6 +222,57 @@ def _load_sae_checkpoint(
                 arr = np.frombuffer(raw, dtype=np_dt).reshape(shape).astype(np.float32)
             out[canonical] = _correct_orientation(arr, src)
     return out
+
+
+def _load_sae_checkpoint_optional(
+    path: Path | str,
+    keys: Iterable[str],
+) -> dict[str, np.ndarray]:
+    """Load only the subset of ``keys`` that the safetensors file actually contains.
+
+    A permissive companion to :func:`_load_sae_checkpoint`. Whereas the
+    strict loader raises ``ValueError`` when any requested canonical
+    key has no alias in the file, this helper silently omits absent
+    keys. Keys that ARE present are loaded with the same alias
+    resolution, dtype validation, BF16 handling, and PyTorch
+    ``nn.Linear`` orientation correction as the strict loader.
+
+    Used by ``Compressor.apply()`` to probe for the strategy's
+    optional-key set (W_enc / b_enc / b_dec) without requiring the
+    caller to supply them. Returns an empty dict when none of the
+    requested keys are present in the file.
+
+    Parameters
+    ----------
+    path:
+        Path to a ``.safetensors`` file.
+    keys:
+        Canonical key names to probe for.
+
+    Returns
+    -------
+    dict mapping each present canonical key to a float32 ndarray.
+    Absent keys are omitted; no exception is raised on absence.
+    """
+    path = Path(path)
+    header = _read_safetensors_header(path)
+    present = set(header.keys())
+
+    # Filter the requested keys down to those that have at least one
+    # alias present in the file. The strict loader will then succeed.
+    present_canonical: list[str] = []
+    for canonical in keys:
+        if any(
+            src in present
+            for src, dst in _KEY_ALIASES.items()
+            if dst == canonical
+        ):
+            present_canonical.append(canonical)
+
+    if not present_canonical:
+        return {}
+
+    return _load_sae_checkpoint(path, present_canonical)
 
 
 @dataclass(frozen=True)

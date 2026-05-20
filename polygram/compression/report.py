@@ -29,13 +29,17 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
+
+from polygram.compression._helpers import (
+    floats_eq,
+)
 
 if TYPE_CHECKING:
     from polygram.dictionary import Dictionary
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -103,6 +107,10 @@ class CompressionReport:
     n_features_kept: int
     n_clusters: int
     scale_compression_ratio: float = 1.0
+    rank_ratio: float | None = None
+    post_A: float | None = None
+    forge_mse: float | None = None
+    informative_metric: Literal["post_A", "both", "forge_mse"] | None = None
 
     # ---- JSON ------------------------------------------------------
 
@@ -159,6 +167,24 @@ class CompressionReport:
             clusters=clusters,
             feature_ids=tuple(int(f) for f in payload["feature_ids"]),
         )
+        # v1 payloads lack the new diagnostic fields; v2 payloads may
+        # carry them as JSON null when the upstream value was None/NaN.
+        rank_ratio = (
+            float(payload["rank_ratio"])
+            if payload.get("rank_ratio") is not None
+            else None
+        )
+        post_A = (
+            float(payload["post_A"])
+            if payload.get("post_A") is not None
+            else None
+        )
+        forge_mse = (
+            float(payload["forge_mse"])
+            if payload.get("forge_mse") is not None
+            else None
+        )
+        informative = payload.get("informative_metric")
         return cls(
             schema_version=int(payload["schema_version"]),
             source_checkpoint=str(payload["source_checkpoint"]),
@@ -179,6 +205,10 @@ class CompressionReport:
             scale_compression_ratio=float(
                 payload.get("scale_compression_ratio", 1.0)
             ),
+            rank_ratio=rank_ratio,
+            post_A=post_A,
+            forge_mse=forge_mse,
+            informative_metric=informative,
         )
 
     # ---- Equality --------------------------------------------------
@@ -204,7 +234,11 @@ class CompressionReport:
             and self.n_features_zeroed == other.n_features_zeroed
             and self.n_features_kept == other.n_features_kept
             and self.n_clusters == other.n_clusters
-            and self.scale_compression_ratio == other.scale_compression_ratio
+            and floats_eq(self.scale_compression_ratio, other.scale_compression_ratio)
+            and floats_eq(self.rank_ratio, other.rank_ratio)
+            and floats_eq(self.post_A, other.post_A)
+            and floats_eq(self.forge_mse, other.forge_mse)
+            and self.informative_metric == other.informative_metric
         )
 
     def __hash__(self) -> int:
@@ -214,6 +248,9 @@ class CompressionReport:
             self.output_checkpoint_sha256,
             self.strategy,
             self.plan.feature_ids,
+            self.rank_ratio,
+            self.post_A,
+            self.forge_mse,
         ))
 
     # ---- Internal --------------------------------------------------
@@ -235,7 +272,26 @@ class CompressionReport:
             "n_features_zeroed": int(self.n_features_zeroed),
             "n_features_kept": int(self.n_features_kept),
             "n_clusters": int(self.n_clusters),
+            # Pre-existing field; preserved at full float precision for
+            # round-trip equality. The new diagnostic fields below use
+            # `json_finite` (6-sigfig quantization) intentionally.
             "scale_compression_ratio": float(self.scale_compression_ratio),
+            # Diagnostic fields: preserve full float precision so the
+            # JSON round-trip is bit-exact. `json_finite`'s 6-sigfig
+            # quantization breaks strict equality (e.g. post_A
+            # 1.0596382e-07 → 1.05964e-07 on write, can't recover the
+            # original on read). NaN/Inf are still rejected by the
+            # dataclass on construction.
+            "rank_ratio": (
+                float(self.rank_ratio) if self.rank_ratio is not None else None
+            ),
+            "post_A": (
+                float(self.post_A) if self.post_A is not None else None
+            ),
+            "forge_mse": (
+                float(self.forge_mse) if self.forge_mse is not None else None
+            ),
+            "informative_metric": self.informative_metric,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
