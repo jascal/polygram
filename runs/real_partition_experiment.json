@@ -1,0 +1,74 @@
+{
+  "sae_repo": "jbloom/GPT2-Small-SAEs-Reformatted",
+  "sae_file": "blocks.8.hook_resid_pre/sae_weights.safetensors",
+  "n_features": 64,
+  "d_model": 768,
+  "heavy_k": 4,
+  "confirmer": "DecoderGeometryConfirmer",
+  "threshold": 0.1,
+  "n_confirmed_pairs": 4,
+  "heaviness_score": "decoder_norm\u00b2 \u00d7 pair_count",
+  "top_k_heavy_fids": [
+    3,
+    19,
+    22,
+    42
+  ],
+  "uniform": {
+    "encoding": "Rung5(n_amp_qubits=4)",
+    "n_features_kept": 4,
+    "n_features_zeroed": 4,
+    "n_clusters": 4,
+    "scale_compression_ratio": 0.49999797352125386,
+    "rank_ratio": 0.005208333333333333,
+    "substrate_kept_slots": 512,
+    "substrate_full_slots": 8192,
+    "wall_s": 0.09181714057922363,
+    "forge_faithfulness_kl": 10.0484037399292,
+    "forge_n_params": 124439808
+  },
+  "partition": {
+    "blocks": [
+      {
+        "block_id": "heavy",
+        "encoding": "Rung5({'n_amp_qubits': 4})",
+        "slot_cost": 128,
+        "n_features": 4,
+        "n_kept": 0,
+        "n_zeroed": 0,
+        "n_clusters": 0,
+        "scale_compression_ratio": 1.0,
+        "rank_ratio": null,
+        "post_A": null,
+        "informative_metric": null
+      },
+      {
+        "block_id": "tail",
+        "encoding": "MPSRung1({})",
+        "slot_cost": 8,
+        "n_features": 60,
+        "n_kept": 4,
+        "n_zeroed": 4,
+        "n_clusters": 4,
+        "scale_compression_ratio": 0.49999797352125386,
+        "rank_ratio": 0.005208333333333333,
+        "post_A": 8.940070594931626e-08,
+        "informative_metric": "post_A"
+      }
+    ],
+    "n_features_kept": 4,
+    "n_features_zeroed": 4,
+    "n_clusters": 4,
+    "scale_compression_ratio": 0.49999797352125386,
+    "rank_ratio": 0.005208333333333333,
+    "substrate_kept_slots": 32,
+    "substrate_full_slots": 992,
+    "wall_s": 0.03039097785949707,
+    "forge_faithfulness_kl": 10.0484037399292,
+    "forge_n_params": 124439808
+  },
+  "substrate_reductions": {
+    "kept_reps": 16.0,
+    "full_input_sae": 8.258064516129032
+  }
+}
