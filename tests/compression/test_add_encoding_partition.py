@@ -397,33 +397,24 @@ def test_compression_report_blocks_equality_field_by_field():
 # ---------------------------------------------------------------------------
 
 
-def test_compressor_apply_refuses_encoding_partition():
-    """Phase 1 ships the scaffolding but defers per-block dispatch to
-    Phase 2. Compressor.apply MUST refuse partitioned configs loudly
-    so downstream consumers don't silently get a single-encoding
-    compression where a partitioned one was requested."""
-    from polygram.compression.compressor import Compressor
-
-    cfg = CompressionConfig(
-        encoding_partition=(
-            BlockSpec(block_id="b", encoding_class="MPSRung1",
-                      feature_ids=(0, 1, 2, 3)),
-        ),
+def test_compressor_apply_runs_partition_path_in_phase_2():
+    """Phase 2 (post-#107) IMPLEMENTS the per-block dispatch that
+    Phase 1's apply() refused. This test pins the Phase 1 → Phase 2
+    transition: with a partition supplied, Compressor.apply now runs
+    (rather than raising NotImplementedError). See
+    `tests/compression/test_encoding_partition_phase2.py` for the
+    full per-block dispatch test coverage."""
+    # The Phase 1 NotImplementedError block has been removed by
+    # Phase 2; verify there's no residual refusal logic by checking
+    # the apply() source doesn't contain the Phase 1 refusal message.
+    from polygram.compression import compressor as _compressor_mod
+    import inspect
+    apply_src = inspect.getsource(_compressor_mod.Compressor.apply)
+    assert "Phase 2 follow-up" not in apply_src, (
+        "Phase 2 should have removed the Phase 1 NotImplementedError "
+        "refusal block; if you see this failure, the block is still "
+        "present and per-block dispatch isn't wired in."
     )
-    # Construct minimally — apply() refuses before doing any work, so
-    # the source SAE checkpoint isn't actually read.
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".safetensors", delete=False) as f:
-        src = f.name
-    with tempfile.NamedTemporaryFile(suffix=".safetensors", delete=False) as f:
-        dst = f.name
-    compressor = Compressor(
-        sae_checkpoint=src,
-        validation_report=None,  # type: ignore
-        config=cfg,
-    )
-    with pytest.raises(NotImplementedError, match="Phase 2 follow-up"):
-        compressor.apply(output_checkpoint=dst)
 
 
 # ---------------------------------------------------------------------------

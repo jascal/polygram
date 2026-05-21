@@ -833,30 +833,19 @@ class Compressor:
         plan: CompressionPlan | None = None,
         output_checkpoint: str | os.PathLike | None = None,
     ) -> CompressionResult:
-        # Per-block heterogeneous-encoding dispatch is filed in
-        # `add-encoding-partition`'s Phase 2 follow-up. Phase 1 (this
-        # change) ships the BlockSpec + CompressionConfig field +
-        # CompressionReport.blocks scaffolding but the actual per-block
-        # compress + stitch path is non-trivial enough to warrant a
-        # standalone change. Refuse loudly so downstream consumers
-        # don't silently get a single-encoding compression where a
-        # partitioned one was requested.
-        if self.config is not None and getattr(
-            self.config, "encoding_partition", None
-        ) is not None:
-            raise NotImplementedError(
-                "Compressor.apply: encoding_partition support is a "
-                "Phase 2 follow-up of add-encoding-partition (Phase 1, "
-                "currently shipped, locks the API surface + builds "
-                "the BlockSpec / CompressionReport.blocks scaffolding "
-                "but does not yet implement per-block compress + "
-                "stitch). See "
-                "openspec/changes/archive/2026-05-21-add-encoding-partition/ "
-                "for the Phase 1 design; the Phase 2 impl PR will "
-                "ship the per-block dispatch + stitching logic. Set "
-                "encoding_partition=None for the v1 single-encoding "
-                "path."
-            )
+        # `add-encoding-partition` Phase 2: per-block dispatch.
+        # When the config carries an `encoding_partition`, each block's
+        # features get compressed independently (with the block's own
+        # encoding family + axis-assignment policy) and the results are
+        # stitched back into a single output safetensors. Coverage
+        # validation runs immediately so an under- or over-specified
+        # partition fails before any I/O.
+        # See `_apply_partitioned(...)` below for the per-block
+        # dispatch + stitch helper.
+        partition = (
+            getattr(self.config, "encoding_partition", None)
+            if self.config is not None else None
+        )
 
         if output_checkpoint is None:
             raise ValueError(
@@ -898,13 +887,55 @@ class Compressor:
             source_state["W_dec"], plan
         )
         n_fires_by_fid = _aggregate_n_fires(self.validation_report)
-        rewritten, merged_norms = _dispatch_strategy(
-            self.strategy,
-            source_state,
-            plan,
-            merge_mode=self.merge_mode,
-            n_fires_by_fid=n_fires_by_fid,
-        )
+
+        block_reports: list = []
+        if partition is not None:
+            # Phase 2 — per-block dispatch.
+            # 1. Validate coverage against the loaded SAE's feature count.
+            from polygram.compression.partition import validate_partition_coverage
+            n_features_input = int(source_state["W_dec"].shape[0])
+            validate_partition_coverage(
+                partition, n_features_input=n_features_input,
+            )
+            # 2. Per-block dispatch + stitch.
+            rewritten, merged_norms, block_reports, _n_cross_dropped = (
+                _apply_partitioned(
+                    source_state, plan, partition,
+                    strategy=self.strategy,
+                    merge_mode=self.merge_mode,
+                    n_fires_by_fid=n_fires_by_fid,
+                )
+            )
+            # 3. Drop cross-block clusters from the global plan that
+            # we'll record in CompressionReport.plan. Cross-block
+            # clusters were already excluded from per-block dispatch
+            # by _partition_global_plan_into_blocks; the report's
+            # plan should reflect what actually got compressed.
+            from polygram.compression.partition import BlockSpec  # noqa: F401
+            fid_to_block_idx: dict[int, int] = {
+                fid: idx for idx, block in enumerate(partition)
+                for fid in block.feature_ids
+            }
+            kept_clusters = tuple(
+                c for c in plan.clusters
+                if len({fid_to_block_idx.get(m) for m in c.members}) == 1
+                and None not in {fid_to_block_idx.get(m) for m in c.members}
+            )
+            plan = CompressionPlan(
+                clusters=kept_clusters,
+                feature_ids=tuple(
+                    fid for cluster in kept_clusters for fid in cluster.members
+                ),
+            )
+        else:
+            rewritten, merged_norms = _dispatch_strategy(
+                self.strategy,
+                source_state,
+                plan,
+                merge_mode=self.merge_mode,
+                n_fires_by_fid=n_fires_by_fid,
+            )
+
         plan = _patch_cluster_scale_fields(
             plan, cluster_norm_stats, merged_norms
         )
@@ -960,6 +991,7 @@ class Compressor:
             post_A=post_A,
             forge_mse=None,
             informative_metric=_informative_metric(rank_ratio) if rank_ratio is not None else None,
+            blocks=tuple(block_reports) if block_reports else None,
         )
 
         # MPSRung1 caps a Dictionary at `MPSRung1.max_features` (= 8).
@@ -977,9 +1009,17 @@ class Compressor:
         from polygram.encoding import MPSRung1 as _MPSRung1
 
         rebuild_cap = int(_MPSRung1.max_features)
-        feature_ids = list(
-            plan.feature_ids[: min(rebuild_cap, len(plan.feature_ids))]
-        )
+        if plan.feature_ids:
+            feature_ids = list(
+                plan.feature_ids[: min(rebuild_cap, len(plan.feature_ids))]
+            )
+        else:
+            # Empty plan (e.g. all clusters were cross-block dropped under
+            # an `encoding_partition`). The rebuilt Dictionary is a
+            # debugging aid; seed it from the lowest-fid features of the
+            # source SAE so a non-trivial Dictionary still surfaces.
+            n_total_features = int(source_state["W_dec"].shape[0])
+            feature_ids = list(range(min(rebuild_cap, n_total_features)))
         records = load_sae_safetensors(str(out_path), feature_ids=feature_ids)
         rebuilt_dictionary, _selection_report = from_sae_lens(
             records,
@@ -1036,6 +1076,274 @@ def _dispatch_strategy(
         f"Compressor: unsupported strategy {name!r}; "
         f"supported: {sorted(_SUPPORTED_STRATEGIES)}"
     )
+
+
+# ============================================================================
+# Per-block dispatch (add-encoding-partition Phase 2)
+# ============================================================================
+
+
+def _partition_global_plan_into_blocks(
+    global_plan: CompressionPlan,
+    partition: tuple,  # tuple[BlockSpec, ...]
+) -> tuple[list[list[ClusterPlan]], int]:
+    """Split a globally-computed CompressionPlan into per-block cluster
+    lists. Clusters whose members span more than one block are
+    **dropped** (their features end up as singletons in the output —
+    cross-block merges are semantically invalid since the two blocks
+    use different encodings).
+
+    Returns ``(per_block_clusters, n_cross_block_dropped)`` where
+    ``per_block_clusters[i]`` is the list of ClusterPlan objects that
+    belong to ``partition[i]``.
+    """
+    fid_to_block_idx: dict[int, int] = {
+        fid: idx for idx, block in enumerate(partition)
+        for fid in block.feature_ids
+    }
+    per_block: list[list[ClusterPlan]] = [[] for _ in partition]
+    n_cross_block_dropped = 0
+    for cluster in global_plan.clusters:
+        block_indices = {fid_to_block_idx.get(m) for m in cluster.members}
+        if len(block_indices) == 1 and None not in block_indices:
+            idx = next(iter(block_indices))
+            per_block[idx].append(cluster)
+        else:
+            n_cross_block_dropped += 1
+    return per_block, n_cross_block_dropped
+
+
+def _build_local_plan_for_block(
+    block_clusters: list[ClusterPlan],
+    block,  # BlockSpec
+) -> tuple[CompressionPlan, dict[int, int]]:
+    """Re-index a block's ClusterPlan members + representative + zeroed
+    to LOCAL indices into the block's sliced W_dec (positions
+    0..len(block.feature_ids)-1). Returns the local plan + the
+    block_local-to-global feature-id mapping (the inverse mapping
+    is implicit in block.feature_ids ordering).
+
+    Cluster ids stay GLOBAL — they're preserved as-is so the
+    BlockReport's cluster_assignments and the CompressionReport.plan
+    can both reference the same id.
+    """
+    global_to_local: dict[int, int] = {
+        fid: local for local, fid in enumerate(block.feature_ids)
+    }
+    local_clusters = []
+    for c in block_clusters:
+        local_clusters.append(ClusterPlan(
+            cluster_id=c.cluster_id,
+            members=tuple(global_to_local[m] for m in c.members),
+            representative=global_to_local[c.representative],
+            zeroed=tuple(global_to_local[z] for z in c.zeroed),
+            cluster_norm_mean=c.cluster_norm_mean,
+            cluster_norm_std=c.cluster_norm_std,
+            merged_norm=c.merged_norm,
+        ))
+    local_plan = CompressionPlan(
+        clusters=tuple(local_clusters),
+        feature_ids=tuple(range(len(block.feature_ids))),
+    )
+    return local_plan, global_to_local
+
+
+def _slice_state_to_block(
+    source_state: dict[str, np.ndarray],
+    block,  # BlockSpec
+) -> dict[str, np.ndarray]:
+    """Return a copy of ``source_state`` with W_dec/W_enc/b_enc
+    column-sliced to ``block.feature_ids``. ``b_dec`` is shared
+    (invariant under feature-axis slicing; the strategies don't
+    touch it). Each per-block dispatch operates on the sliced view.
+    """
+    fids = list(block.feature_ids)
+    out: dict[str, np.ndarray] = {
+        "W_dec": np.ascontiguousarray(source_state["W_dec"][fids]),
+    }
+    if "W_enc" in source_state:
+        # polygram convention: W_enc shape (d_model, n_features)
+        out["W_enc"] = np.ascontiguousarray(source_state["W_enc"][:, fids])
+    if "b_enc" in source_state:
+        out["b_enc"] = np.ascontiguousarray(source_state["b_enc"][fids])
+    if "b_dec" in source_state:
+        out["b_dec"] = source_state["b_dec"]  # invariant; share by reference
+    return out
+
+
+def _stitch_block_into_state(
+    global_state: dict[str, np.ndarray],
+    sub_rewritten: dict[str, np.ndarray],
+    block,  # BlockSpec
+) -> None:
+    """Write the per-block rewritten rows back into ``global_state``
+    at the positions named by ``block.feature_ids``. Mutates
+    ``global_state`` in place."""
+    fids = list(block.feature_ids)
+    global_state["W_dec"][fids] = sub_rewritten["W_dec"]
+    if "W_enc" in sub_rewritten and "W_enc" in global_state:
+        global_state["W_enc"][:, fids] = sub_rewritten["W_enc"]
+    if "b_enc" in sub_rewritten and "b_enc" in global_state:
+        global_state["b_enc"][fids] = sub_rewritten["b_enc"]
+    # b_dec is invariant; no stitch needed.
+
+
+def _build_block_report(
+    block,  # BlockSpec
+    block_clusters: list[ClusterPlan],
+    sub_rewritten_w_dec: np.ndarray,
+    sub_source_w_dec: np.ndarray,
+    sub_merged_norms: dict[int, float] | None,
+):
+    """Build a BlockReport for a single block. The per-block diagnostic
+    floats (rank_ratio, post_A, forge_mse) are deferred to a Phase 2
+    enhancement; for v1 only scale_compression_ratio + the count
+    aggregates are populated."""
+    from polygram.compression.report import BlockReport
+
+    # Local indices of features that were zeroed across this block's clusters
+    local_zeroed_indices: set[int] = set()
+    fid_to_local = {fid: local for local, fid in enumerate(block.feature_ids)}
+    for c in block_clusters:
+        for z in c.zeroed:
+            if z in fid_to_local:
+                local_zeroed_indices.add(fid_to_local[z])
+
+    n_features_zeroed = len(local_zeroed_indices)
+    n_features_total_in_block = len(block.feature_ids)
+    n_clusters = len(block_clusters)
+    # Match top-level CompressionReport's `n_features_kept` semantic:
+    # count of cluster representatives only (= n_clusters). Singleton
+    # features (those not in any confirmed pair / cluster) are NOT
+    # counted as "kept" — they're not part of the compression plan.
+    # See `Compressor.apply`'s `n_kept = sum(1 for _ in plan.clusters)`.
+    n_features_kept = n_clusters
+
+    # Per-feature cluster_assignments: local cluster id (or -1 for
+    # features that aren't in any cluster). Cluster ids here are
+    # LOCAL to the block — 0..n_clusters_in_block-1 — so a
+    # downstream consumer reading the top-level report knows the
+    # globalisation rule (block_idx * MAX_CLUSTERS_PER_BLOCK +
+    # local_id) and can compute it themselves.
+    assignments = [-1] * n_features_total_in_block
+    for local_cid, c in enumerate(block_clusters):
+        for m in c.members:
+            if m in fid_to_local:
+                assignments[fid_to_local[m]] = local_cid
+
+    # Per-block scale_compression_ratio (analogous to the top-level
+    # helper but scoped to this block's W_dec slice + per-block
+    # clusters). The local plan has local-indexed clusters; rebuild
+    # one for the helper.
+    if block_clusters:
+        local_plan = CompressionPlan(
+            clusters=tuple(
+                ClusterPlan(
+                    cluster_id=c.cluster_id,
+                    members=tuple(fid_to_local[m] for m in c.members),
+                    representative=fid_to_local[c.representative],
+                    zeroed=tuple(fid_to_local[z] for z in c.zeroed),
+                    cluster_norm_mean=c.cluster_norm_mean,
+                    cluster_norm_std=c.cluster_norm_std,
+                    merged_norm=c.merged_norm,
+                )
+                for c in block_clusters
+            ),
+            feature_ids=tuple(range(n_features_total_in_block)),
+        )
+        scale_ratio = _compute_scale_compression_ratio(
+            sub_source_w_dec, local_plan, sub_merged_norms
+        )
+    else:
+        scale_ratio = 1.0
+
+    return BlockReport(
+        block_id=block.block_id,
+        encoding_class=block.encoding_class,
+        encoding_kwargs=dict(block.encoding_kwargs),
+        learn_axis_assignment=bool(block.learn_axis_assignment),
+        feature_ids=tuple(block.feature_ids),
+        n_features_kept=n_features_kept,
+        n_features_zeroed=n_features_zeroed,
+        n_clusters=n_clusters,
+        cluster_assignments=tuple(assignments),
+        scale_compression_ratio=scale_ratio,
+        rank_ratio=None,   # Phase 2 v1: deferred
+        post_A=None,        # Phase 2 v1: deferred
+        forge_mse=None,
+        informative_metric=None,
+    )
+
+
+def _apply_partitioned(
+    source_state: dict[str, np.ndarray],
+    global_plan: CompressionPlan,
+    partition: tuple,  # tuple[BlockSpec, ...]
+    *,
+    strategy: str,
+    merge_mode: str,
+    n_fires_by_fid: dict[int, int] | None,
+) -> tuple[dict[str, np.ndarray], dict[int, float], list, int]:
+    """Per-block dispatch + stitch. Returns:
+
+      - ``rewritten_state``: full-size state with each block's rows
+        replaced by the per-block strategy's output.
+      - ``merged_norms``: global cluster_id → merged_norm map across
+        all blocks (for downstream report fields). Empty when
+        strategy is ``zero``.
+      - ``block_reports``: one BlockReport per partition block.
+      - ``n_cross_block_dropped``: count of clusters in the global
+        plan whose members spanned multiple blocks (these are dropped
+        from the per-block plans). Used by the caller for diagnostics
+        and the final CompressionPlan rebuild.
+    """
+    per_block_clusters, n_cross_block_dropped = (
+        _partition_global_plan_into_blocks(global_plan, partition)
+    )
+
+    # Start with a deep copy of source state — per-block stitches
+    # mutate this in place.
+    rewritten_state: dict[str, np.ndarray] = {
+        k: v.copy() for k, v in source_state.items()
+    }
+
+    all_merged_norms: dict[int, float] = {}
+    block_reports = []
+
+    for block_idx, block in enumerate(partition):
+        block_clusters = per_block_clusters[block_idx]
+        sub_state = _slice_state_to_block(source_state, block)
+        sub_source_w_dec = sub_state["W_dec"].copy()  # preserve for diagnostics
+
+        if block_clusters:
+            local_plan, _ = _build_local_plan_for_block(block_clusters, block)
+            sub_rewritten, sub_merged_norms = _dispatch_strategy(
+                strategy, sub_state, local_plan,
+                merge_mode=merge_mode,
+                n_fires_by_fid=n_fires_by_fid,
+            )
+            if sub_merged_norms:
+                # merged_norms keys are LOCAL cluster ids; the cluster_ids
+                # in block_clusters are GLOBAL. Map back.
+                # ... but local_plan's ClusterPlan retained the global
+                # cluster_id, so sub_merged_norms is already keyed on the
+                # global id.
+                all_merged_norms.update(sub_merged_norms)
+        else:
+            # Empty block (all clusters were cross-block and got dropped,
+            # or the block had no clusters from the validation report).
+            # Pass-through: no rewriting needed.
+            sub_rewritten = sub_state
+
+        _stitch_block_into_state(rewritten_state, sub_rewritten, block)
+
+        block_reports.append(_build_block_report(
+            block, block_clusters,
+            sub_rewritten["W_dec"], sub_source_w_dec,
+            sub_merged_norms if block_clusters else None,
+        ))
+
+    return rewritten_state, all_merged_norms, block_reports, n_cross_block_dropped
 
 
 # ============================================================================
