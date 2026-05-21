@@ -333,6 +333,75 @@ def test_full_compression_report_with_blocks_round_trips(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Per-block diagnostics (rank_ratio, post_A, informative_metric)
+# ---------------------------------------------------------------------------
+
+
+def test_block_report_diagnostic_floats_are_populated(tmp_path):
+    """The Phase 2 enhancement populates per-block rank_ratio, post_A,
+    and informative_metric on BlockReport. They were None in Phase 2 v1.
+    Verify they're now real numbers (or None when the block has no
+    clusters — empty-block degenerate case)."""
+    n_features = 8
+    sae_path = _build_synth_sae(tmp_path, n_features=n_features)
+    vr = build_report(
+        n_features=n_features,
+        confirmed=[(0, 1), (4, 5)],
+        n_fires={0: 100, 1: 10, 4: 100, 5: 10},
+    )
+
+    heavy = BlockSpec(
+        block_id="heavy", encoding_class="MPSRung1",
+        feature_ids=(0, 1, 2, 3),
+    )
+    tail = BlockSpec(
+        block_id="tail", encoding_class="MPSRung1",
+        feature_ids=(4, 5, 6, 7),
+    )
+    cfg = CompressionConfig(strategy="zero", encoding_partition=(heavy, tail))
+    c = Compressor(sae_checkpoint=sae_path, validation_report=vr, config=cfg)
+    result = c.run(output_checkpoint=tmp_path / "out.safetensors")
+
+    blocks_by_id = {b.block_id: b for b in result.report.blocks}
+    for bid in ("heavy", "tail"):
+        b = blocks_by_id[bid]
+        assert b.rank_ratio is not None, f"{bid}: rank_ratio should be populated"
+        assert 0.0 <= b.rank_ratio <= 1.0, f"{bid}: rank_ratio in [0, 1]"
+        assert b.post_A is not None, f"{bid}: post_A should be populated"
+        assert b.informative_metric in {"post_A", "both", "forge_mse"}, (
+            f"{bid}: informative_metric should be one of the expected values"
+        )
+
+
+def test_block_report_diagnostics_none_for_empty_block(tmp_path):
+    """When a block has no clusters (e.g. all cross-block dropped), the
+    per-block diagnostics SHALL be None — there's nothing to measure
+    against an empty plan."""
+    n_features = 8
+    sae_path = _build_synth_sae(tmp_path, n_features=n_features)
+    # Only cross-block pair → both blocks end up with 0 clusters
+    vr = build_report(n_features=n_features, confirmed=[(3, 4)])
+
+    heavy = BlockSpec(
+        block_id="heavy", encoding_class="MPSRung1",
+        feature_ids=(0, 1, 2, 3),
+    )
+    tail = BlockSpec(
+        block_id="tail", encoding_class="MPSRung1",
+        feature_ids=(4, 5, 6, 7),
+    )
+    cfg = CompressionConfig(strategy="zero", encoding_partition=(heavy, tail))
+    c = Compressor(sae_checkpoint=sae_path, validation_report=vr, config=cfg)
+    result = c.run(output_checkpoint=tmp_path / "out.safetensors")
+
+    for b in result.report.blocks:
+        assert b.n_clusters == 0
+        assert b.rank_ratio is None
+        assert b.post_A is None
+        assert b.informative_metric is None
+
+
 def test_no_partition_uses_single_encoding_path(tmp_path):
     """When encoding_partition is None, Compressor.apply runs the
     historical single-encoding path. CompressionReport.blocks is None."""

@@ -1231,10 +1231,13 @@ def _build_block_report(
             if m in fid_to_local:
                 assignments[fid_to_local[m]] = local_cid
 
-    # Per-block scale_compression_ratio (analogous to the top-level
-    # helper but scoped to this block's W_dec slice + per-block
-    # clusters). The local plan has local-indexed clusters; rebuild
-    # one for the helper.
+    # Per-block diagnostics (Phase 2 enhancement — completes Phase 2
+    # v1's deferred per-block rank_ratio / post_A / informative_metric).
+    # Rebuild a local-indexed plan for the existing diagnostic helpers,
+    # which take a CompressionPlan + W_dec slice and operate by row.
+    rank_ratio: float | None = None
+    post_A: float | None = None
+    informative_metric_value = None
     if block_clusters:
         local_plan = CompressionPlan(
             clusters=tuple(
@@ -1254,6 +1257,17 @@ def _build_block_report(
         scale_ratio = _compute_scale_compression_ratio(
             sub_source_w_dec, local_plan, sub_merged_norms
         )
+        # rank_ratio scoped to the block's rewritten sub-W_dec — the
+        # block's cluster representatives' decoder rows. Same numerical-
+        # rank-vs-d_model semantic as the top-level metric.
+        rank_ratio = _compute_rank_ratio(sub_rewritten_w_dec, local_plan)
+        # post_A scoped to the block's source sub-W_dec.
+        post_A = _compute_post_A(sub_source_w_dec, local_plan)
+        # informative_metric derived from rank_ratio per the existing
+        # _informative_metric rule (post_A < 0.95, both 0.95-1.05,
+        # forge_mse > 1.05).
+        if rank_ratio is not None:
+            informative_metric_value = _informative_metric(rank_ratio)
     else:
         scale_ratio = 1.0
 
@@ -1268,10 +1282,10 @@ def _build_block_report(
         n_clusters=n_clusters,
         cluster_assignments=tuple(assignments),
         scale_compression_ratio=scale_ratio,
-        rank_ratio=None,   # Phase 2 v1: deferred
-        post_A=None,        # Phase 2 v1: deferred
+        rank_ratio=rank_ratio,
+        post_A=post_A,
         forge_mse=None,
-        informative_metric=None,
+        informative_metric=informative_metric_value,
     )
 
 
