@@ -4,6 +4,42 @@
 
 (nothing yet)
 
+## 0.14.0 — 2026-05-21
+
+### Added
+
+- **`add-encoding-partition` Phase 2** — wires the per-block compress
+  + stitch logic that Phase 1 (v0.13.0) deferred. `Compressor.apply`
+  now actually runs per-block dispatch when an `encoding_partition`
+  is supplied, instead of refusing with `NotImplementedError`.
+  - **Per-block dispatch**: each block's features get sliced from the
+    SAE state, compressed with the block's encoding family via the
+    existing `dispatch_strategy` pipeline, and stitched back into a
+    single output safetensors.
+  - **Cross-block clusters are dropped**: a confirmed pair whose
+    members span two blocks is semantically invalid (the two
+    encodings can't merge a cluster across the boundary) — the
+    cluster gets dropped and both features survive as singletons.
+    Coverage validation fires before any I/O so under- or
+    over-specified partitions fail fast.
+  - **`CompressionReport.blocks` populated**: each `BlockReport`
+    carries per-block n_features_kept (= number of cluster
+    representatives in block), n_features_zeroed, n_clusters,
+    per-feature `cluster_assignments` (local cluster ids,
+    `-1` for unclustered features), and `scale_compression_ratio`.
+  - **Per-block diagnostic floats** (`rank_ratio` / `post_A` /
+    `forge_mse`) deferred to a separate enhancement; the v1
+    BlockReport serialises these as `None`. Top-level diagnostics
+    still compute (across the post-drop plan).
+  - **Defensive empty-plan handling**: when a partition drops all
+    clusters as cross-block, the downstream rebuilt-Dictionary
+    debugging artifact seeds from the lowest-fid features rather
+    than crashing.
+  - 9 new tests covering: single-block partition, multi-block
+    stitch, cross-block-drop semantics, coverage validation, local
+    cluster_assignments, v3 report round-trip with blocks, and the
+    no-partition regression guard. Suite: 1070 → 1079.
+
 ## 0.13.0 — 2026-05-21
 
 ### Added
