@@ -7,18 +7,25 @@
       with fields: `block_id: str`, `encoding_class: str`,
       `encoding_kwargs: dict[str, Any]`, `learn_axis_assignment: bool`,
       `feature_ids: tuple[int, ...]`.
-- [ ] 1.2 `__post_init__` validation:
+- [ ] 1.2 `__post_init__` validation — uses the per-family validator
+      registry (see Decision 2b in design.md):
       - `encoding_class` ∈ `{"MPSRung1", "Rung3", "Rung4", "Rung5", "HEA_Rung2"}`.
-      - `encoding_kwargs` shape per family:
-        - `Rung5`: requires `n_amp_qubits: int` (≥ 1).
-        - `HEA_Rung2`: requires `n_qubits: int` (≥ 1).
-        - others: empty dict (extra keys raise).
+      - `encoding_kwargs` shape dispatched through a module-level
+        `_BLOCK_SPEC_KWARG_VALIDATORS: dict[str, Callable[[dict], None]]`
+        registry rather than an inline match/elif chain. Adding a
+        future family is one new validator function + one registry
+        entry.
       - `feature_ids` is a non-empty tuple of non-negative ints, no
         duplicates.
 - [ ] 1.3 `BlockSpec.__eq__` / `__hash__` cover all fields
       (frozen=True gives this automatically; just confirm the dict
       and tuple fields hash correctly — tuples do; dicts don't, so
       convert `encoding_kwargs` to a frozenset of items for hash).
+- [ ] 1.4 `make_default_block(...)` convenience constructor (see
+      Decision 2c in design.md): produces a BlockSpec covering all
+      `range(n_features_input)` minus `excluded_feature_ids`. Useful
+      for "default + heavy override" partition patterns. Returns a
+      regular BlockSpec; no special-case path in downstream consumers.
 
 ## 2. `CompressionConfig.encoding_partition`
 
@@ -191,10 +198,18 @@
       to_json/from_json, assert equality.
 - [ ] 9.4.2 `test_compression_report_v5_loads_with_blocks_none` —
       hand-craft v5 JSON without `blocks` key, load via from_json,
-      assert blocks is None.
+      assert blocks is None. Use a v5 payload pulled from the
+      pre-change frozen fixtures (or a synthesised one matching
+      the v5 schema's set of keys) to guarantee the back-compat
+      contract against a REAL pre-change payload, not just a stub.
 - [ ] 9.4.3 `test_compression_report_blocks_round_trip_with_nan_aware_eq`
       — populate with `rank_ratio=float('nan')` in a block; round-trip;
       equality holds (NaN-aware `__eq__`).
+- [ ] 9.4.4 `test_compression_report_v6_blocks_explicitly_none_round_trip`
+      — populate with `blocks=None` and schema_version=6; round-trip;
+      `blocks is None`. Confirms the v6 schema accepts the absent
+      case (so an unpartitioned compress produces a v6 report with
+      `blocks=None`, indistinguishable from the v5 contract).
 
 ### 9.5 `from_sae_lens` kwarg
 

@@ -85,6 +85,73 @@ deterministic and reversible.
 arrays itself. Rejected — increases coupling between polygram's report
 schema and downstream consumers' code paths.
 
+### Decision 2b — Extensibility: per-family validator registry
+
+`BlockSpec.__post_init__` validates `encoding_kwargs` shape per family
+(Rung5 needs `n_amp_qubits`, HEA_Rung2 needs `n_qubits`, MPSRung1/3/4
+need empty kwargs). This is currently a `match`-style branch over the
+5 supported encoding classes. As polygram adds new families (Rung6,
+larger HEA variants, etc.), that branch becomes a maintenance trap.
+
+The implementation SHALL use a module-level validator registry:
+
+```python
+_BLOCK_SPEC_KWARG_VALIDATORS: dict[str, Callable[[dict], None]] = {
+    "MPSRung1": _validate_empty_kwargs,
+    "Rung3":    _validate_empty_kwargs,
+    "Rung4":    _validate_empty_kwargs,
+    "Rung5":    _validate_rung5_kwargs,        # checks n_amp_qubits: int >= 1
+    "HEA_Rung2": _validate_hea_rung2_kwargs,   # checks n_qubits: int >= 1
+}
+```
+
+Adding a future family is one new validator function + one registry
+entry, not a new `elif` branch.
+
+The registry SHALL be private to `polygram/compression/partition.py`
+(or wherever `BlockSpec` lives) — not a public extension point.
+Encoding families are a polygram-controlled vocabulary; opening it
+for third-party extension would weaken the "supported encoding set"
+contract.
+
+### Decision 2c — Ergonomic helpers for common partition patterns
+
+The "default + heavy override" pattern is common enough to deserve a
+helper. The implementation SHALL ship one convenience constructor:
+
+```python
+def make_default_block(
+    *,
+    block_id: str = "default",
+    encoding_class: Literal[...],
+    encoding_kwargs: dict[str, Any] = None,
+    learn_axis_assignment: bool = False,
+    n_features_input: int,
+    excluded_feature_ids: set[int] = frozenset(),
+) -> BlockSpec:
+    """Build a BlockSpec covering all feature_ids NOT in
+    `excluded_feature_ids`. Useful for 'tail bucket' partitions where
+    a small set of heavy features get a custom block and the rest
+    falls through to a default.
+
+    Example:
+        heavy = BlockSpec(block_id="heavy", encoding_class="Rung5",
+                          encoding_kwargs={"n_amp_qubits": 4},
+                          feature_ids=(0, 1, 2, 3))
+        tail  = make_default_block(
+            encoding_class="MPSRung1",
+            n_features_input=n_features,
+            excluded_feature_ids={0, 1, 2, 3},
+        )
+        partition = (heavy, tail)
+    """
+```
+
+This is sugar over `BlockSpec(feature_ids=tuple(sorted(
+range(n_features_input)) - excluded_feature_ids))`. The naming and
+the explicit `n_features_input` argument make the "I want everything
+that's not in the heavy block" intent visually clear.
+
 ### Decision 3 — Mutual-exclusion semantics: partition overrides top-level
 
 When `encoding_partition` is set, top-level `encoding_class` /

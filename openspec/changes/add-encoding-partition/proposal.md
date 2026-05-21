@@ -239,3 +239,18 @@ Per-block API surface locked in this proposal:
 - `from_sae_lens(..., encoding_partition=...)`
 
 Drift in any of these field names blocks the downstream sae-forge implementation. The two changes' API contracts are co-locked.
+
+### Note on `tuple` vs `list` (corrects sae-forge proposal's shorthand)
+
+The sae-forge `add-block-structured-sae/tasks.md` task 0.2 cites the
+locked surface as `CompressionConfig.encoding_partition: list[BlockSpec] | None`.
+**This proposal corrects that to `tuple[BlockSpec, ...]`** — frozen
+tuples make `CompressionConfig` (and `BlockSpec`) hashable, which is
+load-bearing for the auto-materialise cache-key contract in sae-forge
+(`compute_cache_key` records the partition's SHA-256, derived from a
+deterministic serialisation that requires hashable members).
+
+The sae-forge change's tasks.md will be updated to match
+`tuple[BlockSpec, ...]` when its impl PR lands; flagging the
+correction here so downstream implementers don't carry the `list`
+typing into the wired code.
