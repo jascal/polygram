@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+(nothing yet)
+
+## 0.13.0 — 2026-05-21
+
 ### Added
 
 - **`add-encoding-partition` Phase 1** — locks the API surface for
