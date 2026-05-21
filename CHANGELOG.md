@@ -2,7 +2,43 @@
 
 ## Unreleased
 
-(nothing yet)
+### Added
+
+- **`add-encoding-partition` Phase 1** — locks the API surface for
+  per-block heterogeneous encoding (the gating prerequisite for
+  sae-forge's `add-block-structured-sae`). 33 new tests, full
+  suite green (1037 → 1070).
+  - `BlockSpec` dataclass + per-family validator registry
+    (`_BLOCK_SPEC_KWARG_VALIDATORS`) for clean Rung6+ extensibility.
+    Hashable (frozen + custom `__hash__` since `encoding_kwargs` is
+    a dict). `block_id`, `encoding_class`, `encoding_kwargs`,
+    `learn_axis_assignment`, `feature_ids`.
+  - `PartitionCoverageError` (subclasses `ValueError`) +
+    `validate_partition_coverage(partition, n_features_input=...)`
+    helper. Names offending feature ids (capped at first 10).
+  - `make_default_block(...)` convenience constructor for the
+    "default + heavy override" partition pattern.
+  - `CompressionConfig.encoding_partition: tuple[BlockSpec, ...] | None`
+    field. Type/membership/non-empty validation at config
+    construction. Default `None` preserves the single-encoding path
+    byte-equivalently.
+  - `CompressionReport.blocks: tuple[BlockReport, ...] | None` +
+    new `BlockReport` dataclass mirroring per-block diagnostics.
+    `CompressionReport.SCHEMA_VERSION` bumped 2 → 3 with back-compat
+    loader for v2 payloads (defaults `blocks=None`).
+  - `MAX_CLUSTERS_PER_BLOCK = 10_000` module-level constant for the
+    global cluster-id namespace.
+  - `from_sae_lens(..., encoding_partition=...)` kwarg accepted +
+    type-validated.
+  - Public exports from `polygram.compression`: `BlockSpec`,
+    `BlockReport`, `PartitionCoverageError`, `make_default_block`,
+    `validate_partition_coverage`.
+
+  Phase 2 (the actual per-block dispatch in `Compressor.apply`) is
+  filed as a follow-up impl. The current `Compressor.apply` raises
+  `NotImplementedError` with a clear pointer when a partitioned
+  config is supplied — downstream consumers don't silently get a
+  single-encoding compression where a partitioned one was requested.
 
 ## 0.12.0 — 2026-05-20
 

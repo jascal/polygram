@@ -24,6 +24,12 @@ Two-stage API mirrors `Compressor`'s.
 
 from polygram.compression.compressor import Compressor
 from polygram.compression.epoch import EpochCompressor
+from polygram.compression.partition import (
+    BlockSpec,
+    PartitionCoverageError,
+    make_default_block,
+    validate_partition_coverage,
+)
 from polygram.compression.epoch_report import (
     EpochIteration,
     EpochReport,
@@ -39,6 +45,7 @@ from polygram.compression.regrow_report import (
     SlotPopulation,
 )
 from polygram.compression.report import (
+    BlockReport,
     ClusterPlan,
     CompressionPlan,
     CompressionReport,
@@ -46,6 +53,8 @@ from polygram.compression.report import (
 )
 
 __all__ = [
+    "BlockReport",
+    "BlockSpec",
     "ClusterPlan",
     "Compressor",
     "CompressionPlan",
@@ -58,10 +67,13 @@ __all__ = [
     "Panel",
     "ParetoOutcome",
     "ParetoReport",
+    "PartitionCoverageError",
     "RegrowPlan",
     "RegrowReport",
     "RegrowResult",
     "RegrowStrategy",
     "Regrower",
     "SlotPopulation",
+    "make_default_block",
+    "validate_partition_coverage",
 ]
