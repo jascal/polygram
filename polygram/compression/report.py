@@ -39,7 +39,13 @@ if TYPE_CHECKING:
     from polygram.dictionary import Dictionary
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+# Per-block global-cluster-id namespace cap. Each block's local
+# cluster ids in [0, n_clusters_in_block) get encoded as
+# `block_index * MAX_CLUSTERS_PER_BLOCK + local_id` in the top-level
+# CompressionReport's per-feature cluster ids. See
+# `openspec/changes/add-encoding-partition/design.md` Decision 2.
+MAX_CLUSTERS_PER_BLOCK = 10_000
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,35 @@ class CompressionPlan:
 
 
 @dataclass(frozen=True, eq=False)
+class BlockReport:
+    """Per-block diagnostic record emitted by `Compressor.apply` when
+    a `CompressionConfig.encoding_partition` is set.
+
+    Mirrors the per-block subset of the top-level
+    :class:`CompressionReport` fields (n_features_kept,
+    n_features_zeroed, n_clusters, plus the diagnostic floats), keyed
+    by the block's analyst-supplied ``block_id``.
+
+    Added by ``add-encoding-partition``. v3 schema.
+    """
+
+    block_id: str
+    encoding_class: str
+    encoding_kwargs: dict
+    learn_axis_assignment: bool
+    feature_ids: tuple[int, ...]
+    n_features_kept: int
+    n_features_zeroed: int
+    n_clusters: int
+    cluster_assignments: tuple[int, ...] | None = None
+    scale_compression_ratio: float = 1.0
+    rank_ratio: float | None = None
+    post_A: float | None = None
+    forge_mse: float | None = None
+    informative_metric: Literal["post_A", "both", "forge_mse"] | None = None
+
+
+@dataclass(frozen=True, eq=False)
 class CompressionReport:
     """Post-`apply()` artifact carrying provenance + the applied plan."""
 
@@ -111,6 +146,13 @@ class CompressionReport:
     post_A: float | None = None
     forge_mse: float | None = None
     informative_metric: Literal["post_A", "both", "forge_mse"] | None = None
+    # v3: per-block heterogeneous-encoding diagnostics. When the
+    # `Compressor` was driven by a `CompressionConfig.encoding_partition`,
+    # `blocks` carries one BlockReport per partition block. When the
+    # compression used a single top-level encoding (the historical path),
+    # `blocks` is None. Schema bump from 2 to 3; from_json defaults
+    # `blocks=None` for v2 payloads.
+    blocks: tuple[BlockReport, ...] | None = None
 
     # ---- JSON ------------------------------------------------------
 
@@ -185,6 +227,14 @@ class CompressionReport:
             else None
         )
         informative = payload.get("informative_metric")
+
+        # v3 (add-encoding-partition): `blocks` is a list of BlockReport
+        # dicts when populated, or absent/null in v2 payloads.
+        blocks_raw = payload.get("blocks")
+        blocks: tuple[BlockReport, ...] | None = None
+        if blocks_raw is not None:
+            blocks = tuple(_block_from_dict(b) for b in blocks_raw)
+
         return cls(
             schema_version=int(payload["schema_version"]),
             source_checkpoint=str(payload["source_checkpoint"]),
@@ -209,6 +259,7 @@ class CompressionReport:
             post_A=post_A,
             forge_mse=forge_mse,
             informative_metric=informative,
+            blocks=blocks,
         )
 
     # ---- Equality --------------------------------------------------
@@ -239,9 +290,17 @@ class CompressionReport:
             and floats_eq(self.post_A, other.post_A)
             and floats_eq(self.forge_mse, other.forge_mse)
             and self.informative_metric == other.informative_metric
+            and _blocks_eq(self.blocks, other.blocks)
         )
 
     def __hash__(self) -> int:
+        # blocks contains dict (encoding_kwargs) which is unhashable;
+        # hash by structural identifiers (block_id, encoding_class)
+        # of each block instead of the full BlockReport tuple.
+        blocks_hash = (
+            tuple((b.block_id, b.encoding_class) for b in self.blocks)
+            if self.blocks is not None else None
+        )
         return hash((
             self.schema_version,
             self.source_checkpoint_sha256,
@@ -251,6 +310,7 @@ class CompressionReport:
             self.rank_ratio,
             self.post_A,
             self.forge_mse,
+            blocks_hash,
         ))
 
     # ---- Internal --------------------------------------------------
@@ -292,6 +352,12 @@ class CompressionReport:
                 float(self.forge_mse) if self.forge_mse is not None else None
             ),
             "informative_metric": self.informative_metric,
+            # v3 (add-encoding-partition): list of per-block dicts, or
+            # null when the compression used a single top-level encoding.
+            "blocks": (
+                [_block_to_dict(b) for b in self.blocks]
+                if self.blocks is not None else None
+            ),
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -341,4 +407,99 @@ def _cluster_from_dict(raw: dict[str, Any]) -> ClusterPlan:
         cluster_norm_mean=_opt_float(raw.get("cluster_norm_mean")),
         cluster_norm_std=_opt_float(raw.get("cluster_norm_std")),
         merged_norm=_opt_float(raw.get("merged_norm")),
+    )
+
+
+def _block_to_dict(b: BlockReport) -> dict[str, Any]:
+    """Serialise a :class:`BlockReport` to a JSON-roundtrippable dict.
+    Mirrors `_cluster_to_dict`'s shape for the new v3 partition fields.
+    """
+    return {
+        "block_id":              str(b.block_id),
+        "encoding_class":        str(b.encoding_class),
+        "encoding_kwargs":       dict(b.encoding_kwargs),
+        "learn_axis_assignment": bool(b.learn_axis_assignment),
+        "feature_ids":           [int(f) for f in b.feature_ids],
+        "n_features_kept":       int(b.n_features_kept),
+        "n_features_zeroed":     int(b.n_features_zeroed),
+        "n_clusters":            int(b.n_clusters),
+        "cluster_assignments":   (
+            list(b.cluster_assignments)
+            if b.cluster_assignments is not None else None
+        ),
+        "scale_compression_ratio": float(b.scale_compression_ratio),
+        "rank_ratio":            (
+            float(b.rank_ratio) if b.rank_ratio is not None else None
+        ),
+        "post_A":                (
+            float(b.post_A) if b.post_A is not None else None
+        ),
+        "forge_mse":             (
+            float(b.forge_mse) if b.forge_mse is not None else None
+        ),
+        "informative_metric":    b.informative_metric,
+    }
+
+
+def _block_from_dict(raw: dict[str, Any]) -> BlockReport:
+    def _opt_float(v: Any) -> float | None:
+        return None if v is None else float(v)
+
+    ca = raw.get("cluster_assignments")
+    return BlockReport(
+        block_id=str(raw["block_id"]),
+        encoding_class=str(raw["encoding_class"]),
+        encoding_kwargs=dict(raw.get("encoding_kwargs") or {}),
+        learn_axis_assignment=bool(raw.get("learn_axis_assignment", False)),
+        feature_ids=tuple(int(f) for f in raw["feature_ids"]),
+        n_features_kept=int(raw["n_features_kept"]),
+        n_features_zeroed=int(raw["n_features_zeroed"]),
+        n_clusters=int(raw["n_clusters"]),
+        cluster_assignments=(
+            tuple(int(x) for x in ca) if ca is not None else None
+        ),
+        scale_compression_ratio=float(raw.get("scale_compression_ratio", 1.0)),
+        rank_ratio=_opt_float(raw.get("rank_ratio")),
+        post_A=_opt_float(raw.get("post_A")),
+        forge_mse=_opt_float(raw.get("forge_mse")),
+        informative_metric=raw.get("informative_metric"),
+    )
+
+
+def _blocks_eq(
+    a: "tuple[BlockReport, ...] | None",
+    b: "tuple[BlockReport, ...] | None",
+) -> bool:
+    """NaN-aware element-wise equality for the optional `blocks` field.
+    Either both `None` (single-encoding compression) or same-length
+    tuples whose corresponding BlockReports compare equal field-by-field.
+    """
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    if len(a) != len(b):
+        return False
+    for x, y in zip(a, b):
+        if not _block_report_eq(x, y):
+            return False
+    return True
+
+
+def _block_report_eq(x: BlockReport, y: BlockReport) -> bool:
+    return (
+        x.block_id == y.block_id
+        and x.encoding_class == y.encoding_class
+        and x.encoding_kwargs == y.encoding_kwargs
+        and x.learn_axis_assignment == y.learn_axis_assignment
+        and x.feature_ids == y.feature_ids
+        and x.n_features_kept == y.n_features_kept
+        and x.n_features_zeroed == y.n_features_zeroed
+        and x.n_clusters == y.n_clusters
+        and x.cluster_assignments == y.cluster_assignments
+        and floats_eq(x.scale_compression_ratio, y.scale_compression_ratio)
+        and floats_eq(x.rank_ratio, y.rank_ratio)
+        and floats_eq(x.post_A, y.post_A)
+        and floats_eq(x.forge_mse, y.forge_mse)
+        and x.informative_metric == y.informative_metric
     )

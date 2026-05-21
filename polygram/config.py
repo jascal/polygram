@@ -309,6 +309,18 @@ class CompressionConfig(_ConfigMixin):
     confirmer: str | None = None
     target_n_features_kept: int | None = None
     score_field: str = "polygram_overlap"
+    # Per-block heterogeneous encoding partition. When non-None,
+    # `Compressor.apply` SHALL dispatch per-block (each block's
+    # features get compressed with its own encoding family +
+    # kwargs + axis-assignment policy). Coverage validation
+    # (disjointness + completeness vs n_features_input) runs at
+    # `Compressor.apply` time, not here. See
+    # ``openspec/changes/add-encoding-partition/proposal.md``.
+    #
+    # `tuple[BlockSpec, ...]` (not list) — required for
+    # CompressionConfig's frozen=True hash + downstream
+    # cache-key contracts (e.g. sae-forge's compute_cache_key).
+    encoding_partition: "tuple | None" = None
 
     def __post_init__(self) -> None:
         if self.strategy not in _SUPPORTED_STRATEGIES:
@@ -342,6 +354,30 @@ class CompressionConfig(_ConfigMixin):
                 f"CompressionConfig: score_field must be one of "
                 f"{_SUPPORTED_SCORE_FIELDS}; got {self.score_field!r}"
             )
+        if self.encoding_partition is not None:
+            # Lazy import to keep the no-partition call path
+            # independent of partition.py (which itself is torch-
+            # free; the lazy import is for module-load-order
+            # cleanliness against the wider polygram surface).
+            from polygram.compression.partition import BlockSpec
+            if not isinstance(self.encoding_partition, tuple):
+                raise TypeError(
+                    f"CompressionConfig: encoding_partition must be a "
+                    f"tuple of BlockSpec; got "
+                    f"{type(self.encoding_partition).__name__}"
+                )
+            for i, block in enumerate(self.encoding_partition):
+                if not isinstance(block, BlockSpec):
+                    raise TypeError(
+                        f"CompressionConfig: encoding_partition[{i}] "
+                        f"must be a BlockSpec; got "
+                        f"{type(block).__name__}"
+                    )
+            if not self.encoding_partition:
+                raise ValueError(
+                    "CompressionConfig: encoding_partition must be "
+                    "either None or a non-empty tuple of BlockSpec"
+                )
 
 
 # ---------------------------------------------------------------------------

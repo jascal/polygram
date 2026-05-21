@@ -630,6 +630,7 @@ def from_sae_lens(
     assign_amp_knobs: bool | None = None,
     assign_phase_knobs: bool | None = None,
     learn_axis_assignment: "bool | object | None" = None,
+    encoding_partition: "tuple | None" = None,
 ) -> tuple["Dictionary | ClusteredDictionary", SelectionReport]:
     """Build a `Dictionary` from an explicit subset of SAE features.
 
@@ -680,6 +681,29 @@ def from_sae_lens(
 
     cfg = config if config is not None else SAEImportConfig()
     resolved_profile = _resolve_profile(profile, cfg)
+
+    # `encoding_partition` (add-encoding-partition Phase 1) — accepted
+    # to lock the API surface that sae-forge's `add-block-structured-sae`
+    # consumes. Phase 2 (the actual per-block dispatch) lives in
+    # `Compressor.apply`; calling sites that supply a partition AND
+    # invoke `Compressor.apply` get a clean `NotImplementedError`
+    # there. `from_sae_lens` itself builds Dictionaries (not
+    # compressed checkpoints), so accepting the kwarg here is a no-op
+    # routing decision: the partition is stored on
+    # `CompressionConfig` by callers and consumed at compress time.
+    if encoding_partition is not None:
+        from polygram.compression.partition import BlockSpec
+        if not isinstance(encoding_partition, tuple):
+            raise TypeError(
+                f"from_sae_lens: encoding_partition must be a tuple of "
+                f"BlockSpec; got {type(encoding_partition).__name__}"
+            )
+        for i, block in enumerate(encoding_partition):
+            if not isinstance(block, BlockSpec):
+                raise TypeError(
+                    f"from_sae_lens: encoding_partition[{i}] must be "
+                    f"a BlockSpec; got {type(block).__name__}"
+                )
 
     if assign_gamma is None:
         assign_gamma = cfg.assign_gamma

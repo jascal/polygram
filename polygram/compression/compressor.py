@@ -833,6 +833,31 @@ class Compressor:
         plan: CompressionPlan | None = None,
         output_checkpoint: str | os.PathLike | None = None,
     ) -> CompressionResult:
+        # Per-block heterogeneous-encoding dispatch is filed in
+        # `add-encoding-partition`'s Phase 2 follow-up. Phase 1 (this
+        # change) ships the BlockSpec + CompressionConfig field +
+        # CompressionReport.blocks scaffolding but the actual per-block
+        # compress + stitch path is non-trivial enough to warrant a
+        # standalone change. Refuse loudly so downstream consumers
+        # don't silently get a single-encoding compression where a
+        # partitioned one was requested.
+        if self.config is not None and getattr(
+            self.config, "encoding_partition", None
+        ) is not None:
+            raise NotImplementedError(
+                "Compressor.apply: encoding_partition support is a "
+                "Phase 2 follow-up of add-encoding-partition (Phase 1, "
+                "currently shipped, locks the API surface + builds "
+                "the BlockSpec / CompressionReport.blocks scaffolding "
+                "but does not yet implement per-block compress + "
+                "stitch). See "
+                "openspec/changes/archive/2026-05-21-add-encoding-partition/ "
+                "for the Phase 1 design; the Phase 2 impl PR will "
+                "ship the per-block dispatch + stitching logic. Set "
+                "encoding_partition=None for the v1 single-encoding "
+                "path."
+            )
+
         if output_checkpoint is None:
             raise ValueError(
                 "Compressor.apply: output_checkpoint is required"
