@@ -2,7 +2,34 @@
 
 ## Unreleased
 
-(nothing yet)
+### Added
+
+- **Per-block diagnostic floats on `BlockReport`** (closes the Phase 2
+  v1 deferral). `rank_ratio`, `post_A`, and `informative_metric` now
+  populate per block; `forge_mse` stays caller-provided, same as the
+  top-level CompressionReport's. Empty-block degenerate case leaves
+  diagnostics as `None`. 2 new tests; full suite 1079 → 1081.
+
+### Documented (scope honesty)
+
+- **`add-encoding-partition` is polygram-only.** An A/B experiment on
+  a real SAE (jbloom GPT-2 first 64 features) with sae-forge's full
+  `ForgePipeline.run_synthetic` measured: substrate cost reduces
+  **8-16×** under partition (validated), but `forge_faithfulness_kl`
+  is **identical** between uniform and partitioned compressions
+  (10.0484 in both runs). The polygram encoding-family choice does
+  not propagate through sae-forge's current forge path — sae-forge
+  reads W_dec from the safetensors and the partition doesn't change
+  W_dec. The proposal's projected forge-side payoff (10-30% KL lift)
+  is **unproven** and requires separate sae-forge work that is not
+  specified anywhere today.
+  - Artefacts: `runs/real_partition_experiment.py` (reproducible
+    against a fresh venv with the jbloom SAE cached) +
+    `runs/real_partition_experiment.json` (measurement output).
+  - This is a useful negative result, not a failure of the feature.
+    The partition still works as a polygram-Dictionary substrate cost
+    reducer + analyst diagnostic tool. Just don't expect the forge
+    to honour the encoding choice today.
 
 ## 0.14.0 — 2026-05-21
 
