@@ -847,11 +847,15 @@ class Compressor:
             raise NotImplementedError(
                 "Compressor.apply: encoding_partition support is a "
                 "Phase 2 follow-up of add-encoding-partition (Phase 1, "
-                "which this PR ships, locks the API surface + builds "
+                "currently shipped, locks the API surface + builds "
                 "the BlockSpec / CompressionReport.blocks scaffolding "
                 "but does not yet implement per-block compress + "
-                "stitch). Set encoding_partition=None for the v1 "
-                "single-encoding path."
+                "stitch). See "
+                "openspec/changes/archive/2026-05-21-add-encoding-partition/ "
+                "for the Phase 1 design; the Phase 2 impl PR will "
+                "ship the per-block dispatch + stitching logic. Set "
+                "encoding_partition=None for the v1 single-encoding "
+                "path."
             )
 
         if output_checkpoint is None:

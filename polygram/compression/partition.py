@@ -10,6 +10,53 @@ field to drive per-block compression in
 
 See ``openspec/changes/add-encoding-partition/proposal.md`` for the
 full design.
+
+Usage example — "default + heavy override" pattern
+==================================================
+
+The common analyst workflow: a small set of heavy features deserves a
+high-capacity encoding (Rung5 with learn-axis-assignment), the long
+tail gets the cheap default (MPSRung1)::
+
+    from polygram.compression import (
+        BlockSpec,
+        CompressionConfig,
+        make_default_block,
+        validate_partition_coverage,
+    )
+
+    # Heavy features (analyst-supplied; e.g. top-K by firing rate)
+    heavy = BlockSpec(
+        block_id="heavy",
+        encoding_class="Rung5",
+        encoding_kwargs={"n_amp_qubits": 4},
+        learn_axis_assignment=True,
+        feature_ids=(0, 1, 2, 3),
+    )
+
+    # Tail defaults to MPSRung1 over the remaining ids
+    tail = make_default_block(
+        encoding_class="MPSRung1",
+        n_features_input=128,           # total feature count of the input SAE
+        excluded_feature_ids={0, 1, 2, 3},
+    )
+
+    partition = (heavy, tail)
+
+    # Validate before passing to CompressionConfig — covers disjointness
+    # + completeness against the input SAE's feature count.
+    validate_partition_coverage(partition, n_features_input=128)
+
+    config = CompressionConfig(encoding_partition=partition)
+    # Phase 1: Compressor.apply will refuse with NotImplementedError
+    # because the per-block dispatch is the Phase 2 follow-up. Phase 2
+    # makes the same call site work end-to-end.
+
+Phase 1 (this module's current state) ships everything except the
+actual per-block compress + stitch loop in
+:meth:`Compressor.apply`. Phase 2 adds that loop and populates
+:attr:`CompressionReport.blocks` with one
+:class:`polygram.compression.BlockReport` per partition block.
 """
 
 from __future__ import annotations
