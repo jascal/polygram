@@ -1084,6 +1084,59 @@ def _cmd_compress_epoch(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_emit_partition_shadow(args: argparse.Namespace) -> int:
+    """Write a sae-forge-consumable partition shadow checkpoint via
+    polygram's clustering + heaviness machinery.
+
+    Bridges polygram's BlockSpec / DecoderGeometryConfirmer to
+    sae-forge's `partition_block_ids` state-dict-tensor contract.
+    """
+    from polygram.compression.partition_shadow import emit_partition_shadow
+
+    sae_path = Path(args.sae_checkpoint)
+    if not sae_path.exists():
+        sys.stderr.write(
+            f"polygram emit-partition-shadow: source SAE not found: "
+            f"{sae_path}\n"
+        )
+        return 2
+    output_path = Path(args.output)
+    if output_path == sae_path:
+        sys.stderr.write(
+            f"polygram emit-partition-shadow: --output must differ "
+            f"from --sae-checkpoint to avoid clobbering the source.\n"
+        )
+        return 2
+
+    try:
+        result = emit_partition_shadow(
+            sae_checkpoint=sae_path,
+            output_path=output_path,
+            strategy=args.strategy,
+            n_tiers=args.n_tiers,
+            k_heavy=args.k_heavy,
+            threshold=args.threshold,
+        )
+    except (ValueError, FileNotFoundError) as exc:
+        sys.stderr.write(f"polygram emit-partition-shadow: {exc}\n")
+        return 2
+
+    sys.stderr.write(
+        f"polygram emit-partition-shadow: wrote {result.output_path}\n"
+        f"  strategy: {result.strategy}\n"
+        f"  n_features: {result.n_features}, n_tiers: {result.n_tiers}\n"
+        f"  tier sizes: "
+        + ", ".join(
+            f"tier_{t}={s}" for t, s in enumerate(result.tier_sizes)
+        )
+        + "\n"
+        + f"  n_confirmed_pairs: {result.n_confirmed_pairs} "
+        + f"(threshold={result.threshold})\n"
+        + f"  manifest: {result.output_path.with_suffix('.manifest.json')}\n"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="polygram")
     parser.add_argument(
@@ -1564,6 +1617,62 @@ def main(argv: list[str] | None = None) -> int:
              "docs/research/deeper-layer-ablation-probe.md)",
     )
     p_epoch.set_defaults(func=_cmd_compress_epoch)
+
+    # ------------------------------------------------------------------
+    # emit-partition-shadow — write a sae-forge-consumable shadow
+    # checkpoint with polygram-clustering-based partition_block_ids.
+    # ------------------------------------------------------------------
+    p_pshadow = sub.add_parser(
+        "emit-partition-shadow",
+        help=(
+            "Write a shadow .safetensors carrying the source SAE's "
+            "encoder/decoder weights PLUS a `partition_block_ids` "
+            "tensor derived from polygram's DecoderGeometryConfirmer + "
+            "heaviness clustering. Consumed by sae-forge's "
+            "sweep_pareto_capability via the encodings=[(label, "
+            "PATH), ...] multi-encoding API (sae-forge v0.10.0+). "
+            "Bridge between polygram's clustering machinery and "
+            "sae-forge's partition-aware basis-selection rule."
+        ),
+    )
+    p_pshadow.add_argument(
+        "--sae-checkpoint", required=True,
+        help="path to source .safetensors with W_enc / b_enc / "
+             "W_dec / b_dec (or PyTorch encoder.weight / decoder.weight)",
+    )
+    p_pshadow.add_argument(
+        "--output", required=True,
+        help="path for the shadow .safetensors. A companion "
+             "<output>.manifest.json is also written with per-tier "
+             "diagnostics.",
+    )
+    p_pshadow.add_argument(
+        "--strategy", default="heaviness_quantile",
+        choices=("heaviness_quantile", "top_k_heavy"),
+        help="partition strategy. 'heaviness_quantile' (default) "
+             "splits features into N tiers by heaviness quantile "
+             "(matches sae-forge's partition_q4 / partition_q8 "
+             "shape); 'top_k_heavy' is the 2-block heavy/tail "
+             "split from polygram/runs/real_partition_experiment.py.",
+    )
+    p_pshadow.add_argument(
+        "--n-tiers", type=int, default=4,
+        help="number of tiers for heaviness_quantile strategy "
+             "(default: 4)",
+    )
+    p_pshadow.add_argument(
+        "--k-heavy", type=int, default=64,
+        help="number of features in the heavy tier for top_k_heavy "
+             "strategy (default: 64)",
+    )
+    p_pshadow.add_argument(
+        "--threshold", type=float, default=0.5,
+        help="DecoderGeometryConfirmer cosine-similarity threshold "
+             "for pair confirmation (default: 0.5; falls back to "
+             "0.4 → 0.3 → 0.2 → 0.1 until at least one pair "
+             "confirms)",
+    )
+    p_pshadow.set_defaults(func=_cmd_emit_partition_shadow)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
