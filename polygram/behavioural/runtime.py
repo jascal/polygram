@@ -89,6 +89,17 @@ def _import_torch_and_transformers():
     pip-install hint when either is missing.
 
     Returns `(torch_module, AutoModelForCausalLM, AutoTokenizer)`.
+
+    **Back-compat surface.** Three callers in polygram
+    (``epoch._compute_firing_rates_and_residuals``,
+    ``regrow._regrow_from_residuals``, ``behavioural.validator``)
+    use the second element of this tuple as their host-loader. For
+    encoder-only hosts (ESM-2 — model_type ``esm``) call
+    :func:`_load_host_model` instead; it dispatches on the config's
+    ``model_type`` and picks the right ``AutoModel*`` class. The
+    bare ``AutoModelForCausalLM`` returned here still works for
+    GPT-2 / Llama / Gemma / Qwen / every other historically-supported
+    host.
     """
     try:
         import torch  # noqa: F401
@@ -103,13 +114,78 @@ def _import_torch_and_transformers():
     return _torch, _AutoModelForCausalLM, _AutoTokenizer
 
 
+def _load_host_model(model_name: str, **from_pretrained_kwargs):
+    """Load an HF host model with the right ``AutoModel`` class for its
+    architecture.
+
+    Dispatch strategy mirrors sae-forge's ``load_host_for_forge``: try
+    ``AutoModelForCausalLM`` first (the historical default — every
+    decoder-LM family) and fall back to ``AutoModelForMaskedLM`` when
+    the host's config isn't a causal-LM architecture
+    (``EsmConfig`` for ESM-2). Encoder-only sequence models like
+    ESM-2 land in the masked-LM branch.
+
+    Returns the loaded model in ``.eval()`` mode. The dispatcher is
+    back-compat: every existing test that monkey-patches
+    ``AutoModelForCausalLM.from_pretrained`` intercepts the first try
+    and the fallback never runs.
+
+    Used by ``_compute_firing_rates_and_residuals`` (EpochCompressor),
+    ``_regrow_from_residuals`` (Regrower), and
+    ``BehaviouralValidator.validate`` so polygram's full pipeline
+    works on ESM-2 the same way it works on GPT-2.
+    """
+    try:
+        import torch  # noqa: F401
+        from transformers import (  # noqa: F401
+            AutoModelForCausalLM,
+            AutoModelForMaskedLM,
+        )
+    except ImportError as exc:
+        raise ImportError(_BEHAVIOURAL_INSTALL_HINT) from exc
+    from transformers import AutoModelForCausalLM, AutoModelForMaskedLM
+
+    try:
+        return AutoModelForCausalLM.from_pretrained(
+            model_name, **from_pretrained_kwargs
+        ).eval()
+    except ValueError as exc:
+        # ``AutoModelForCausalLM`` raises ``ValueError("Unrecognized
+        # configuration class ...")`` when the config is not in the
+        # causal-LM mapping. Masked-LM families (ESM-2) land here.
+        # Other ValueErrors (corrupt checkpoint, malformed config)
+        # need to propagate, so match on the canonical substring.
+        if "Unrecognized configuration class" not in str(exc):
+            raise
+        return AutoModelForMaskedLM.from_pretrained(
+            model_name, **from_pretrained_kwargs
+        ).eval()
+
+
 def _get_layer_module(model, layer: int):
     """Return the transformer block at `layer` for the given model.
 
-    Handles GPT-2 family (`model.transformer.h`) and
-    Llama / Gemma / Mistral family (`model.model.layers`). Raises
-    `ValueError` for unrecognised architectures.
+    Handles GPT-2 family (``model.transformer.h``), Llama / Gemma /
+    Mistral family (``model.model.layers``), and ESM-2 family
+    (``EsmModel.encoder.layer`` directly, or
+    ``EsmForMaskedLM.esm.encoder.layer`` when wrapped by the masked-LM
+    head). Raises ``ValueError`` for unrecognised architectures.
     """
+    # ESM-2 wrapped by MaskedLM head: AutoModelForMaskedLM returns
+    # EsmForMaskedLM whose encoder lives at ``model.esm.encoder.layer``.
+    if (
+        hasattr(model, "esm")
+        and hasattr(model.esm, "encoder")
+        and hasattr(model.esm.encoder, "layer")
+    ):
+        return model.esm.encoder.layer[layer]
+    # Bare EsmModel (no MLM head): ``model.encoder.layer``.
+    if (
+        hasattr(model, "encoder")
+        and hasattr(model.encoder, "layer")
+        and not hasattr(model, "transformer")  # not a GPT-2 wrapper
+    ):
+        return model.encoder.layer[layer]
     if hasattr(model, "transformer") and hasattr(model.transformer, "h"):
         return model.transformer.h[layer]
     if hasattr(model, "model") and hasattr(model.model, "layers"):
@@ -117,8 +193,9 @@ def _get_layer_module(model, layer: int):
     arch = type(model).__name__
     raise ValueError(
         f"_get_layer_module: unsupported model architecture {arch!r}; "
-        f"expected a GPT-2-family model (model.transformer.h) or a "
-        f"Llama/Gemma-family model (model.model.layers). "
+        f"expected a GPT-2-family model (model.transformer.h), a "
+        f"Llama/Gemma-family model (model.model.layers), or an ESM-2 "
+        f"family model (model.encoder.layer / model.esm.encoder.layer). "
         f"Override _get_layer_module or file a bug to add support."
     )
 

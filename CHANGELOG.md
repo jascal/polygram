@@ -2,7 +2,34 @@
 
 ## Unreleased
 
+## 0.15.0 — 2026-05-21
+
 ### Added
+
+- **Masked-LM host dispatcher — ESM-2 (and any future encoder-only
+  sequence model) flows through `EpochCompressor`, `Regrower`, and
+  `BehaviouralValidator`.** Three load sites that previously hard-
+  coded `AutoModelForCausalLM` now call the new
+  `polygram.behavioural.runtime._load_host_model(model_name)` helper.
+  It tries `AutoModelForCausalLM.from_pretrained` first (the historical
+  default — GPT-2 / Llama / Gemma / Qwen) and falls back to
+  `AutoModelForMaskedLM.from_pretrained` when the config is
+  "Unrecognized" for the causal-LM mapping. Masked-LM families
+  (`EsmConfig`, future `BertConfig` etc.) land in the fallback.
+  Back-compat surface: every existing test that monkey-patches
+  `AutoModelForCausalLM.from_pretrained` still intercepts the first
+  call and the fallback never runs.
+  - `polygram/behavioural/runtime.py:_get_layer_module` extended for
+    ESM-2's `model.encoder.layer` (bare `EsmModel`) and
+    `model.esm.encoder.layer` (`EsmForMaskedLM` wrapper) layouts.
+    GPT-2 / Llama / Gemma branches unchanged.
+  - Closes the downstream blocker documented in the 2026-05-21 bio-sae
+    ESM-2 forge session — sae-forge already shipped the matching
+    dispatcher at `saeforge.utils.host_loader.load_host_for_forge`.
+  - Test surface: 1095 passing (no new failures from the dispatcher
+    change; verified against the full pre-existing suite).
+
+### Carry-over from previous Unreleased
 
 - **Per-block diagnostic floats on `BlockReport`** (closes the Phase 2
   v1 deferral). `rank_ratio`, `post_A`, and `informative_metric` now

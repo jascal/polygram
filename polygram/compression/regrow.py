@@ -542,15 +542,17 @@ def _capture_residuals(
     from polygram.behavioural.runtime import (
         _get_layer_module,
         _import_torch_and_transformers,
+        _load_host_model,
         _resolve_device,
     )
 
-    torch, AutoModelForCausalLM, AutoTokenizer = _import_torch_and_transformers()
+    torch, _, AutoTokenizer = _import_torch_and_transformers()
     resolved = _resolve_device(torch, device)
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    model.eval()
+    # Architecture-aware loader: GPT-2 / Llama / Gemma / Qwen via
+    # AutoModelForCausalLM, ESM-2 via AutoModelForMaskedLM fallback.
+    model = _load_host_model(model_name)
     for p in model.parameters():
         p.requires_grad = False
     model.to(resolved)

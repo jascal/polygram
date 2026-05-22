@@ -261,17 +261,17 @@ class BehaviouralValidator:
         if candidates is None:
             candidates = self.predict()
 
-        torch, AutoModelForCausalLM, AutoTokenizer = (
-            _import_torch_and_transformers()
-        )
+        torch, _, AutoTokenizer = _import_torch_and_transformers()
+        from polygram.behavioural.runtime import _load_host_model
 
         sae = _load_sae_full(self.sae_checkpoint)
 
         device = _resolve_device(torch, self.device)
 
         tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        model = AutoModelForCausalLM.from_pretrained(self.model_name)
-        model.eval()
+        # Architecture-aware loader: GPT-2 / Llama / Gemma / Qwen via
+        # AutoModelForCausalLM, ESM-2 via AutoModelForMaskedLM fallback.
+        model = _load_host_model(self.model_name)
         for p in model.parameters():
             p.requires_grad = False
         model.to(device)
