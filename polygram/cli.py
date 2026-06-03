@@ -1103,8 +1103,8 @@ def _cmd_emit_partition_shadow(args: argparse.Namespace) -> int:
     output_path = Path(args.output)
     if output_path == sae_path:
         sys.stderr.write(
-            f"polygram emit-partition-shadow: --output must differ "
-            f"from --sae-checkpoint to avoid clobbering the source.\n"
+            "polygram emit-partition-shadow: --output must differ "
+            "from --sae-checkpoint to avoid clobbering the source.\n"
         )
         return 2
 
