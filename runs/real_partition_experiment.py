@@ -35,13 +35,20 @@ measurement in PR #111.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import time
 from pathlib import Path
 
-sys.path.insert(0, "/Users/allans/code/polygram")
-sys.path.insert(0, "/Users/allans/code/sae-forge/examples")
+# Resolve repo paths relative to this file so the script is portable across
+# checkouts and machines (was hard-coded to a macOS home dir). polygram is this
+# repo's root (runs/ -> polygram/); sae-forge is an optional sibling repo whose
+# location can be overridden with the SAE_FORGE_ROOT env var.
+_POLYGRAM_ROOT = Path(__file__).resolve().parents[1]
+_SAE_FORGE_ROOT = Path(os.environ.get("SAE_FORGE_ROOT", _POLYGRAM_ROOT.parent / "sae-forge"))
+sys.path.insert(0, str(_POLYGRAM_ROOT))
+sys.path.insert(0, str(_SAE_FORGE_ROOT / "examples"))
 
 import numpy as np
 
