@@ -5,6 +5,27 @@
 > [`tech-debt-backlog` §4.4](../../openspec/changes/tech-debt-backlog/tasks.md).
 > Reproducible via `python examples/behavioural_gram_scaleup.py`.
 
+## Readout-aligned head-to-head (2026-06-13, `add-readout-aligned-geometry-profile`)
+
+Does building the geometry in GPT-2's **readout subspace** (top-`r` SVD of `gain⊙U`) instead of on raw decoder
+vectors raise the Spearman? **No — it strictly hurts.** Head-to-head on `blocks.10`
+(`--profile {clustered,readout-aligned} --readout-rank R`):
+
+| profile / rank | Spearman(Polygram, Jaccard) |
+|---|---|
+| `clustered` (raw decoder) | **0.640** |
+| `readout-aligned` r=64 | 0.267 |
+| `readout-aligned` r=256 | 0.067 |
+| `readout-aligned` r=768 (full) | **0.640** (= baseline) |
+
+Full-rank readout-projection is an orthonormal rotation (k-means is rotation-invariant) so it reproduces
+`clustered` exactly; every truncation degrades. **Mechanism:** co-firing Jaccard is an **encoder-side**
+phenomenon (which features fire together, in the full-residual geometry); the readout subspace is **decode-side**
+(what the argmax reads through). Readout-alignment is the right basis for the *decode* tax (R2: +52/+31/+40pp
+open-class R@32) but the **wrong** basis for *co-firing*. So this **vindicates** the raw-decoder geometry for
+this claim — 0.640 is not a basis artifact. The `readout-aligned` profile ships as a tool for decode-relevant
+geometry; a decode-side behavioural metric (e.g. logit-attribution overlap) is where it would be expected to help.
+
 ## Context
 
 PR #20 ([§4.2 / `behavioural-gram-probe.md`](behavioural-gram-probe.md))

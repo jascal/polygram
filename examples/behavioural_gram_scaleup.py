@@ -354,6 +354,8 @@ def _run_probe(
     seed_candidates: list[int],
     min_firing_rate: float,
     progress: bool,
+    profile: str = "clustered",
+    readout_rank: int = 64,
 ) -> dict:
     deps = _import_torch_and_transformers()
     if deps is None:
@@ -430,8 +432,17 @@ def _run_probe(
     if progress:
         print("Building Polygram Dictionary via from_sae_lens...")
     records = load_sae_safetensors(sae_path, feature_ids=selected_ids)
+    fsl_kwargs: dict = {}
+    if profile == "readout-aligned":
+        # Readout subspace from GPT-2's (tied) unembed + final-norm gain.
+        fsl_kwargs = {
+            "profile": "readout-aligned",
+            "u_matrix": model.lm_head.weight.detach().cpu().numpy().astype(np.float64),
+            "gain": model.transformer.ln_f.weight.detach().cpu().numpy().astype(np.float64),
+            "readout_rank": readout_rank,
+        }
     d_mps, report = from_sae_lens(
-        records, selected_ids, assign_gamma=True, name="ScaleupBlocks10",
+        records, selected_ids, assign_gamma=True, name="ScaleupBlocks10", **fsl_kwargs,
     )
     g_polygram = np.abs(d_mps.gram()) ** 2
 
@@ -743,6 +754,26 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--quiet", action="store_true", help="suppress progress prints"
     )
+    parser.add_argument(
+        "--profile",
+        default="clustered",
+        help=(
+            "geometric profile for the Polygram Dictionary. 'readout-aligned' "
+            "builds the geometry in GPT-2's readout subspace (unembed + final-"
+            "norm gain) — the head-to-head test of whether the basis is what "
+            "limits the Polygram→behaviour Spearman."
+        ),
+    )
+    parser.add_argument(
+        "--readout-rank", type=int, default=64,
+        help="rank of the readout subspace for profile=readout-aligned.",
+    )
+    parser.add_argument(
+        "--sae-path",
+        type=Path,
+        default=None,
+        help="override the SAE checkpoint path (defaults to ./scratch then the HF cache).",
+    )
     args = parser.parse_args(argv)
 
     if not (2 <= args.n_features <= MAX_FEATURES):
@@ -751,9 +782,19 @@ def main(argv: list[str] | None = None) -> None:
             f"got {args.n_features}"
         )
 
-    sae_path = Path(
+    sae_path = args.sae_path or Path(
         "./scratch/real-sae/blocks.10.hook_resid_pre/sae_weights.safetensors"
     )
+    if not sae_path.exists():
+        import glob
+        import os
+
+        hits = glob.glob(os.path.expanduser(
+            "~/.cache/huggingface/hub/models--jbloom--GPT2-Small-SAEs-Reformatted/"
+            "snapshots/*/blocks.10.hook_resid_pre/sae_weights.safetensors"
+        ))
+        if hits:
+            sae_path = Path(hits[0])
     if not sae_path.exists():
         print(
             f"behavioural_gram_scaleup: SAE checkpoint not found at "
@@ -773,6 +814,8 @@ def main(argv: list[str] | None = None) -> None:
         seed_candidates=list(args.seed_candidates),
         min_firing_rate=args.min_firing_rate,
         progress=not args.quiet,
+        profile=args.profile,
+        readout_rank=args.readout_rank,
     )
     if "skipped" in report:
         _print_report(report, {})

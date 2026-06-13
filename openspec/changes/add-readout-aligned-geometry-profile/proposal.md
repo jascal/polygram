@@ -87,6 +87,36 @@ panels:
 
 Either way the verdict is the head-to-head table, descriptive; no necessity claims.
 
+### Gate RESULT (2026-06-13) — NO IMPROVEMENT; the readout basis is *wrong for co-firing*
+
+Implemented + run head-to-head on GPT-2-small `blocks.10` (`examples/behavioural_gram_scaleup.py
+--profile {clustered,readout-aligned} --readout-rank R`):
+
+| profile / rank | `Spearman(Polygram-overlap, co-firing Jaccard)` |
+|---|---|
+| `clustered` (raw decoder, baseline) | **0.640** |
+| `readout-aligned`, rank 64 (default) | 0.267 |
+| `readout-aligned`, rank 256 | 0.067 |
+| `readout-aligned`, rank 768 (full `d_model`) | **0.640** (exactly the baseline) |
+
+**Readout-alignment does NOT raise the Spearman — it strictly *hurts*, recovering the baseline only at full
+rank.** The full-rank result is the key tell: a full-rank readout projection is just an orthonormal rotation
+(plus gain weighting), and k-means is rotation-invariant — so it reproduces `clustered` exactly (0.640). Every
+*truncated* rank discards residual dimensions and degrades the co-firing signal.
+
+**The mechanism — and the real lesson — is a basis/metric mismatch:** Polygram's behavioural metric is
+**co-firing** (which features *activate together* — an **encoder-side** phenomenon living in the full-residual
+feature geometry), whereas R2's readout subspace is **decode-side** (the directions the model's *argmax* reads
+through). Readout-alignment is the right basis for the *decode* tax (R2's +52/+31/+40pp) but the **wrong** basis
+for *co-firing*. So this is the **NO-IMPROVEMENT** branch — and it **vindicates** Polygram's raw-decoder
+geometry for the co-firing claim: the 0.640 is *not* a basis artifact, and Reckoning #3's basis-limited concern
+does not apply here.
+
+**What ships:** the `readout-aligned` profile is implemented, tested, and correct — it is a legitimate tool for
+*decode-relevant* geometry questions; it is simply **not** the right basis for the co-firing Gram, which this
+gate establishes cleanly. (A future probe with a *decode-side* behavioural metric — e.g. logit-attribution
+overlap — is where readout-alignment would be expected to help.)
+
 ## Related
 
 - `docs/research/behavioural-scaleup-probe.md` — the 0.637 baseline this targets.
