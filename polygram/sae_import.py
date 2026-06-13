@@ -625,6 +625,9 @@ def from_sae_lens(
     gamma_range: tuple[float, float] | None = None,
     config: "SAEImportConfig | None" = None,
     profile: "str | GeometricProfile | None" = None,
+    u_matrix: "np.ndarray | None" = None,
+    gain: "np.ndarray | float | None" = None,
+    readout_rank: int = 64,
     clustered: bool | None = None,
     block_formation: "BlockFormation | None" = None,
     assign_amp_knobs: bool | None = None,
@@ -681,6 +684,37 @@ def from_sae_lens(
 
     cfg = config if config is not None else SAEImportConfig()
     resolved_profile = _resolve_profile(profile, cfg)
+
+    # readout-aligned profile (add-readout-aligned-geometry-profile): inject the
+    # caller-supplied host unembed into the (registry placeholder) strategy +
+    # fidelity. Polygram does not load a host itself — `u_matrix` is required.
+    if resolved_profile.name == "readout-aligned":
+        import dataclasses
+
+        if u_matrix is None:
+            raise ValueError(
+                "from_sae_lens(profile='readout-aligned'): u_matrix is required "
+                "(the host unembed, shape (vocab, d_model)). Supply u_matrix=... "
+                "and optionally gain=... (final-norm gain); Polygram does not load "
+                "a host model itself."
+            )
+        u_arr = np.asarray(u_matrix, dtype=float)
+        if u_arr.ndim != 2:
+            raise ValueError(
+                f"from_sae_lens: u_matrix must be 2-D (vocab, d_model); got "
+                f"{u_arr.ndim}-D shape {u_arr.shape}"
+            )
+        resolved_profile = dataclasses.replace(
+            resolved_profile,
+            knob_assignment=dataclasses.replace(
+                resolved_profile.knob_assignment,
+                u_matrix=u_arr, gain=gain, readout_rank=int(readout_rank),
+            ),
+            geometric_fidelity=dataclasses.replace(
+                resolved_profile.geometric_fidelity,
+                u_matrix=u_arr, gain=gain, readout_rank=int(readout_rank),
+            ),
+        )
 
     # `encoding_partition` (add-encoding-partition Phase 1) — accepted
     # to lock the API surface that sae-forge's `add-block-structured-sae`

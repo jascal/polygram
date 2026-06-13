@@ -19,6 +19,12 @@ from polygram.geometry.clustered import (
 )
 from polygram.geometry.learned_axis_assignment import LearnedKnobAssignment
 from polygram.geometry.profile import GeometricProfile
+from polygram.geometry.readout_aligned import (
+    ReadoutAlignedFidelity,
+    ReadoutAlignedKnobAssignment,
+    readout_aligned,
+    readout_variance_captured,
+)
 from polygram.geometry.objectives import (
     behavioural_objective,
     pearson_objective,
@@ -44,6 +50,7 @@ from polygram.geometry.uniform_sphere import (
 # Register built-ins at import time.
 register_profile(clustered())
 register_profile(uniform_sphere())
+register_profile(readout_aligned())
 
 __all__ = [
     "ClusteredKnobAssignment",
@@ -54,6 +61,8 @@ __all__ = [
     "LearnedAxisObjective",
     "LearnedKnobAssignment",
     "RankRecallAtKFidelity",
+    "ReadoutAlignedFidelity",
+    "ReadoutAlignedKnobAssignment",
     "TierPreservationFidelity",
     "UniformSphereKnobAssignment",
     "available_profiles",
@@ -61,6 +70,8 @@ __all__ = [
     "clustered",
     "get_profile",
     "pearson_objective",
+    "readout_aligned",
+    "readout_variance_captured",
     "register_profile",
     "spearman_objective",
     "uniform_sphere",
