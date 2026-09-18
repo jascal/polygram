@@ -1,10 +1,13 @@
 # HEA_Rung2 structural floor — what exists, what doesn't, and why
 
-> Research-track note addressing the deferral in the README's
-> ["Choosing an encoding"](../../README.md#choosing-an-encoding) section:
-> `Cancellation.structural_floor()` raises `NotImplementedError` for any
-> HEA-encoded dictionary, with "a defensible HEA bound... deferred to a
-> future research-track proposal." This is that investigation. It used
+> Research-track note addressing the deferral in
+> [`Cancellation.structural_floor()`](../../polygram/cancellation.py)'s
+> docstring and raised `NotImplementedError`: for any HEA-encoded
+> dictionary, "a defensible HEA bound... is deferred to a follow-up
+> research-track proposal." (The README's
+> ["Choosing an encoding"](../../README.md#choosing-an-encoding) section
+> states the same conclusion more briefly, without that phrase.) This is
+> that investigation. It used
 > an external tool, [`lagh`](https://github.com/jascal/lagh) — a certified
 > symbolic-law-discovery engine (certificate-or-reasoned-abstention, never
 > a confident guess) — cross-checked against the actual gate sequence in
@@ -21,11 +24,11 @@ certificate:
 
 | Case | Knobs varied | Closed form? | `lagh` certificate |
 |---|---|---|---|
-| Single knob, `φ` (layer 0) | 1 | yes — `M − V·cos(φ)` | **pinned**, α ≤ 10⁻⁶⁴·⁵⁶ |
-| Single knob, `theta[Ry,0,0]` (layer 0) | 1 | yes — `M(1+cos θ)` | **pinned**, α ≤ 10⁻²¹·⁸⁷ |
-| Single knob, `theta[Ry,1,0]` (layer 1, post-entangler) | 1 | yes — needs a `sin` term too | **pinned**, α ≤ 10⁻¹²⁵·⁸⁷ |
-| Same slot, shared across the target pair (layer 0) | 2 | yes — collapses to `M(1+cos Δθ)` | **pinned**, α ≤ 10⁻⁵⁰⁸ (via `verify`) |
-| Two *different* slots, same feature (layer 0 + layer 1) | 2 | yes — full 9-term basis, no collapse | none — `recover` abstained through all 7 tiers; form proven by circuit theory, confirmed to 5.6×10⁻¹⁶ residual, but `verify` won't pin non-rational coefficients |
+| Single knob, `φ` (layer 0) | 1 | yes — `M − V·cos(φ)` | **pinned**, α ≤ 1e-64.56 |
+| Single knob, `theta[Ry,0,0]` (layer 0) | 1 | yes — `M(1+cos θ)` | **pinned**, α ≤ 1e-21.87 |
+| Single knob, `theta[Ry,1,0]` (layer 1, post-entangler) | 1 | yes — needs a `sin` term too | **pinned**, α ≤ 1e-125.87 |
+| Same slot, shared across the target pair (layer 0) | 2 | yes — collapses to `M(1+cos Δθ)` | **pinned**, α ≤ 1e-508 (via `verify`) |
+| Two *different* slots, same feature (layer 0 + layer 1) | 2 | yes — full 9-term basis, no collapse | none — `recover` abstained through all 7 tiers; form proven by circuit theory, confirmed to 5.6e-16 residual, but `verify` won't pin non-rational coefficients |
 | Three independent slots (2 features) | 3 | yes — 8/27-term basis | not attempted — pure circuit-theory + curve-fit |
 | All 24 knobs (12/feature × 2 features) | 24 | **provably exists, in a `3²⁴`-term space; not usefully computable** | not attempted — `fit` timed out past 300s even as an unbounded scout |
 
@@ -48,7 +51,7 @@ Fixing the target pair's *other* feature at the slot's default/zero and sweeping
 |---|---|---|---|
 | `φ` | 0 | `441642253943/500000000000 − (5734592931/50000000000)·cos(φ)` | Same family as `MPSRung1` (see [`cancellation-phase-floor.md`](cancellation-phase-floor.md)) — pure cosine, floor at `φ=0`. |
 | `theta[Ry,0,0]` | 0 | `(385075576467/1000000000000)·(1 + cos θ)` | Pure cosine again; floor hits **exactly 0** at `θ=π`. |
-| `theta[Ry,1,0]` | 1 (post-entangler) | `38429919657/100000000000 + (76858690539/200000000000)cos θ − (1050559399/500000000000)sin θ` | A genuine `sin` term appears. Floor is no longer at `δ=π` — it's phase-shifted, landing at `M − √(A²+B²) ≈ 2.9×10⁻⁶`. |
+| `theta[Ry,1,0]` | 1 (post-entangler) | `38429919657/100000000000 + (76858690539/200000000000)cos θ − (1050559399/500000000000)sin θ` | A genuine `sin` term appears. Floor is no longer at `δ=π` — it's phase-shifted, landing at `M − √(A²+B²) ≈ 2.9e-6`. |
 
 The pattern: knobs at layer 0 have been through **two** rounds of the ring entangler by the time the circuit finishes (its own layer's entangler, then layer 1's); a layer-1 knob only goes through **one**. The extra round is what introduces the `sin` term — i.e. the closed form for a single HEA knob generalizes from `MPSRung1`'s `M ± |V|` to `M ± √(A²+B²)`, with the simpler case recovered when the entangler-round count happens to leave a residual symmetry.
 
@@ -57,7 +60,7 @@ The pattern: knobs at layer 0 have been through **two** rounds of the ring entan
 Sweeping the *same* slot (`theta[Ry,0,0]`) independently on both features of the target pair, as a raw 2-D grid (`θ_A`, `θ_B` as separate columns, no hint that only the difference matters):
 
 - `recover` on the raw grid: **abstain**, `"non-algebraic... periodic component likely"`, `next_action: declare_and_verify`.
-- Declaring `M(1+cos(θ_A−θ_B))` (the form already pinned from the single-knob case) and handing the **full, un-reduced** 225-point grid to `verify`: **certified, pinned, α ≤ 10⁻⁵⁰⁸** — the tightest bound in this whole investigation, and confirmation that `recover`'s abstain was a curriculum gap, not a real absence of structure.
+- Declaring `M(1+cos(θ_A−θ_B))` (the form already pinned from the single-knob case) and handing the **full, un-reduced** 225-point grid to `verify`: **certified, pinned, α ≤ 1e-508** — the tightest bound in this whole investigation, and confirmation that `recover`'s abstain was a curriculum gap, not a real absence of structure.
 
 ## Two knobs, different slots, one feature — genuinely doesn't collapse
 
@@ -65,8 +68,8 @@ Sweeping `theta[Ry,0,0]` and `theta[Ry,1,0]` — layer 0 and layer 1, different 
 
 - Neither `θ_1 − θ_2` nor `θ_1 + θ_2` reduces the 2-D grid to any 1-D function (spread ≈ full data range for both hypotheses).
 - `recover` on the raw grid ran for ~10–15 minutes, exhausted **all seven** of `lagh`'s registered tiers, then abstained with the same "periodic, declare_and_verify" diagnosis — genuinely harder than the shared-slot case, not just slower.
-- No obvious substitution to declare this time. Circuit theory instead: each knob parameterizes exactly one `Ry` gate, applied once, so by the argument in the next section the squared overlap must live in the 9-term basis `{1,cosθ_1,sinθ_1}⊗{1,cosθ_2,sinθ_2}`. Fitting that basis by ordinary least squares against the 225-point grid: **rank 9/9, residual 5.6×10⁻¹⁶** — the theory is exactly right, and this time genuinely needs the full basis, no collapse.
-- Handing the fitted form to `verify` did **not** produce a certificate: at `sigma=0` it's refuted by ~10⁻¹³ (an artifact of my float64→decimal-string round-trip, not a real mismatch); at a realistic `sigma=1e-10` it abstains `"parametric"` — *"coefficient not pinned: a perturbed refit scale also certifies."* This is `verify` working as designed: its exact-coefficient gate is built for one hypothesis with at most one free scale, not an empirically-fit 8-coefficient regression. The coefficients here are genuine irrational numbers (functions of the other ~10 fixed circuit angles on both features), so there's no clean rational for it to pin.
+- No obvious substitution to declare this time. Circuit theory instead: each knob parameterizes exactly one `Ry` gate, applied once, so by the argument in the next section the squared overlap must live in the 9-term basis `{1,cosθ_1,sinθ_1}⊗{1,cosθ_2,sinθ_2}`. Fitting that basis by ordinary least squares against the 225-point grid: **rank 9/9, residual 5.6e-16** — the theory is exactly right, and this time genuinely needs the full basis, no collapse.
+- Handing the fitted form to `verify` did **not** produce a certificate: at `sigma=0` it's refuted by ~1e-13 (an artifact of my float64→decimal-string round-trip, not a real mismatch); at a realistic `sigma=1e-10` it abstains `"parametric"` — *"coefficient not pinned: a perturbed refit scale also certifies."* This is `verify` working as designed: its exact-coefficient gate is built for one hypothesis with at most one free scale, not an empirically-fit 8-coefficient regression. The coefficients here are genuine irrational numbers (functions of the other ~10 fixed circuit angles on both features), so there's no clean rational for it to pin.
 
 ## The general N-knob theorem
 
@@ -96,7 +99,7 @@ Layer-1-only (post-entangler) knobs trend toward full rank; layer-0 knobs and cr
 
 `3^24 ≈ 2.8×10^11` terms — the theorem proves the true law lives *somewhere* in that space, but that's not a usable closed form. The natural shortcut is to ask whether the space is actually **sparse** — whether few-variable ("low interaction order") terms dominate, as they do for many bounded-depth circuits. Tested directly: 4000 random samples across all 24 knobs (12 per feature × 2 features, fully independent), fit against degree-truncated sub-bases:
 
-| truncation | # terms | R² | "large" coefficients (>10⁻³) |
+| truncation | # terms | R² | "large" coefficients (>1e-3) |
 |---|---|---|---|
 | degree ≤0 (constant) | 1 | 0.0% | 1/1 |
 | degree ≤1 (single-knob effects only) | 49 | 1.3% | 31/49 |
@@ -129,9 +132,9 @@ If a `structural_floor()`-like guarantee is ever added for HEA, it should be sco
 ## Caveats
 
 - All numeric coefficients above are specific to one dictionary configuration (`AnimalsHea`: `HEA_Rung2(depth=2)`, `entangler="ring"`, `rotations=("Ry","Rz")`, `n_qubits=3`, the `dog_poodle`/`bird_hawk` target pair with the `alpha`/`beta`/`gamma` values in [Reproducing the result](#reproducing-the-result)). Only the **functional-form and basis-size** claims (the `3^N` theorem, the entangler-round argument) are configuration-independent; the specific numbers are not.
-- The N=24 non-sparsity result is specific to `n_qubits=3` with `ring` (a complete graph already). A larger `n_qubits` with a sparser topology (`chain`, or `ring` at width ≥5) might behave differently — untested here.
+- The N=24 non-sparsity result was first measured at `n_qubits=3` with `ring` (a complete graph already). [Tested and largely refuted](#tested-and-largely-refuted-does-a-wider-sparser-topology-register-help) directly: a wider, sparser-topology config (`n_qubits=10`, `chain`) gives essentially the same aggregate R² (29.3% vs 28.8% at degree ≤2) — topology is not the lever.
 - `lagh` could not find *any* of the multi-variable results unaided — every certified or theory-derived multi-knob law here required a human-supplied hypothesis fed to `verify`, never an autonomous `recover`. That's a real, reportable gap in `lagh`'s own curriculum (no cross-column trig term for two distinct angular inputs), not a property of HEA.
-- The same-feature 2-knob and 3-knob closed forms are **not** `lagh` certificates — they're proven by the circuit-theory argument and confirmed by an exact-precision curve fit (residuals at `10⁻¹⁶`), but `lagh.verify` declined to pin the non-rational coefficients at any sigma tried. Don't cite them as certified; cite them as theory + confirmed fit.
+- The same-feature 2-knob and 3-knob closed forms are **not** `lagh` certificates — they're proven by the circuit-theory argument and confirmed by an exact-precision curve fit (residuals at `1e-16`), but `lagh.verify` declined to pin the non-rational coefficients at any sigma tried. Don't cite them as certified; cite them as theory + confirmed fit.
 
 ## Reproducing the result
 
@@ -159,7 +162,9 @@ def build_dictionary() -> Dictionary:
 base = build_dictionary()
 a_idx, b_idx = base.feature_index("dog_poodle"), base.feature_index("bird_hawk")
 
-# Single-knob sweep, e.g. theta[Ry, layer=0, qubit=0]:
+# theta[r,d,q] indexes (rotation type, depth/layer, qubit) -- rotation r=0
+# is "Ry" here since HEA_Rung2's default rotations=("Ry","Rz"). Single-knob
+# sweep, e.g. theta[Ry, layer=0, qubit=0]:
 def overlap(path, value):
     d = base.with_knob(path, value)
     return float(np.abs(d.gram()[a_idx, b_idx]) ** 2)

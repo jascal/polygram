@@ -476,10 +476,15 @@ class Cancellation:
 
         Outside that shape — every multi-knob configuration on
         `MPSRung1`, every non-canonical knob list, and every
-        HEA-encoded dictionary — raises `NotImplementedError`. A
-        defensible HEA bound (e.g. a Lipschitz upper bound on
-        `|∂overlap/∂θ|`) is deferred to a follow-up research-track
-        proposal.
+        HEA-encoded dictionary — raises `NotImplementedError`.
+        `docs/research/hea-structural-floor.md` resolves the deferred
+        question for HEA: single-knob and shared-slot-across-the-pair
+        floors do have closed forms (not yet wired in here), but no
+        useful general bound exists for the unrestricted multi-knob
+        case — the squared overlap provably lives in a `3^N`-term
+        trig-polynomial space that isn't compressible via
+        interaction-order sparsity, tested at both a complete-graph
+        and a wide sparse-topology configuration.
         """
         encoding = self.dictionary.encoding
         if isinstance(encoding, (Rung3, Rung4, Rung5)):
@@ -489,8 +494,10 @@ class Cancellation:
                 f"structural_floor() is defined only for MPSRung1 with the "
                 f"canonical 2-φ knob list; got encoding={encoding!r}, "
                 f"knobs={self.knobs!r}. The analytic M ± |V| bound does "
-                "not generalize to multi-knob HEA — a defensible bound is "
-                "deferred to a future research-track proposal."
+                "not generalize to multi-knob HEA in useful form -- see "
+                "docs/research/hea-structural-floor.md: single-knob and "
+                "shared-slot cases have closed forms, but the general "
+                "multi-knob case provably does not."
             )
         if not self._is_canonical_2phi():
             raise NotImplementedError(
