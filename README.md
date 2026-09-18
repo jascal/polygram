@@ -422,9 +422,14 @@ with independent knobs for circuit depth, entangler topology, and rotation gate 
 (`Ry`/`Rz` by default). The extra expressivity lets the encoding explore geometry
 beyond a single Pauli-Rz phase axis, and `tier_separation_bound` (default `0.025`)
 causes the emitter to declare an invariant that Q-Orca can verify. The tradeoff is
-that no closed-form structural floor exists in the multi-knob case —
-`structural_floor()` raises `NotImplementedError` for `HEA_Rung2`, so cancellation
-efficiency is undefined. Cross-encoding stability on GPT-2-small SAEs shows that
+that no *useful* closed-form structural floor exists for the general,
+unrestricted multi-knob case — `structural_floor()` raises
+`NotImplementedError` for `HEA_Rung2`, so cancellation efficiency is
+undefined there. (Single-knob and shared-slot-across-the-pair HEA floors
+do have closed forms, some certified; see
+[`docs/research/hea-structural-floor.md`](docs/research/hea-structural-floor.md)
+— just not yet wired into `structural_floor()`.) Cross-encoding
+stability on GPT-2-small SAEs shows that
 pair-level tier classifications agree with `MPSRung1` at default thresholds, but
 per-pair overlap magnitudes diverge (up to +0.30 higher cross-cluster current-overlap
 under HEA); quantitative magnitude claims should be regenerated in the target encoding.
