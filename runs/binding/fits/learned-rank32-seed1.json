@@ -1,0 +1,111 @@
+{
+  "kind": "learned",
+  "seed": 1,
+  "decoder_rank": 32,
+  "latent_width": 32,
+  "fitted_parameters": 49152,
+  "stored_scalars": 50689,
+  "history": [
+    {
+      "step": 0,
+      "validation_objective": 0.21801474690437317
+    },
+    {
+      "step": 50,
+      "validation_objective": 0.13699251413345337
+    },
+    {
+      "step": 100,
+      "validation_objective": 0.13492298126220703
+    },
+    {
+      "step": 150,
+      "validation_objective": 0.13091504573822021
+    },
+    {
+      "step": 200,
+      "validation_objective": 0.13828331232070923
+    },
+    {
+      "step": 250,
+      "validation_objective": 0.13329793512821198
+    },
+    {
+      "step": 300,
+      "validation_objective": 0.14401046931743622
+    },
+    {
+      "step": 350,
+      "validation_objective": 0.1283113658428192
+    },
+    {
+      "step": 400,
+      "validation_objective": 0.12777534127235413
+    },
+    {
+      "step": 450,
+      "validation_objective": 0.12801474332809448
+    },
+    {
+      "step": 500,
+      "validation_objective": 0.12901417911052704
+    },
+    {
+      "step": 550,
+      "validation_objective": 0.12672556936740875
+    },
+    {
+      "step": 600,
+      "validation_objective": 0.12622326612472534
+    },
+    {
+      "step": 650,
+      "validation_objective": 0.12775328755378723
+    },
+    {
+      "step": 700,
+      "validation_objective": 0.13123111426830292
+    },
+    {
+      "step": 750,
+      "validation_objective": 0.1296059936285019
+    },
+    {
+      "step": 800,
+      "validation_objective": 0.1294565051794052
+    },
+    {
+      "step": 850,
+      "validation_objective": 0.12950173020362854
+    },
+    {
+      "step": 900,
+      "validation_objective": 0.12770043313503265
+    },
+    {
+      "step": 950,
+      "validation_objective": 0.12897564470767975
+    },
+    {
+      "step": 1000,
+      "validation_objective": 0.1283266395330429
+    },
+    {
+      "step": 1050,
+      "validation_objective": 0.12642641365528107
+    },
+    {
+      "step": 1100,
+      "validation_objective": 0.1261848658323288
+    },
+    {
+      "step": 1150,
+      "validation_objective": 0.1337173581123352
+    },
+    {
+      "step": 1200,
+      "validation_objective": 0.1301386058330536
+    }
+  ],
+  "artifact": "runs/binding/fits/learned-rank32-seed1.pt"
+}

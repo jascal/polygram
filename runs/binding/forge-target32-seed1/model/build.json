@@ -1,0 +1,17 @@
+{
+  "saeforge_version": "0.14.0",
+  "saeforge_source": "/home/allans/code/sae-forge/saeforge/__init__.py",
+  "basis_checkpoint": "runs/binding/fits/compressed-target32-seed1.safetensors",
+  "basis_width": 90,
+  "basis_checkpoint_sha256": "328c033ce1aad578dbfedf16e64210167af46357b9e1666ff0b38012136c415c",
+  "basis_rank": 90,
+  "host_revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+  "forward_mode": "native_in_basis",
+  "attention_width": "host",
+  "scale_boost": 1.0,
+  "rope_theta": 1000000.0,
+  "host_embeddings_untied_for_projection": true,
+  "parameters": 104180234,
+  "finetuning_steps": 0,
+  "saeforge_revision": "e7a5ee095e4fea36ab1662e6f09ed2751ae68175"
+}

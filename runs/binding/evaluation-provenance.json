@@ -1,0 +1,27 @@
+{
+  "recorded_at": "2026-10-04T00:22:27.444682+00:00",
+  "source_sha256": {
+    "examples/binding_benchmark/__init__.py": "808a4eab935a095158a34c92a0716235fa9cd11ee0250e058792d1d152dc461b",
+    "examples/binding_benchmark/capture.py": "fc52c70fd7a6df2200eb088498316cbb375d4a27b84c973905d2347098538e78",
+    "examples/binding_benchmark/data.py": "01ae0da71eff9256ec1013410075f2e7c4916484a305c8b308ab8a6ef2d55c91",
+    "examples/binding_benchmark/evaluate.py": "0480479e4186b1be8d62c192dc6ca74a48942771ed168945e1bceb8059234db4",
+    "examples/binding_benchmark/forge.py": "eab4f8c9f583997767078cb09c8fd8854e517e5a287223027709f906065dd98a",
+    "examples/binding_benchmark/host.py": "625414bfdd494b5ad90a8b99b4feae030fbb95c05b35576eb7982f8f973d310d",
+    "examples/binding_benchmark/report.py": "90da4da1be40f4bf7d2fe7cedc87da4e33655aa13e68e56630ab8f380f3754b2",
+    "examples/binding_benchmark/representations.py": "82417fa34f03ed909c3e5c4655e9e2e8511734ac5bd27037aec764565e8f95e4"
+  },
+  "changed_since_fit_freeze": [
+    "examples/binding_benchmark/evaluate.py",
+    "examples/binding_benchmark/forge.py",
+    "examples/binding_benchmark/report.py"
+  ],
+  "fit_artifacts_unchanged": true,
+  "notes": [
+    "Fit freeze covers 87 fitted artifacts; all remain byte-identical.",
+    "Evaluation code subsequently added identical-checkpoint/no-op reuse; scoring still uses the frozen interventions and metrics.",
+    "Forge code subsequently added saved-build reuse, native tensor-output handling and execution configuration checks.",
+    "Training, dataset, host and capture source hashes remain identical to their frozen values.",
+    "No final-test hyperparameter or fit selection changes were made.",
+    "The report renderer was completed after evaluation; it reads saved results without changing metrics or fitted artifacts."
+  ]
+}

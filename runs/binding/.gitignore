@@ -1,0 +1,12 @@
+*.npy
+*.npz
+*.pt
+*.safetensors
+
+# Per-example and intermediate research outputs stay local; aggregate summaries,
+# manifests, datasets, and reports are reviewable and may be checked in.
+capture-*/records.json
+eval-*/*.jsonl
+forge-target*/*.jsonl
+fits/compression-input-*.json
+fits-unconstrained-pilot/

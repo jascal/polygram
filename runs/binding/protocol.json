@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "model": "Qwen/Qwen2.5-1.5B-Instruct",
+  "model_revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+  "dtype": "bfloat16",
+  "threads": 4,
+  "dataset_path": "runs/binding/dev-v2-qwen15/dataset.jsonl",
+  "dataset_sha256": "4a02b40c4873372fc047ddf7fe4ab6c4a0342031ed9a92726ca7c77383fe3496",
+  "host_gate_report": "runs/binding/dev-v2-qwen15/report.json",
+  "location": "final residual before RMSNorm; last prompt token",
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "sae_width": 128,
+  "sae_l1": 0.01,
+  "steps": 1200,
+  "batch_size": 128,
+  "learning_rate": 0.002,
+  "check_every": 50,
+  "compression_target_widths": [
+    64,
+    32
+  ],
+  "control_ranks": [
+    32,
+    64,
+    128
+  ],
+  "tpr_filler_dim": 16,
+  "tpr_role_dim": 4,
+  "fit_objective": "training activation MSE; SAE adds L1; learned projection uses task-aware candidate-logit distillation plus activation MSE",
+  "selection": "minimum validation objective across fixed training checkpoints",
+  "final_test_policy": "no hyperparameter changes after final evaluation; retain host failures",
+  "edit_policy": "TPR semantic binding delta without donor activations; other methods explicitly donor-assisted reconstruction deltas",
+  "forge_policy": "native_in_basis; host attention width; scale_boost=1; compressed SAE basis; no finetuning; same-basis projection control",
+  "limitations": [
+    "Task-specific supervised TPR",
+    "Final-residual readout experiment does not identify upstream binding computation",
+    "Native forge with one basis across layers may fail; report without fallback"
+  ]
+}

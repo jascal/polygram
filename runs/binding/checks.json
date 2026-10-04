@@ -1,0 +1,25 @@
+{
+  "pytest": {
+    "command": "OMP_NUM_THREADS=1 .venv/bin/pytest -q",
+    "passed": 1113,
+    "skipped": 1,
+    "warnings": 32
+  },
+  "native_tests": {
+    "command": "OMP_NUM_THREADS=1 /home/allans/code/sae-forge/.venv/bin/python -m pytest -q tests/test_binding_forge.py",
+    "passed": 2
+  },
+  "ruff": {
+    "command": ".venv/bin/ruff check polygram tests examples/binding_benchmark",
+    "passed": true
+  },
+  "openspec": {
+    "command": "openspec validate binding-preservation-benchmark --strict",
+    "passed": true
+  },
+  "archived_spec": {
+    "command": "openspec validate binding-preservation --type spec --strict",
+    "passed": true
+  },
+  "archive": "openspec/changes/archive/2026-10-04-binding-preservation-benchmark"
+}

@@ -1,0 +1,10 @@
+{
+  "kind": "pca",
+  "seed": 2,
+  "decoder_rank": 32,
+  "latent_width": 32,
+  "fitted_parameters": 0,
+  "stored_scalars": 50689,
+  "history": [],
+  "artifact": "runs/binding/fits/pca-rank32-seed2.pt"
+}
