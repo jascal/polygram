@@ -109,8 +109,9 @@ projection at the final residual; no host-wrapped fallback is allowed.
 
 ## Current evidence
 
-The first 0.5B host screen failed two task gates. Dataset v2 uses single-token
-answer symbols; Qwen2.5-1.5B-Instruct passed all three development gates at 100%
+The first 0.5B host screen failed subject/object (0.375 candidate, 0.000
+both-members) and modifier attachment (0.875, 0.750) gates; variable/value passed.
+Dataset v2 uses single-token answer symbols; Qwen2.5-1.5B-Instruct passed all three development gates at 100%
 candidate and both-members accuracy (12 pairs per task). These small development
 screens are host-selection evidence only. The completed three-seed findings are in
 `docs/research/binding-preservation-results.md`, with the five-requirement completion

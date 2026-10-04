@@ -9,7 +9,29 @@ It does not identify the upstream algorithm that creates bindings.
 
 - Co-firing compression retains 85.5% combination accuracy, versus 100.0% for SAE reconstruction and 100.0% for rank-64 PCA.
 - Supervised TPR combination accuracy ranges from 74.7% to 100.0% across seeds. It does not establish a robust advantage over the linear controls.
-- Across both final partitions, same-basis projection retains 94.4% accuracy, while independent native execution retains 33.7%. The execution loss is much larger than the final-readout projection loss.
+- Across both final partitions, same-basis projection retains 94.4% accuracy. Independent native execution averages 33.7%, essentially the 33.3% three-choice chance baseline; its pair accuracy is 0.000 and its KL is 11–14 nats. We therefore describe the native forge as chance-level with destroyed output distributions, not as retaining the decision. The gap from projection is the finding.
+
+### Role-swap specificity (task-macro means)
+
+Target accuracy is scored against the counterfactual host; unrelated accuracy is scored against
+the original host. The latter remains 1.000, while target performance shows whether the edit
+changes the queried binding.
+| Method | Combination target | Combination unrelated | Template target | Template unrelated |
+|---|---:|---:|---:|---:|
+| sae | 1.000 | 1.000 | 0.970 | 1.000 |
+| compressed | 0.770 | 1.000 | 0.806 | 1.000 |
+| tpr | 0.917 | 1.000 | 0.998 | 1.000 |
+| pca64 | 1.000 | 1.000 | 0.986 | 1.000 |
+| learned32 | 0.997 | 1.000 | 0.986 | 1.000 |
+
+## Host selection and protocol amendment
+
+The initial Qwen2.5-0.5B-Instruct screen was retained as a failed host-selection run.
+The 0.5B screen failed the preregistered per-task competence gates on subject/object (0.375 candidate accuracy, 0.000 both-members accuracy) and modifier attachment (0.875, 0.750); variable/value passed (1.000, 1.000).
+It was dropped before final capture and fitting; the frozen Qwen2.5-1.5B-Instruct host
+passed all three development gates. This decision and the independent SAE decoder-norm
+amendment are recorded in `runs/binding/protocol-amendments.json`; neither changes
+final-test tuning.
 
 ## Host competence on final partitions
 
@@ -159,6 +181,8 @@ before projection. No fine-tuning or host-wrapped fallback is used.
   different representations and nonlinear operations do not commute with projection.
 - Fitted subspaces and negative outcomes are not global optima or irreducibility proofs.
 - Holdouts apply to benchmark fitting, not to the host's pretraining history.
+- The native 33.7% aggregate is interpreted against the 33.3% three-choice chance
+  baseline; it is not described as retained decision accuracy.
 
 ## Relation to the paper and sibling projects
 
@@ -179,6 +203,7 @@ The already retracted writer-output preservation claim in
 
 ## Reproduction
 
-See `examples/binding_benchmark/README.md`, `runs/binding/protocol.json`, the recorded
+See `examples/binding_benchmark/README.md`, `runs/binding/protocol.json`,
+`runs/binding/protocol-amendments.json`, the recorded
 protocol amendment, frozen fit hashes, per-example JSONL files and three forge build reports.
 Large binary checkpoints are saved locally and gitignored.

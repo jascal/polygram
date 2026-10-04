@@ -26,6 +26,8 @@ def render(root):
     forges = [json.loads((root / f"forge-target32-seed{s}/report.json").read_text()) for s in range(3)]
     capture = json.loads((root / "capture-test/capture.json").read_text())
     sparsity = json.loads((root / "sae-training-diagnostics.json").read_text())
+    amendments = json.loads((root / "protocol-amendments.json").read_text())
+    host_amendment = next(item for item in amendments if item["stage"].startswith("host selection"))
     protocol = capture["protocol"]
     methods = ["identity", "sae", "compressed", "tpr", "pca32", "pca64", "pca_matched",
                "learned32", "learned64", "learned_matched", "pca128", "learned128"]
@@ -54,6 +56,11 @@ def render(root):
     def accuracy(method, split):
         return [avg(s, method, "replacement", split, "target", "accuracy") for s in range(3)]
 
+    def role_accuracy(method, split, query):
+        return float(np.mean([
+            avg(s, method, "role_swap", split, query, "accuracy") for s in range(3)
+        ]))
+
     compressed = accuracy("compressed", "test_combinations")
     tpr = accuracy("tpr", "test_combinations")
     native_accuracy = [cell["accuracy"] for report in forges
@@ -76,13 +83,37 @@ def render(root):
         f"- Supervised TPR combination accuracy ranges from {min(tpr):.1%} to {max(tpr):.1%} "
         "across seeds. It does not establish a robust advantage over the linear controls.",
         f"- Across both final partitions, same-basis projection retains {np.mean(projection_accuracy):.1%} "
-        f"accuracy, while independent native execution retains {np.mean(native_accuracy):.1%}. "
-        "The execution loss is much larger than the final-readout projection loss.", "",
+        f"accuracy. Independent native execution averages {np.mean(native_accuracy):.1%}, essentially "
+        "the 33.3% three-choice chance baseline; its pair accuracy is 0.000 and its KL is 11–14 nats. "
+        "We therefore describe the native forge as chance-level with destroyed output distributions, "
+        "not as retaining the decision. The gap from projection is the finding.", "",
+        "### Role-swap specificity (task-macro means)", "",
+        "Target accuracy is scored against the counterfactual host; unrelated accuracy is scored against",
+        "the original host. The latter remains 1.000, while target performance shows whether the edit",
+        "changes the queried binding.",
+        "| Method | Combination target | Combination unrelated | Template target | Template unrelated |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for method in ("sae", "compressed", "tpr", "pca64", "learned32"):
+        lines.append(
+            f"| {method} | {role_accuracy(method, 'test_combinations', 'target'):.3f} "
+            f"| {role_accuracy(method, 'test_combinations', 'unrelated'):.3f} "
+            f"| {role_accuracy(method, 'test_templates', 'target'):.3f} "
+            f"| {role_accuracy(method, 'test_templates', 'unrelated'):.3f} |"
+        )
+    lines.extend([
+        "", "## Host selection and protocol amendment", "",
+        "The initial Qwen2.5-0.5B-Instruct screen was retained as a failed host-selection run.",
+        host_amendment["reason"],
+        "It was dropped before final capture and fitting; the frozen Qwen2.5-1.5B-Instruct host",
+        "passed all three development gates. This decision and the independent SAE decoder-norm",
+        "amendment are recorded in `runs/binding/protocol-amendments.json`; neither changes",
+        "final-test tuning.", "",
         "## Host competence on final partitions", "",
         "Accuracy uses three candidate answers. Intervals resample the 48 minimal pairs in each cell.",
         "| Task / partition | Accuracy | Pair-bootstrap 95% interval | Both members |",
         "|---|---:|---:|---:|",
-    ]
+    ])
     for key, cell in summaries[0]["identity"]["modes"]["replacement"].items():
         if key.endswith("/target"):
             lo, hi = cell["accuracy_ci95_pair_bootstrap"]
@@ -170,6 +201,8 @@ def render(root):
                   "  different representations and nonlinear operations do not commute with projection.",
                   "- Fitted subspaces and negative outcomes are not global optima or irreducibility proofs.",
                   "- Holdouts apply to benchmark fitting, not to the host's pretraining history.",
+                  "- The native 33.7% aggregate is interpreted against the 33.3% three-choice chance",
+                  "  baseline; it is not described as retained decision accuracy.",
                   "", "## Relation to the paper and sibling projects", "",
                   "[DISCOVER](https://arxiv.org/pdf/2608.29530) motivates replacement and structured",
                   "intervention as stronger evidence than representational similarity. Here the role",
@@ -185,7 +218,8 @@ def render(root):
                   "The already retracted writer-output preservation claim in",
                   "[sae-forge's research note](../../../sae-forge/docs/two_basis_forge.md) is not used as evidence.",
                   "", "## Reproduction", "",
-                  "See `examples/binding_benchmark/README.md`, `runs/binding/protocol.json`, the recorded",
+                  "See `examples/binding_benchmark/README.md`, `runs/binding/protocol.json`,",
+                  "`runs/binding/protocol-amendments.json`, the recorded",
                   "protocol amendment, frozen fit hashes, per-example JSONL files and three forge build reports.",
                   "Large binary checkpoints are saved locally and gitignored.", ""])
     return "\n".join(lines)

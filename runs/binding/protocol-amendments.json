@@ -1,5 +1,13 @@
 [
   {
+    "stage": "host selection before final protocol freeze",
+    "change": "Drop Qwen/Qwen2.5-0.5B-Instruct and select Qwen/Qwen2.5-1.5B-Instruct for the frozen run.",
+    "reason": "The 0.5B screen failed the preregistered per-task competence gates on subject/object (0.375 candidate accuracy, 0.000 both-members accuracy) and modifier attachment (0.875, 0.750); variable/value passed (1.000, 1.000).",
+    "unchanged": "Dataset construction, split audit, competence thresholds, intervention location, fitting candidates and final-test policy.",
+    "superseded_artifacts": "runs/binding/dev-qwen05",
+    "use_for_final_results": false
+  },
+  {
     "stage": "before final capture or evaluation",
     "change": "Constrain every SAE decoder direction to unit L2 norm after initialization and every optimizer update.",
     "reason": "A ReLU SAE with unconstrained decoder scale can reduce L1 cost by rescaling weights without learning a sparser representation.",
