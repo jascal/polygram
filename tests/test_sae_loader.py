@@ -163,6 +163,20 @@ class TestCorrectOrientation:
         result = _correct_orientation(arr, "decoder.weight")
         assert result.shape == (16, 4)
 
+    def test_decoder_weight_transpose_round_trips_through_safetensors(
+        self, tmp_path
+    ):
+        from safetensors.numpy import load_file, save_file
+
+        arr = np.arange(4 * 16, dtype=np.float32).reshape(4, 16)
+        result = _correct_orientation(arr, "decoder.weight")
+        assert result.flags.c_contiguous
+
+        path = tmp_path / "transposed.safetensors"
+        save_file({"decoder": result}, str(path))
+        written = load_file(str(path))["decoder"]
+        np.testing.assert_array_equal(written, arr.T)
+
     def test_decoder_weight_square_not_transposed(self):
         arr = np.zeros((8, 8))
         result = _correct_orientation(arr, "decoder.weight")
