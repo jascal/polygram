@@ -9,7 +9,7 @@ It does not identify the upstream algorithm that creates bindings.
 
 - Co-firing compression retains 85.5% combination accuracy, versus 100.0% for SAE reconstruction and 100.0% for rank-64 PCA.
 - Supervised TPR combination accuracy ranges from 74.7% to 100.0% across seeds. It does not establish a robust advantage over the linear controls.
-- Across both final partitions, same-basis projection retains 94.4% accuracy. Independent native execution averages 33.7%, essentially the 33.3% three-choice chance baseline; its pair accuracy is 0.000 and its KL is 11–14 nats. We therefore describe the native forge as chance-level with destroyed output distributions, not as retaining the decision. The gap from projection is the finding.
+- Across both final partitions, same-basis projection retains 94.4% accuracy. Independent native execution averages 33.7%, essentially the 33.3% three-choice chance baseline; its pair accuracy is 0.000 and its KL is 11–14 nats. At this aggregate level it is indistinguishable from chance, with destroyed output distributions, not as retaining the decision. The gap from projection is the finding.
 
 ### Role-swap specificity (task-macro means)
 

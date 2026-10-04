@@ -22,8 +22,9 @@ for SAE reconstruction and rank-64 PCA. Supervised TPR combination accuracy rang
 from 74.7% to 100% across seeds. Across both final partitions, same-basis projection
 averages 94.4% accuracy. Independent native execution averages 33.7%, essentially
 the 33.3% three-choice chance baseline; pair accuracy is 0.000 and KL is 11–14 nats.
-The native forge is therefore reported as chance-level with destroyed output
-distributions, while the projection still discriminates.
+The native forge is therefore reported as indistinguishable from chance at the
+aggregate three-choice level, with destroyed output distributions, while the
+projection still discriminates.
 
 Role swaps are included in the report's main findings: unrelated-query accuracy is
 1.000 for the listed methods, while target accuracy varies with the representation.

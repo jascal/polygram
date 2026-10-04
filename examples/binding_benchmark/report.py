@@ -85,7 +85,7 @@ def render(root):
         f"- Across both final partitions, same-basis projection retains {np.mean(projection_accuracy):.1%} "
         f"accuracy. Independent native execution averages {np.mean(native_accuracy):.1%}, essentially "
         "the 33.3% three-choice chance baseline; its pair accuracy is 0.000 and its KL is 11–14 nats. "
-        "We therefore describe the native forge as chance-level with destroyed output distributions, "
+        "At this aggregate level it is indistinguishable from chance, with destroyed output distributions, "
         "not as retaining the decision. The gap from projection is the finding.", "",
         "### Role-swap specificity (task-macro means)", "",
         "Target accuracy is scored against the counterfactual host; unrelated accuracy is scored against",

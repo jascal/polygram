@@ -7,7 +7,7 @@
     "examples/binding_benchmark/evaluate.py": "0480479e4186b1be8d62c192dc6ca74a48942771ed168945e1bceb8059234db4",
     "examples/binding_benchmark/forge.py": "eab4f8c9f583997767078cb09c8fd8854e517e5a287223027709f906065dd98a",
     "examples/binding_benchmark/host.py": "625414bfdd494b5ad90a8b99b4feae030fbb95c05b35576eb7982f8f973d310d",
-    "examples/binding_benchmark/report.py": "d314c0f6047b208a2faaf81e61e005dd330eb25a2f7135670f54197f366b8324",
+    "examples/binding_benchmark/report.py": "90da4da1be40f4bf7d2fe7cedc87da4e33655aa13e68e56630ab8f380f3754b2",
     "examples/binding_benchmark/representations.py": "82417fa34f03ed909c3e5c4655e9e2e8511734ac5bd27037aec764565e8f95e4"
   },
   "changed_since_fit_freeze": [
