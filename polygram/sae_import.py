@@ -134,9 +134,12 @@ def _correct_orientation(arr: np.ndarray, src_key: str) -> np.ndarray:
     if arr.ndim != 2 or arr.shape[0] == arr.shape[1]:
         return arr
     if src_key == "decoder.weight":
-        return arr.T
+        # ``arr.T`` is a Fortran-strided view.  Keep the canonical
+        # feature-by-residual layout, but materialize it in C order so
+        # downstream safetensors writers serialize rows correctly.
+        return np.ascontiguousarray(arr.T)
     if src_key == "encoder.weight" and arr.shape[0] > arr.shape[1]:
-        return arr.T
+        return np.ascontiguousarray(arr.T)
     return arr
 
 
