@@ -1,0 +1,36 @@
+{
+  "passed": true,
+  "frozen_fit_artifacts_verified": 87,
+  "heldout_records": 1152,
+  "seeds": [
+    {
+      "seed": 0,
+      "evaluated_methods_including_identity_and_duplicate": 13,
+      "actual_compressed_rank": 73,
+      "native_parameters": 84512577
+    },
+    {
+      "seed": 1,
+      "evaluated_methods_including_identity_and_duplicate": 13,
+      "actual_compressed_rank": 90,
+      "native_parameters": 104180234
+    },
+    {
+      "seed": 2,
+      "evaluated_methods_including_identity_and_duplicate": 13,
+      "actual_compressed_rank": 100,
+      "native_parameters": 115749444
+    }
+  ],
+  "checks": [
+    "fit hashes unchanged",
+    "all planned methods present",
+    "finite captures and KL",
+    "complete 48-pair cells",
+    "identity and all no-op controls agree",
+    "matching actual-rank controls",
+    "duplicate compressed targets agree",
+    "per-example ordering matches capture",
+    "native execution and same-basis projection reports complete"
+  ]
+}

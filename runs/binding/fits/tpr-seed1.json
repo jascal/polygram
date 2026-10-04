@@ -1,0 +1,111 @@
+{
+  "kind": "tpr",
+  "seed": 1,
+  "decoder_rank": 64,
+  "latent_width": 64,
+  "fitted_parameters": 100488,
+  "stored_scalars": 102025,
+  "history": [
+    {
+      "step": 0,
+      "validation_objective": 1.0336273908615112
+    },
+    {
+      "step": 50,
+      "validation_objective": 0.9395824074745178
+    },
+    {
+      "step": 100,
+      "validation_objective": 0.6315144896507263
+    },
+    {
+      "step": 150,
+      "validation_objective": 0.5264338254928589
+    },
+    {
+      "step": 200,
+      "validation_objective": 0.45567604899406433
+    },
+    {
+      "step": 250,
+      "validation_objective": 0.4035852551460266
+    },
+    {
+      "step": 300,
+      "validation_objective": 0.35888639092445374
+    },
+    {
+      "step": 350,
+      "validation_objective": 0.3302684426307678
+    },
+    {
+      "step": 400,
+      "validation_objective": 0.3041948974132538
+    },
+    {
+      "step": 450,
+      "validation_objective": 0.28681886196136475
+    },
+    {
+      "step": 500,
+      "validation_objective": 0.2725175619125366
+    },
+    {
+      "step": 550,
+      "validation_objective": 0.2591906189918518
+    },
+    {
+      "step": 600,
+      "validation_objective": 0.2496451437473297
+    },
+    {
+      "step": 650,
+      "validation_objective": 0.24235717952251434
+    },
+    {
+      "step": 700,
+      "validation_objective": 0.235952690243721
+    },
+    {
+      "step": 750,
+      "validation_objective": 0.23311881721019745
+    },
+    {
+      "step": 800,
+      "validation_objective": 0.22962701320648193
+    },
+    {
+      "step": 850,
+      "validation_objective": 0.2257966697216034
+    },
+    {
+      "step": 900,
+      "validation_objective": 0.22231099009513855
+    },
+    {
+      "step": 950,
+      "validation_objective": 0.2201024442911148
+    },
+    {
+      "step": 1000,
+      "validation_objective": 0.21608734130859375
+    },
+    {
+      "step": 1050,
+      "validation_objective": 0.21489019691944122
+    },
+    {
+      "step": 1100,
+      "validation_objective": 0.2117483764886856
+    },
+    {
+      "step": 1150,
+      "validation_objective": 0.20857511460781097
+    },
+    {
+      "step": 1200,
+      "validation_objective": 0.20616397261619568
+    }
+  ],
+  "artifact": "runs/binding/fits/tpr-seed1.pt"
+}

@@ -1,0 +1,14 @@
+{
+  "kind": "polygram_compressed",
+  "seed": 1,
+  "target_width": 64,
+  "latent_width": 90,
+  "decoder_rank": 90,
+  "artifact": "runs/binding/fits/compressed-target64-seed1.safetensors",
+  "fitted_parameters": 393344,
+  "stored_scalars": 394880,
+  "active_scalars": 278106,
+  "ranking": "training co-firing Jaccard; Polygram target-K merge",
+  "representative_selection": "n_fires (no ablation-KL available)",
+  "causal_confirmation": false
+}

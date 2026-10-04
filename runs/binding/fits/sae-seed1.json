@@ -1,0 +1,112 @@
+{
+  "kind": "sae",
+  "seed": 1,
+  "decoder_rank": 128,
+  "latent_width": 128,
+  "fitted_parameters": 393344,
+  "stored_scalars": 394881,
+  "history": [
+    {
+      "step": 0,
+      "validation_objective": 0.9962857365608215
+    },
+    {
+      "step": 50,
+      "validation_objective": 0.13137774169445038
+    },
+    {
+      "step": 100,
+      "validation_objective": 0.08208614587783813
+    },
+    {
+      "step": 150,
+      "validation_objective": 0.07492248713970184
+    },
+    {
+      "step": 200,
+      "validation_objective": 0.06981553882360458
+    },
+    {
+      "step": 250,
+      "validation_objective": 0.06698606163263321
+    },
+    {
+      "step": 300,
+      "validation_objective": 0.06446749716997147
+    },
+    {
+      "step": 350,
+      "validation_objective": 0.06183662265539169
+    },
+    {
+      "step": 400,
+      "validation_objective": 0.059502556920051575
+    },
+    {
+      "step": 450,
+      "validation_objective": 0.05881590396165848
+    },
+    {
+      "step": 500,
+      "validation_objective": 0.05736831575632095
+    },
+    {
+      "step": 550,
+      "validation_objective": 0.057140715420246124
+    },
+    {
+      "step": 600,
+      "validation_objective": 0.05558626353740692
+    },
+    {
+      "step": 650,
+      "validation_objective": 0.05484483763575554
+    },
+    {
+      "step": 700,
+      "validation_objective": 0.05448989197611809
+    },
+    {
+      "step": 750,
+      "validation_objective": 0.05357298627495766
+    },
+    {
+      "step": 800,
+      "validation_objective": 0.053879596292972565
+    },
+    {
+      "step": 850,
+      "validation_objective": 0.054704759269952774
+    },
+    {
+      "step": 900,
+      "validation_objective": 0.05399901047348976
+    },
+    {
+      "step": 950,
+      "validation_objective": 0.052802395075559616
+    },
+    {
+      "step": 1000,
+      "validation_objective": 0.052016712725162506
+    },
+    {
+      "step": 1050,
+      "validation_objective": 0.05209318548440933
+    },
+    {
+      "step": 1100,
+      "validation_objective": 0.05197501555085182
+    },
+    {
+      "step": 1150,
+      "validation_objective": 0.051207952201366425
+    },
+    {
+      "step": 1200,
+      "validation_objective": 0.051270417869091034
+    }
+  ],
+  "artifact": "runs/binding/fits/sae-seed1.pt",
+  "decoder_constraint": "unit L2 norm per decoder direction after every update"
+}

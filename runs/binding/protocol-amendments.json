@@ -1,0 +1,10 @@
+[
+  {
+    "stage": "before final capture or evaluation",
+    "change": "Constrain every SAE decoder direction to unit L2 norm after initialization and every optimizer update.",
+    "reason": "A ReLU SAE with unconstrained decoder scale can reduce L1 cost by rescaling weights without learning a sparser representation.",
+    "unchanged": "Dataset, host, ranks, seeds, step budgets, validation selection and final-test protocol.",
+    "superseded_artifacts": "runs/binding/fits-unconstrained-pilot",
+    "use_for_final_results": false
+  }
+]

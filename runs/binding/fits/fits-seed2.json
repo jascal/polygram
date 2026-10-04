@@ -1,0 +1,784 @@
+{
+  "protocol": {
+    "schema_version": 1,
+    "model": "Qwen/Qwen2.5-1.5B-Instruct",
+    "model_revision": "989aa7980e4cf806f80c7fef2b1adb7bc71aa306",
+    "dtype": "bfloat16",
+    "threads": 4,
+    "dataset_path": "runs/binding/dev-v2-qwen15/dataset.jsonl",
+    "dataset_sha256": "4a02b40c4873372fc047ddf7fe4ab6c4a0342031ed9a92726ca7c77383fe3496",
+    "host_gate_report": "runs/binding/dev-v2-qwen15/report.json",
+    "location": "final residual before RMSNorm; last prompt token",
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "sae_width": 128,
+    "sae_l1": 0.01,
+    "steps": 1200,
+    "batch_size": 128,
+    "learning_rate": 0.002,
+    "check_every": 50,
+    "compression_target_widths": [
+      64,
+      32
+    ],
+    "control_ranks": [
+      32,
+      64,
+      128
+    ],
+    "tpr_filler_dim": 16,
+    "tpr_role_dim": 4,
+    "fit_objective": "training activation MSE; SAE adds L1; learned projection uses task-aware candidate-logit distillation plus activation MSE",
+    "selection": "minimum validation objective across fixed training checkpoints",
+    "final_test_policy": "no hyperparameter changes after final evaluation; retain host failures",
+    "edit_policy": "TPR semantic binding delta without donor activations; other methods explicitly donor-assisted reconstruction deltas",
+    "forge_policy": "native_in_basis; host attention width; scale_boost=1; compressed SAE basis; no finetuning; same-basis projection control",
+    "limitations": [
+      "Task-specific supervised TPR",
+      "Final-residual readout experiment does not identify upstream binding computation",
+      "Native forge with one basis across layers may fail; report without fallback"
+    ]
+  },
+  "train_records": 2304,
+  "validation_records": 576,
+  "representations": [
+    {
+      "kind": "sae",
+      "seed": 2,
+      "decoder_rank": 128,
+      "latent_width": 128,
+      "fitted_parameters": 393344,
+      "stored_scalars": 394881,
+      "history": [
+        {
+          "step": 0,
+          "validation_objective": 0.9922715425491333
+        },
+        {
+          "step": 50,
+          "validation_objective": 0.13227741420269012
+        },
+        {
+          "step": 100,
+          "validation_objective": 0.08350132405757904
+        },
+        {
+          "step": 150,
+          "validation_objective": 0.07464075088500977
+        },
+        {
+          "step": 200,
+          "validation_objective": 0.06980729103088379
+        },
+        {
+          "step": 250,
+          "validation_objective": 0.06594466418027878
+        },
+        {
+          "step": 300,
+          "validation_objective": 0.06291002780199051
+        },
+        {
+          "step": 350,
+          "validation_objective": 0.06098468601703644
+        },
+        {
+          "step": 400,
+          "validation_objective": 0.05924971401691437
+        },
+        {
+          "step": 450,
+          "validation_objective": 0.05775225907564163
+        },
+        {
+          "step": 500,
+          "validation_objective": 0.057219792157411575
+        },
+        {
+          "step": 550,
+          "validation_objective": 0.056098900735378265
+        },
+        {
+          "step": 600,
+          "validation_objective": 0.055638596415519714
+        },
+        {
+          "step": 650,
+          "validation_objective": 0.05502281337976456
+        },
+        {
+          "step": 700,
+          "validation_objective": 0.054412055760622025
+        },
+        {
+          "step": 750,
+          "validation_objective": 0.054355688393116
+        },
+        {
+          "step": 800,
+          "validation_objective": 0.05359802395105362
+        },
+        {
+          "step": 850,
+          "validation_objective": 0.05346221849322319
+        },
+        {
+          "step": 900,
+          "validation_objective": 0.05378030240535736
+        },
+        {
+          "step": 950,
+          "validation_objective": 0.05268441140651703
+        },
+        {
+          "step": 1000,
+          "validation_objective": 0.052191220223903656
+        },
+        {
+          "step": 1050,
+          "validation_objective": 0.05334041267633438
+        },
+        {
+          "step": 1100,
+          "validation_objective": 0.051656801253557205
+        },
+        {
+          "step": 1150,
+          "validation_objective": 0.051906242966651917
+        },
+        {
+          "step": 1200,
+          "validation_objective": 0.05208585411310196
+        }
+      ],
+      "artifact": "runs/binding/fits/sae-seed2.pt",
+      "decoder_constraint": "unit L2 norm per decoder direction after every update"
+    },
+    {
+      "kind": "polygram_compressed",
+      "seed": 2,
+      "target_width": 64,
+      "latent_width": 100,
+      "decoder_rank": 100,
+      "artifact": "runs/binding/fits/compressed-target64-seed2.safetensors",
+      "fitted_parameters": 393344,
+      "stored_scalars": 394880,
+      "active_scalars": 308836,
+      "ranking": "training co-firing Jaccard; Polygram target-K merge",
+      "representative_selection": "n_fires (no ablation-KL available)",
+      "causal_confirmation": false
+    },
+    {
+      "kind": "polygram_compressed",
+      "seed": 2,
+      "target_width": 32,
+      "latent_width": 100,
+      "decoder_rank": 100,
+      "artifact": "runs/binding/fits/compressed-target32-seed2.safetensors",
+      "fitted_parameters": 393344,
+      "stored_scalars": 394880,
+      "active_scalars": 308836,
+      "ranking": "training co-firing Jaccard; Polygram target-K merge",
+      "representative_selection": "n_fires (no ablation-KL available)",
+      "causal_confirmation": false
+    },
+    {
+      "kind": "tpr",
+      "seed": 2,
+      "decoder_rank": 64,
+      "latent_width": 64,
+      "fitted_parameters": 100488,
+      "stored_scalars": 102025,
+      "history": [
+        {
+          "step": 0,
+          "validation_objective": 1.0340893268585205
+        },
+        {
+          "step": 50,
+          "validation_objective": 0.852756917476654
+        },
+        {
+          "step": 100,
+          "validation_objective": 0.512508749961853
+        },
+        {
+          "step": 150,
+          "validation_objective": 0.4339284896850586
+        },
+        {
+          "step": 200,
+          "validation_objective": 0.37628841400146484
+        },
+        {
+          "step": 250,
+          "validation_objective": 0.3186744153499603
+        },
+        {
+          "step": 300,
+          "validation_objective": 0.275964617729187
+        },
+        {
+          "step": 350,
+          "validation_objective": 0.24862146377563477
+        },
+        {
+          "step": 400,
+          "validation_objective": 0.2316066473722458
+        },
+        {
+          "step": 450,
+          "validation_objective": 0.22175292670726776
+        },
+        {
+          "step": 500,
+          "validation_objective": 0.21553227305412292
+        },
+        {
+          "step": 550,
+          "validation_objective": 0.21403466165065765
+        },
+        {
+          "step": 600,
+          "validation_objective": 0.21262769401073456
+        },
+        {
+          "step": 650,
+          "validation_objective": 0.2122616469860077
+        },
+        {
+          "step": 700,
+          "validation_objective": 0.21605254709720612
+        },
+        {
+          "step": 750,
+          "validation_objective": 0.22111453115940094
+        },
+        {
+          "step": 800,
+          "validation_objective": 0.22697307169437408
+        },
+        {
+          "step": 850,
+          "validation_objective": 0.2321053147315979
+        },
+        {
+          "step": 900,
+          "validation_objective": 0.23809058964252472
+        },
+        {
+          "step": 950,
+          "validation_objective": 0.2434842735528946
+        },
+        {
+          "step": 1000,
+          "validation_objective": 0.24735277891159058
+        },
+        {
+          "step": 1050,
+          "validation_objective": 0.25308558344841003
+        },
+        {
+          "step": 1100,
+          "validation_objective": 0.25595638155937195
+        },
+        {
+          "step": 1150,
+          "validation_objective": 0.26031652092933655
+        },
+        {
+          "step": 1200,
+          "validation_objective": 0.26287806034088135
+        }
+      ],
+      "artifact": "runs/binding/fits/tpr-seed2.pt"
+    },
+    {
+      "kind": "pca",
+      "seed": 2,
+      "decoder_rank": 32,
+      "latent_width": 32,
+      "fitted_parameters": 0,
+      "stored_scalars": 50689,
+      "history": [],
+      "artifact": "runs/binding/fits/pca-rank32-seed2.pt"
+    },
+    {
+      "kind": "learned",
+      "seed": 2,
+      "decoder_rank": 32,
+      "latent_width": 32,
+      "fitted_parameters": 49152,
+      "stored_scalars": 50689,
+      "history": [
+        {
+          "step": 0,
+          "validation_objective": 0.21801474690437317
+        },
+        {
+          "step": 50,
+          "validation_objective": 0.14176198840141296
+        },
+        {
+          "step": 100,
+          "validation_objective": 0.13234466314315796
+        },
+        {
+          "step": 150,
+          "validation_objective": 0.1353549063205719
+        },
+        {
+          "step": 200,
+          "validation_objective": 0.12932273745536804
+        },
+        {
+          "step": 250,
+          "validation_objective": 0.13133075833320618
+        },
+        {
+          "step": 300,
+          "validation_objective": 0.13350047171115875
+        },
+        {
+          "step": 350,
+          "validation_objective": 0.13257180154323578
+        },
+        {
+          "step": 400,
+          "validation_objective": 0.1301797479391098
+        },
+        {
+          "step": 450,
+          "validation_objective": 0.12914074957370758
+        },
+        {
+          "step": 500,
+          "validation_objective": 0.13233070075511932
+        },
+        {
+          "step": 550,
+          "validation_objective": 0.12693451344966888
+        },
+        {
+          "step": 600,
+          "validation_objective": 0.1302414834499359
+        },
+        {
+          "step": 650,
+          "validation_objective": 0.13044731318950653
+        },
+        {
+          "step": 700,
+          "validation_objective": 0.12838463485240936
+        },
+        {
+          "step": 750,
+          "validation_objective": 0.12318895757198334
+        },
+        {
+          "step": 800,
+          "validation_objective": 0.1288633644580841
+        },
+        {
+          "step": 850,
+          "validation_objective": 0.1325083076953888
+        },
+        {
+          "step": 900,
+          "validation_objective": 0.1260615438222885
+        },
+        {
+          "step": 950,
+          "validation_objective": 0.12157516926527023
+        },
+        {
+          "step": 1000,
+          "validation_objective": 0.12622027099132538
+        },
+        {
+          "step": 1050,
+          "validation_objective": 0.12853075563907623
+        },
+        {
+          "step": 1100,
+          "validation_objective": 0.12621740996837616
+        },
+        {
+          "step": 1150,
+          "validation_objective": 0.12615971267223358
+        },
+        {
+          "step": 1200,
+          "validation_objective": 0.12733404338359833
+        }
+      ],
+      "artifact": "runs/binding/fits/learned-rank32-seed2.pt"
+    },
+    {
+      "kind": "pca",
+      "seed": 2,
+      "decoder_rank": 64,
+      "latent_width": 64,
+      "fitted_parameters": 0,
+      "stored_scalars": 99841,
+      "history": [],
+      "artifact": "runs/binding/fits/pca-rank64-seed2.pt"
+    },
+    {
+      "kind": "learned",
+      "seed": 2,
+      "decoder_rank": 64,
+      "latent_width": 64,
+      "fitted_parameters": 98304,
+      "stored_scalars": 99841,
+      "history": [
+        {
+          "step": 0,
+          "validation_objective": 0.046686358749866486
+        },
+        {
+          "step": 50,
+          "validation_objective": 0.055613141506910324
+        },
+        {
+          "step": 100,
+          "validation_objective": 0.05463595315814018
+        },
+        {
+          "step": 150,
+          "validation_objective": 0.05090620368719101
+        },
+        {
+          "step": 200,
+          "validation_objective": 0.05213906243443489
+        },
+        {
+          "step": 250,
+          "validation_objective": 0.05107199773192406
+        },
+        {
+          "step": 300,
+          "validation_objective": 0.050524577498435974
+        },
+        {
+          "step": 350,
+          "validation_objective": 0.05265341326594353
+        },
+        {
+          "step": 400,
+          "validation_objective": 0.050537507981061935
+        },
+        {
+          "step": 450,
+          "validation_objective": 0.049934398382902145
+        },
+        {
+          "step": 500,
+          "validation_objective": 0.04905914515256882
+        },
+        {
+          "step": 550,
+          "validation_objective": 0.04938586428761482
+        },
+        {
+          "step": 600,
+          "validation_objective": 0.049315351992845535
+        },
+        {
+          "step": 650,
+          "validation_objective": 0.04995730519294739
+        },
+        {
+          "step": 700,
+          "validation_objective": 0.049492377787828445
+        },
+        {
+          "step": 750,
+          "validation_objective": 0.050664596259593964
+        },
+        {
+          "step": 800,
+          "validation_objective": 0.04957929253578186
+        },
+        {
+          "step": 850,
+          "validation_objective": 0.04972724989056587
+        },
+        {
+          "step": 900,
+          "validation_objective": 0.049024153500795364
+        },
+        {
+          "step": 950,
+          "validation_objective": 0.049015145748853683
+        },
+        {
+          "step": 1000,
+          "validation_objective": 0.05009610950946808
+        },
+        {
+          "step": 1050,
+          "validation_objective": 0.05029232054948807
+        },
+        {
+          "step": 1100,
+          "validation_objective": 0.04881390184164047
+        },
+        {
+          "step": 1150,
+          "validation_objective": 0.048619676381349564
+        },
+        {
+          "step": 1200,
+          "validation_objective": 0.04868006706237793
+        }
+      ],
+      "artifact": "runs/binding/fits/learned-rank64-seed2.pt"
+    },
+    {
+      "kind": "pca",
+      "seed": 2,
+      "decoder_rank": 100,
+      "latent_width": 100,
+      "fitted_parameters": 0,
+      "stored_scalars": 155137,
+      "history": [],
+      "artifact": "runs/binding/fits/pca-rank100-seed2.pt"
+    },
+    {
+      "kind": "learned",
+      "seed": 2,
+      "decoder_rank": 100,
+      "latent_width": 100,
+      "fitted_parameters": 153600,
+      "stored_scalars": 155137,
+      "history": [
+        {
+          "step": 0,
+          "validation_objective": 0.03308720886707306
+        },
+        {
+          "step": 50,
+          "validation_objective": 0.04098473861813545
+        },
+        {
+          "step": 100,
+          "validation_objective": 0.037985850125551224
+        },
+        {
+          "step": 150,
+          "validation_objective": 0.03860890120267868
+        },
+        {
+          "step": 200,
+          "validation_objective": 0.036934755742549896
+        },
+        {
+          "step": 250,
+          "validation_objective": 0.0359841026365757
+        },
+        {
+          "step": 300,
+          "validation_objective": 0.035686660557985306
+        },
+        {
+          "step": 350,
+          "validation_objective": 0.038447391241788864
+        },
+        {
+          "step": 400,
+          "validation_objective": 0.036594733595848083
+        },
+        {
+          "step": 450,
+          "validation_objective": 0.03621242567896843
+        },
+        {
+          "step": 500,
+          "validation_objective": 0.036589913070201874
+        },
+        {
+          "step": 550,
+          "validation_objective": 0.035737939178943634
+        },
+        {
+          "step": 600,
+          "validation_objective": 0.035733383148908615
+        },
+        {
+          "step": 650,
+          "validation_objective": 0.03901493549346924
+        },
+        {
+          "step": 700,
+          "validation_objective": 0.03566663712263107
+        },
+        {
+          "step": 750,
+          "validation_objective": 0.035771697759628296
+        },
+        {
+          "step": 800,
+          "validation_objective": 0.03594772890210152
+        },
+        {
+          "step": 850,
+          "validation_objective": 0.03564108908176422
+        },
+        {
+          "step": 900,
+          "validation_objective": 0.03774839639663696
+        },
+        {
+          "step": 950,
+          "validation_objective": 0.036687180399894714
+        },
+        {
+          "step": 1000,
+          "validation_objective": 0.035921331495046616
+        },
+        {
+          "step": 1050,
+          "validation_objective": 0.035841204226017
+        },
+        {
+          "step": 1100,
+          "validation_objective": 0.035507380962371826
+        },
+        {
+          "step": 1150,
+          "validation_objective": 0.03564443066716194
+        },
+        {
+          "step": 1200,
+          "validation_objective": 0.0352826789021492
+        }
+      ],
+      "artifact": "runs/binding/fits/learned-rank100-seed2.pt"
+    },
+    {
+      "kind": "pca",
+      "seed": 2,
+      "decoder_rank": 128,
+      "latent_width": 128,
+      "fitted_parameters": 0,
+      "stored_scalars": 198145,
+      "history": [],
+      "artifact": "runs/binding/fits/pca-rank128-seed2.pt"
+    },
+    {
+      "kind": "learned",
+      "seed": 2,
+      "decoder_rank": 128,
+      "latent_width": 128,
+      "fitted_parameters": 196608,
+      "stored_scalars": 198145,
+      "history": [
+        {
+          "step": 0,
+          "validation_objective": 0.026921670883893967
+        },
+        {
+          "step": 50,
+          "validation_objective": 0.035199541598558426
+        },
+        {
+          "step": 100,
+          "validation_objective": 0.03183162212371826
+        },
+        {
+          "step": 150,
+          "validation_objective": 0.031270746141672134
+        },
+        {
+          "step": 200,
+          "validation_objective": 0.02961929887533188
+        },
+        {
+          "step": 250,
+          "validation_objective": 0.029739249497652054
+        },
+        {
+          "step": 300,
+          "validation_objective": 0.029499216005206108
+        },
+        {
+          "step": 350,
+          "validation_objective": 0.02930181287229061
+        },
+        {
+          "step": 400,
+          "validation_objective": 0.02882368676364422
+        },
+        {
+          "step": 450,
+          "validation_objective": 0.03083212673664093
+        },
+        {
+          "step": 500,
+          "validation_objective": 0.030593737959861755
+        },
+        {
+          "step": 550,
+          "validation_objective": 0.029142700135707855
+        },
+        {
+          "step": 600,
+          "validation_objective": 0.028801707550883293
+        },
+        {
+          "step": 650,
+          "validation_objective": 0.02955709584057331
+        },
+        {
+          "step": 700,
+          "validation_objective": 0.029031075537204742
+        },
+        {
+          "step": 750,
+          "validation_objective": 0.028856974095106125
+        },
+        {
+          "step": 800,
+          "validation_objective": 0.028701720759272575
+        },
+        {
+          "step": 850,
+          "validation_objective": 0.028865499421954155
+        },
+        {
+          "step": 900,
+          "validation_objective": 0.029130879789590836
+        },
+        {
+          "step": 950,
+          "validation_objective": 0.028803814202547073
+        },
+        {
+          "step": 1000,
+          "validation_objective": 0.028434384614229202
+        },
+        {
+          "step": 1050,
+          "validation_objective": 0.02844494953751564
+        },
+        {
+          "step": 1100,
+          "validation_objective": 0.028288891538977623
+        },
+        {
+          "step": 1150,
+          "validation_objective": 0.029510658234357834
+        },
+        {
+          "step": 1200,
+          "validation_objective": 0.029236672446131706
+        }
+      ],
+      "artifact": "runs/binding/fits/learned-rank128-seed2.pt"
+    }
+  ]
+}

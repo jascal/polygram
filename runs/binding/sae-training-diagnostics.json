@@ -1,0 +1,20 @@
+{
+  "0": {
+    "mean_active_latents": 52.11545181274414,
+    "dead_latents": 0,
+    "decoder_norm_min": 0.9999991059303284,
+    "decoder_norm_max": 1.0000008344650269
+  },
+  "1": {
+    "mean_active_latents": 54.75173568725586,
+    "dead_latents": 0,
+    "decoder_norm_min": 0.9999989867210388,
+    "decoder_norm_max": 1.0000008344650269
+  },
+  "2": {
+    "mean_active_latents": 53.74696350097656,
+    "dead_latents": 0,
+    "decoder_norm_min": 0.9999990463256836,
+    "decoder_norm_max": 1.000001072883606
+  }
+}

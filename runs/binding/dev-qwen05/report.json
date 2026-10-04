@@ -1,0 +1,62 @@
+{
+  "model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "revision": "7ae557604adf67be50417f59c2c2f167def9a775",
+  "dataset": {
+    "examples": 2088,
+    "pairs": 1044,
+    "heldout": {
+      "subject_object": {
+        "validation": 4,
+        "test": 4
+      },
+      "variable_value": {
+        "validation": 4,
+        "test": 4
+      },
+      "modifier_attachment": {
+        "validation": 4,
+        "test": 4
+      }
+    },
+    "sha256": "14485862179cd8480d2cbc457616867eea79c615ba3537e9bb395d65a2e458fb"
+  },
+  "split": "dev",
+  "unrelated": false,
+  "device": "cpu",
+  "dtype": "float32",
+  "threads": 4,
+  "torch": "2.11.0+cu128",
+  "transformers": "5.10.1",
+  "python": "3.12.3",
+  "polygram_rev": "6de4b2e216d82f6355df79436a582c230d234d09",
+  "elapsed_seconds": 110.53248453140259,
+  "summary": {
+    "subject_object/dev": {
+      "n": 24,
+      "pairs": 12,
+      "accuracy": 0.375,
+      "pair_accuracy": 0.0,
+      "unrestricted_first_token_accuracy": 0.375,
+      "mean_margin_nats": -0.3234102701147397,
+      "competence_pass": false
+    },
+    "variable_value/dev": {
+      "n": 24,
+      "pairs": 12,
+      "accuracy": 1.0,
+      "pair_accuracy": 1.0,
+      "unrestricted_first_token_accuracy": 1.0,
+      "mean_margin_nats": 8.361306221938625,
+      "competence_pass": true
+    },
+    "modifier_attachment/dev": {
+      "n": 24,
+      "pairs": 12,
+      "accuracy": 0.875,
+      "pair_accuracy": 0.75,
+      "unrestricted_first_token_accuracy": 0.875,
+      "mean_margin_nats": 1.5411453119140788,
+      "competence_pass": false
+    }
+  }
+}

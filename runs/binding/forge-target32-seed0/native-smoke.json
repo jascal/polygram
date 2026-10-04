@@ -1,0 +1,13 @@
+{
+  "input_tokens": 38,
+  "output_shape": [
+    1,
+    38,
+    151936
+  ],
+  "all_finite": true,
+  "host_loaded": false,
+  "activation_hooks": 0,
+  "last_logits_min": -3.9470136165618896,
+  "last_logits_max": 5.569890022277832
+}
